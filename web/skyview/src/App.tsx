@@ -4,7 +4,6 @@ import {
   type Cesium3DTileset,
   ConstantPositionProperty,
   ConstantProperty,
-  createGooglePhotorealistic3DTileset,
   type Entity,
   GridImageryProvider,
   HeadingPitchRange,
@@ -18,6 +17,7 @@ import { useEffect, useRef, useState } from "react";
 import { CANDIDATES } from "./candidates";
 import { orientationFromNedQuat } from "./cesiumOrientation";
 import { eulerDegToQuat } from "./frames";
+import { loadGoogleTiles } from "./googleTiles";
 
 const TOKEN = import.meta.env.VITE_CESIUM_ION_TOKEN?.trim();
 const DEG = Math.PI / 180;
@@ -73,9 +73,12 @@ export default function App() {
     let cancelled = false;
     if (TOKEN) {
       viewer.scene.globe.show = false;
-      createGooglePhotorealistic3DTileset({ onlyUsingWithGoogleGeocoder: true })
+      loadGoogleTiles()
         .then((tileset) => {
-          if (cancelled) return;
+          if (cancelled) {
+            tileset.destroy(); // this viewer was already torn down (e.g. StrictMode remount)
+            return;
+          }
           viewer.scene.primitives.add(tileset);
           setTiles(tileset);
           setStatus("Google Photorealistic 3D Tiles loaded via Cesium ion");

@@ -1,0 +1,79 @@
+schema_version: 1
+id: aerosonde_bm
+name: Aerosonde (Beard & McLain textbook model)
+
+provenance:
+  source: >-
+    R. W. Beard and T. W. McLain, "Small Unmanned Aircraft: Theory and Practice",
+    Princeton University Press, 2012; propeller/motor model from the addendum by T. W. McLain.
+  values_from: byu-magicc/mavsim_public mavsim_python/parameters/aerosonde_parameters.py
+  commit: 10363e0eaeb16a61a7463505f8e122a9eb7e2b4e
+  notes: >-
+    Numerical parameter values only; no code is copied (the repository is GPL-3.0 and its
+    dynamics files are student templates). The source also lists linear-drag terms
+    (C_D_0 = 0.0424, C_D_alpha = 0.132), a legacy propeller area (S_prop = 0.2027) and a
+    density (rho = 1.2682) which belong to other model variants or to the environment and
+    are deliberately not part of this airframe. Known limitation: this is a textbook model;
+    the stall blending at alpha0 = 0.47 rad (~27 deg) is unrealistically late and the drag
+    polar is idealised. It exists in M1 to prove the plumbing and validation methodology.
+
+mass_inertia:
+  mass_kg: 11.0
+  Jx_kgm2: 0.8244
+  Jy_kgm2: 1.135
+  Jz_kgm2: 1.759
+  Jxz_kgm2: 0.1204
+
+geometry:
+  wing_area_m2: 0.55
+  span_m: 2.8956
+  chord_m: 0.18994
+  oswald_e: 0.9
+
+aero:
+  longitudinal:
+    C_L_0: 0.23
+    C_L_alpha: 5.61
+    C_L_q: 7.95
+    C_L_delta_e: 0.13
+    C_D_p: 0.043
+    C_D_q: 0.0
+    C_D_delta_e: 0.0135
+    C_m_0: 0.0135
+    C_m_alpha: -2.74
+    C_m_q: -38.21
+    C_m_delta_e: -0.99
+  lateral:
+    C_Y_0: 0.0
+    C_Y_beta: -0.98
+    C_Y_p: 0.0
+    C_Y_r: 0.0
+    C_Y_delta_a: 0.075
+    C_Y_delta_r: 0.19
+    C_ell_0: 0.0
+    C_ell_beta: -0.13
+    C_ell_p: -0.51
+    C_ell_r: 0.25
+    C_ell_delta_a: 0.17
+    C_ell_delta_r: 0.0024
+    C_n_0: 0.0
+    C_n_beta: 0.073
+    C_n_p: 0.069
+    C_n_r: -0.095
+    C_n_delta_a: -0.011
+    C_n_delta_r: -0.069
+  stall:
+    M: 50.0
+    alpha0_rad: 0.47
+
+propulsion:
+  prop_diameter_m: 0.508          # 20 in
+  C_T: [0.09357, -0.06044, -0.1079]   # [C_T0, C_T1, C_T2], C_T(J) = C_T0 + C_T1 J + C_T2 J^2
+  C_Q: [0.005230, 0.004970, -0.01664] # [C_Q0, C_Q1, C_Q2]
+  motor:
+    KV_rpm_per_volt: 145.0
+    R_ohm: 0.042
+    i0_a: 1.5
+  battery:
+    n_cells: 12
+    v_cell_v: 3.7                 # B&M: V_max = 3.7 V x n_cells (ideal battery; v0 battery model in week 2)

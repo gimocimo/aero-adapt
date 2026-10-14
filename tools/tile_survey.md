@@ -18,7 +18,9 @@
 ## Procedure (for each candidate in `web/skyview/src/candidates.ts`)
 
 1. Select the site. Wait for the status line to report that the tiles have loaded.
-2. Record the **ground height (ellipsoidal)** shown in the panel. It goes into the site config as `h_ellipsoid_m`.
+2. Record **Ground h (terrain, ellipsoidal)**. This is the bare-earth height from Cesium World Terrain: it is deterministic and goes into the site config as `h_ellipsoid_m`.
+   - The **3D-tiles surface h** below it is only a cross-check. It includes trees and buildings and takes up to about 30 s to resolve.
+   - Expect the surface height to be a few metres above the terrain. A large gap means the origin sits on a building or woodland, so move the origin.
 3. Run the **calibration checklist** once, at any one site.
 4. Using the chase and free cameras at 120 m AGL, take screenshots towards N, E, S and W.
 5. Score the site from 1 to 5 on each criterion below.
@@ -35,9 +37,9 @@
 
 | Site | Ground h_ell (m) | Fidelity | Landing | Ground risk | Drama | Airspace | Notes |
 |---|---|---|---|---|---|---|---|
-| South Downs, Devil's Dyke | | | | | | | |
-| Cambridge west fringe, Coton | | | | | | | |
-| Bath north fringe, Lansdown | | | | | | | |
-| Peak District edge, Hope Valley | | | | | | | |
+| South Downs, Devil's Dyke | 249.09 | | | | | | |
+| Cambridge west fringe, Coton | 72.00 | | | | | | |
+| Bath north fringe, Lansdown | 167.06 (point is below the plateau; refine the coordinate) | | | | | | |
+| Peak District edge, Hope Valley | 236.04 | | | | | | |
 
 **Recommendation from the spec:** if you know which club field you would fly from in months 9–12, add it as a candidate. A simulated twin of the real test site makes the strongest story.

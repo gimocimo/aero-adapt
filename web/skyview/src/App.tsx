@@ -2,6 +2,7 @@ import {
   Cartesian3,
   Cartographic,
   type Cesium3DTileset,
+  CesiumTerrainProvider,
   ConstantPositionProperty,
   ConstantProperty,
   type Entity,
@@ -10,6 +11,8 @@ import {
   ImageryLayer,
   Ion,
   Matrix4,
+  sampleTerrainMostDetailed,
+  type TerrainProvider,
   Viewer,
 } from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
@@ -39,12 +42,16 @@ export default function App() {
   const viewerRef = useRef<Viewer | null>(null);
   const aircraftRef = useRef<Entity | null>(null);
   const [tiles, setTiles] = useState<Cesium3DTileset | null>(null);
+  const [terrain, setTerrain] = useState<TerrainProvider | null>(null);
   const [siteIdx, setSiteIdx] = useState(0);
   const [roll, setRoll] = useState(0);
   const [pitch, setPitch] = useState(0);
   const [heading, setHeading] = useState(0);
   const [agl, setAgl] = useState(120);
+  // Bare-earth terrain height (Cesium World Terrain DTM): the authoritative site ground height.
   const [groundH, setGroundH] = useState<number | null>(null);
+  // Height of the Google 3D Tiles surface (includes trees/buildings): a visual cross-check only.
+  const [surfaceH, setSurfaceH] = useState<number | null>(null);
   const [camera, setCamera] = useState<CameraMode>("chase");
   const [status, setStatus] = useState("starting…");
   const site = CANDIDATES[siteIdx] ?? CANDIDATES[0]!;
@@ -68,7 +75,8 @@ export default function App() {
     });
     viewerRef.current = viewer;
     aircraftRef.current = viewer.entities.add({
-      model: { uri: "/models/calibration_uav.glb", minimumPixelSize: 64, maximumScale: 400 },
+      show: false, // hidden until the ground height is known
+      model: { uri: "/models/calibration_uav.glb", minimumPixelSize: 48, maximumScale: 20 },
     });
     let cancelled = false;
     if (TOKEN) {
@@ -84,6 +92,9 @@ export default function App() {
           setStatus("Google Photorealistic 3D Tiles loaded via Cesium ion");
         })
         .catch((err: unknown) => setStatus(`3D tiles failed: ${String(err)}`));
+      CesiumTerrainProvider.fromIonAssetId(1) // Cesium World Terrain (WGS84 ellipsoidal heights)
+        .then((tp) => !cancelled && setTerrain(tp))
+        .catch((err: unknown) => setStatus(`terrain failed: ${String(err)}`));
     } else {
       setStatus("No VITE_CESIUM_ION_TOKEN: ellipsoid + grid fallback (frames still testable)");
     }
@@ -94,36 +105,47 @@ export default function App() {
     };
   }, []);
 
-  // Sample the ground's *ellipsoidal* height at the site origin (the UK geoid is ~50 m above).
+  // Ground height at the site origin, as a WGS84 *ellipsoidal* height (the UK geoid is ~50 m
+  // above the ellipsoid). The authoritative value comes from the bare-earth terrain model,
+  // which is deterministic. The 3D-tiles surface is sampled only as a cross-check, and our own
+  // aircraft is excluded from that ray: Cesium scales the model up (minimumPixelSize) when the
+  // camera is far away, so it can otherwise intercept the ray.
   useEffect(() => {
     const viewer = viewerRef.current;
     if (!viewer) return;
     setGroundH(null);
-    if (!tiles) {
+    setSurfaceH(null);
+    viewer.camera.lookAtTransform(Matrix4.IDENTITY);
+    viewer.camera.setView({ destination: Cartesian3.fromDegrees(site.lon, site.lat, 900) });
+    if (!TOKEN) {
       setGroundH(0);
       return;
     }
+    if (!terrain) return;
     let cancelled = false;
-    viewer.camera.flyTo({
-      destination: Cartesian3.fromDegrees(site.lon, site.lat, 600),
-      duration: 0,
-    });
-    viewer.scene
-      .sampleHeightMostDetailed([Cartographic.fromDegrees(site.lon, site.lat)])
-      .then(([c]) => {
-        if (!cancelled) setGroundH(c?.height ?? null);
-      })
-      .catch(() => !cancelled && setGroundH(null));
+    const origin = () => Cartographic.fromDegrees(site.lon, site.lat);
+    sampleTerrainMostDetailed(terrain, [origin()])
+      .then(([c]) => !cancelled && setGroundH(c?.height ?? null))
+      .catch(() => !cancelled && setStatus("terrain sampling failed"));
+    const aircraft = aircraftRef.current;
+    if (tiles && aircraft) {
+      viewer.scene
+        .sampleHeightMostDetailed([origin()], [aircraft])
+        .then(([c]) => !cancelled && setSurfaceH(c?.height ?? null))
+        .catch(() => undefined);
+    }
     return () => {
       cancelled = true;
     };
-  }, [site, tiles]);
+  }, [site, terrain, tiles]);
 
   // Pose and camera.
   useEffect(() => {
     const viewer = viewerRef.current;
     const aircraft = aircraftRef.current;
-    if (!viewer || !aircraft || groundH === null) return;
+    if (!viewer || !aircraft) return;
+    aircraft.show = groundH !== null;
+    if (groundH === null) return;
     const position = Cartesian3.fromDegrees(site.lon, site.lat, groundH + agl);
     const q = eulerDegToQuat(roll, pitch, heading);
     aircraft.position = new ConstantPositionProperty(position);
@@ -181,8 +203,19 @@ export default function App() {
           <dd>
             {site.lat.toFixed(5)}, {site.lon.toFixed(5)}
           </dd>
-          <dt>Ground h (ellipsoidal)</dt>
+          <dt>Ground h (terrain, ellipsoidal)</dt>
           <dd>{groundH === null ? "sampling…" : `${groundH.toFixed(2)} m`}</dd>
+          {TOKEN && (
+            <>
+              <dt>3D-tiles surface h</dt>
+              <dd>
+                {surfaceH === null
+                  ? "sampling…"
+                  : `${surfaceH.toFixed(2)} m` +
+                    (groundH === null ? "" : ` (${(surfaceH - groundH).toFixed(1)} m vs terrain)`)}
+              </dd>
+            </>
+          )}
         </dl>
         {slider("Heading °", heading, setHeading, 0, 359)}
         {slider("Pitch °", pitch, setPitch, -60, 60)}

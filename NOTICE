@@ -1,0 +1,13 @@
+AeroAdapt
+Copyright 2026 gimocimo
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party data attributions
+-----------------------------
+configs/airframes/aerosonde_bm.yaml contains numerical aircraft parameters from
+R. W. Beard and T. W. McLain, "Small Unmanned Aircraft: Theory and Practice",
+Princeton University Press, 2012 (and the propeller/motor addendum by T. W. McLain),
+as published in byu-magicc/mavsim_public (mavsim_python/parameters/aerosonde_parameters.py,
+commit 10363e0eaeb16a61a7463505f8e122a9eb7e2b4e). Only parameter values are used;
+no source code from that repository is included.

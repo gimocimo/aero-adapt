@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+*.egg-info/
+build/
+dist/
+
+# Secrets — never commit tokens (Cesium ion, Google Maps, etc.)
+.env
+.env.*
+!.env.example
+
+# Outputs
+runs/
+replays/
+*.parquet
+*.arrow
+validation/out/
+
+# Third-party code fetched for tests (never vendored)
+third_party/
+
+# Web
+node_modules/
+web/skyview/dist/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+
+# Local agent tooling
+.claude/

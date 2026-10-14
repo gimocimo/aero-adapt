@@ -1,0 +1,33 @@
+[importlinter]
+root_packages =
+    aeroadapt
+    reference
+include_external_packages = False
+
+# ADR-006: the flight stack never sees privileged simulator state.
+# (aeroadapt.faultlab is added to the forbidden list when it is created in week 2.)
+[importlinter:contract:stack-has-no-privileged-access]
+name = Flight stack must not import the simulator
+type = forbidden
+source_modules =
+    aeroadapt.stack
+forbidden_modules =
+    aeroadapt.sim
+
+# N-version validation (V3): the reference implementation and the production
+# simulator must stay independent in both directions.
+[importlinter:contract:product-does-not-use-reference]
+name = Production code must not import the reference implementation
+type = forbidden
+source_modules =
+    aeroadapt
+forbidden_modules =
+    reference
+
+[importlinter:contract:reference-is-independent]
+name = Reference implementation must not import production code
+type = forbidden
+source_modules =
+    reference
+forbidden_modules =
+    aeroadapt

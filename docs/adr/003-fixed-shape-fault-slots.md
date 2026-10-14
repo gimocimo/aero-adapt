@@ -1,6 +1,6 @@
 # ADR-003: Fixed-shape fault slots
 
-**Status:** Accepted, 14 Oct 2026 (implementation in M1 week 2)
+**Status:** Accepted and implemented, 14 Oct 2026 (`aeroadapt.faultlab`, M1 week 2)
 
 ## Context
 

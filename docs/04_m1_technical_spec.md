@@ -844,3 +844,84 @@ Never cut V3, V11, V12, the recorder or the replay viewer.
    - The viewer's site list duplicates the config's origin and height until week 4, when the viewer loads site configs directly.
 7. **Viewer ground-height bug fixed:** `sampleHeightMostDetailed` was hitting our own up-scaled calibration model. Heights are now taken from the terrain model and the 3D tiles (with the aircraft excluded), or from the site config.
 8. **Environment hazard:** the repository lives under an iCloud-synced `~/Desktop`. iCloud created " 2" conflict copies inside `.venv` and `dist` and flagged `.venv` files hidden, which Python 3.12+ skips in `.pth` handling. That broke the editable install; `.venv` was rebuilt. Moving the repository out of iCloud-synced folders is recommended.
+
+### Week 2 (14 Oct 2026)
+
+**Delivered**
+
+- **Actuator pipeline** (`sim/aerojax/actuators.py`): ServoMap → transport delay (ring buffer) → servo-jam slot → first-order lag with deadband, clipped by the rate limit.
+- **Battery v0**: LiPo OCV curve, internal resistance, coulomb counting.
+- **Atmosphere**: ISA (with ΔT and QNH), steady wind with an optional boundary-layer profile, and MIL-HDBK-1797 low-altitude Dryden turbulence with stationary initialisation.
+- **Sensors** (multi-rate, sample-and-hold): IMU with bias random walks; barometer drift; pitot (drain-open and drain-blocked blockage); GNSS with Gauss–Markov error and 120 ms latency; magnetometer (site WMM field); battery; ESC rpm.
+- **faultlab**: fixed-shape fault slots, YAML specs, ground-truth labels (ADR-003). The stack's import contract now also forbids `faultlab`.
+- **`sim_step`**: one pure, jit/vmap-able step per control period: 2 × 5 ms physics, then termination and freezing, then sensors.
+- **Trim and linearisation** (`sim/aerojax/trim.py`).
+- **Benchmark tool** (`tools/bench.py`).
+
+**Results**
+
+*Trim (V4)*
+
+| Case | Residual | Matches reference trim | Result |
+|---|---|---|---|
+| Level | ~1e-15 | to 1e-6 | α 2.85°, δe −7.10°, δt 0.774 |
+| 5° climb | ~1e-15 | to 1e-6 | θ = α + γ |
+| 250 m turn | ~1e-15 | to 1e-6 | φ 14.5° (analytic 14.3°) |
+| Over Cambridge (50.4 V battery, ρ 1.209) | — | — | δt 0.682; elevator command +0.31 (nose up), confirming the ServoMap signs |
+
+*Linear modes (V5), at 25 m/s*
+
+| Mode | Linearised | B&M approximation | Difference |
+|---|---|---|---|
+| Roll subsidence | −22.44 | −22.63 | 0.8% |
+| Short period ω_n | 11.02 | 10.00 | 9.3% |
+| Phugoid ω_n | 0.499 | 0.555 | 11% |
+
+Also: dutch roll −1.14 ± 4.66j; the spiral mode is mildly unstable (+0.089 /s), a property of the textbook model.
+
+*Turbulence (V8), 64 seeds × 10 min at 50 m and 120 m*
+
+- σ errors ≤ 1.5% (spec ±5%).
+- Maximum PSD deviation ≤ 1.05 dB over 0.5/τ–5/τ (spec ±1.5 dB).
+
+*Sensors (V9)*
+
+- Noise standard deviations within ±5%.
+- GNSS latency exact (output = truth delayed by 12 control steps).
+- Drain-blocked pitot: indicated pressure rises in a 50 m climb, matching the ISA difference within 1%.
+- Drain-open pitot: leak time constant within ±5%.
+
+*Faults (V10)*
+
+- Motor cut: thrust ≤ 0 from the first full step after onset; rpm < 5% within 1.5 s; pack current falls to avionics only.
+- Elevator jam: the surface holds within the deadband against a full nose-down command.
+- Labels switch exactly at onset.
+
+*Simulator*
+
+- Open-loop trim hold for 10 s: Va within ±0.5 m/s, altitude within ±3 m.
+- Positive aileron, elevator and rudder commands give positive p, q and r.
+- Ground contact terminates and freezes the state.
+- Bitwise determinism with turbulence (V13).
+- No recompilation across different parameter or fault values (ADR-002 guard).
+
+*Throughput (V15), M-series laptop CPU, float32*
+
+| Batch | Control steps/s | Physics steps/s | Compile time |
+|---|---|---|---|
+| 1 | 55k | 110k | 1.6 s |
+| 64 | 681k | 1.36M | 1.7 s |
+| 1,024 | 723k | 1.45M | 3.4 s |
+
+Host-stepped mode: 397 µs per control step, i.e. a real-time factor of 25× for the simulator alone.
+
+*Tests:* 74 fast plus 4 full-tier tests pass; pyright reports 0 errors.
+
+**Deviations from this spec**
+
+1. **Trim and linearisation live in `sim/aerojax/trim.py`, not `airframes/`.** Putting them in `airframes/` would create an airframes → sim → airframes import cycle.
+2. **Turbulence is applied as body-axis gusts (B&M convention), translational only.** Angular gusts are omitted. Only the u channel is discretised exactly (AR(1)). The v and w channels use the exact transition matrix with Euler–Maruyama noise, and the output gain is set from the stationary covariance, so σ is exact.
+3. **Pack current = δt · motor current** (ideal ESC, no regeneration) plus 1 A avionics. The windmilling coefficient C_wm = 0.02 is still flagged for calibration.
+4. **Servo-map signs are derived from the signs of the primary control derivatives,** so they cannot be misconfigured. The `reversed` flag flips a channel, which the M2 mixer-reversal fault will use.
+5. **The ISA origin altitude uses an approximate UK geoid (46 m) in fixtures and the benchmark.** A geoid value moves into the site config when the scenario runner lands in week 4.
+6. **The host-stepped real-time factor (25×) covers the simulator only.** The week-3 flight stack adds overhead. If needed, closing over the static parameters is the obvious optimisation, because pytree flattening dominates call latency.

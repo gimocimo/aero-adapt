@@ -4,7 +4,7 @@
 
 AeroAdapt is built simulation-first. It is validated rigorously and compared against strong classical baselines. The aim is to move from simulation to a real aircraft once the simulated system is proven.
 
-> **Status:** Milestone M1 (vertical slice), week 1. In progress: the foundations, the core flight dynamics and the validation methodology.
+> **Status:** Milestone M1 (vertical slice), week 2 done. The full simulator is in place: actuators, battery, ISA and turbulence, sensors, fault injection, trim, and validation. Next: the flight stack (navigator, ArduPlane-equivalent autopilot, classical contingency).
 
 ## Plan and design documents
 
@@ -39,7 +39,9 @@ make web-dev
 |---|---|
 | `src/aeroadapt/core` | Frames, quaternions, WGS84 geodesy (ADR-001) |
 | `src/aeroadapt/airframes` | Airframe schema and loader |
-| `src/aeroadapt/sim/aerojax` | JAX 6-DoF fixed-wing simulator, written as a pure functional core (ADR-002) |
+| `src/aeroadapt/sim/aerojax` | JAX 6-DoF fixed-wing simulator, written as a pure functional core (ADR-002): actuators, battery, atmosphere and turbulence, sensors, trim |
+| `src/aeroadapt/faultlab` | Fault specifications, fixed-shape fault slots and ground-truth labels (ADR-003) |
+| `src/aeroadapt/scenarios` | Site definitions (and, from week 4, scenarios) |
 | `src/aeroadapt/stack` | Flight stack. It runs on sensor data only and must not import the simulator (ADR-006). |
 | `reference/bm_numpy` | Independent NumPy reference implementation, used only for N-version validation |
 | `configs/` | Airframe, site and scenario definitions |

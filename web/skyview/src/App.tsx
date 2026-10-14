@@ -37,6 +37,13 @@ const CHECKLIST = [
   "Aircraft sits at the AGL height above the 3D ground (not buried or floating ~50 m)",
 ];
 
+function fmtCheck(h: number | null, ground: number | null): string {
+  if (h === null) return "sampling…";
+  if (ground === null) return `${h.toFixed(2)} m`;
+  const d = h - ground;
+  return `${h.toFixed(2)} m (${d >= 0 ? "+" : ""}${d.toFixed(1)} vs ground)`;
+}
+
 export default function App() {
   const container = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
@@ -48,13 +55,16 @@ export default function App() {
   const [pitch, setPitch] = useState(0);
   const [heading, setHeading] = useState(0);
   const [agl, setAgl] = useState(120);
-  // Bare-earth terrain height (Cesium World Terrain DTM): the authoritative site ground height.
-  const [groundH, setGroundH] = useState<number | null>(null);
-  // Height of the Google 3D Tiles surface (includes trees/buildings): a visual cross-check only.
+  // Bare-earth terrain height (Cesium World Terrain DTM), sampled at the origin.
+  const [terrainH, setTerrainH] = useState<number | null>(null);
+  // Height of the Google 3D Tiles surface (includes trees and buildings), sampled at the origin.
   const [surfaceH, setSurfaceH] = useState<number | null>(null);
   const [camera, setCamera] = useState<CameraMode>("chase");
   const [status, setStatus] = useState("starting…");
   const site = CANDIDATES[siteIdx] ?? CANDIDATES[0]!;
+  // Ground used for placement: the surveyed site-config height when the site has one (it is
+  // taken from the rendered 3D-tiles surface over open fields); otherwise the terrain sample.
+  const groundH = !TOKEN ? 0 : (site.hEllipsoidM ?? terrainH);
 
   // Viewer lifecycle.
   useEffect(() => {
@@ -105,27 +115,23 @@ export default function App() {
     };
   }, []);
 
-  // Ground height at the site origin, as a WGS84 *ellipsoidal* height (the UK geoid is ~50 m
-  // above the ellipsoid). The authoritative value comes from the bare-earth terrain model,
-  // which is deterministic. The 3D-tiles surface is sampled only as a cross-check, and our own
-  // aircraft is excluded from that ray: Cesium scales the model up (minimumPixelSize) when the
-  // camera is far away, so it can otherwise intercept the ray.
+  // Cross-check heights at the site origin, as WGS84 *ellipsoidal* heights (the UK geoid is about
+  // 50 m above the ellipsoid). The terrain model is deterministic but coarse in places (at Coton
+  // it sat ~5 m above the 3D tiles). The tiles surface is what viewers see, and our own aircraft
+  // is excluded from that ray: Cesium scales the model up (minimumPixelSize) when the camera is
+  // far away, so it could otherwise intercept the ray.
   useEffect(() => {
     const viewer = viewerRef.current;
     if (!viewer) return;
-    setGroundH(null);
+    setTerrainH(null);
     setSurfaceH(null);
     viewer.camera.lookAtTransform(Matrix4.IDENTITY);
     viewer.camera.setView({ destination: Cartesian3.fromDegrees(site.lon, site.lat, 900) });
-    if (!TOKEN) {
-      setGroundH(0);
-      return;
-    }
-    if (!terrain) return;
+    if (!TOKEN || !terrain) return;
     let cancelled = false;
     const origin = () => Cartographic.fromDegrees(site.lon, site.lat);
     sampleTerrainMostDetailed(terrain, [origin()])
-      .then(([c]) => !cancelled && setGroundH(c?.height ?? null))
+      .then(([c]) => !cancelled && setTerrainH(c?.height ?? null))
       .catch(() => !cancelled && setStatus("terrain sampling failed"));
     const aircraft = aircraftRef.current;
     if (tiles && aircraft) {
@@ -203,17 +209,14 @@ export default function App() {
           <dd>
             {site.lat.toFixed(5)}, {site.lon.toFixed(5)}
           </dd>
-          <dt>Ground h (terrain, ellipsoidal)</dt>
-          <dd>{groundH === null ? "sampling…" : `${groundH.toFixed(2)} m`}</dd>
+          <dt>Ground h ({site.hEllipsoidM !== undefined ? "site config" : "terrain"})</dt>
+          <dd>{groundH === null ? "sampling…" : `${groundH.toFixed(2)} m (ellipsoidal)`}</dd>
           {TOKEN && (
             <>
+              <dt>Terrain DTM h</dt>
+              <dd>{fmtCheck(terrainH, groundH)}</dd>
               <dt>3D-tiles surface h</dt>
-              <dd>
-                {surfaceH === null
-                  ? "sampling…"
-                  : `${surfaceH.toFixed(2)} m` +
-                    (groundH === null ? "" : ` (${(surfaceH - groundH).toFixed(1)} m vs terrain)`)}
-              </dd>
+              <dd>{fmtCheck(surfaceH, groundH)}</dd>
             </>
           )}
         </dl>

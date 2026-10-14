@@ -22,6 +22,7 @@ dev = [
     { name = "hypothesis" },
     { name = "import-linter" },
     { name = "pre-commit" },
+    { name = "pygeomag" },
     { name = "pymap3d" },
     { name = "pyright" },
     { name = "pytest" },
@@ -42,6 +43,7 @@ dev = [
     { name = "hypothesis", specifier = ">=6.100" },
     { name = "import-linter", specifier = ">=2.1" },
     { name = "pre-commit", specifier = ">=3.8" },
+    { name = "pygeomag", specifier = ">=1.1.0" },
     { name = "pymap3d", specifier = ">=3.1" },
     { name = "pyright", specifier = ">=1.1.380" },
     { name = "pytest", specifier = ">=8.3" },
@@ -462,6 +464,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/3d/81/f02de95eec7794dfc7a5bc69a834f0e834b31b3009014ce6de903855f775/pydantic_core-2.50.1-graalpy312-graalpy250_312_native-macosx_11_0_arm64.whl", hash = "sha256:a51eee75939cf811ac09b278745a6cee7dc873ccfbc8b9af3cc88fe4b7ce25b5", size = 2039027, upload-time = "2026-10-11T18:35:18.07Z" },
     { url = "https://files.pythonhosted.org/packages/4d/16/227746ed3771d9bf2304568b55134849ece34e13b38b1d76de763015c77f/pydantic_core-2.50.1-graalpy312-graalpy250_312_native-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:ae28183297fb0d2b8dc46a1f01d51f5e45825fc5afe76a835a6cb7fb34821295", size = 2109009, upload-time = "2026-10-11T18:35:20.218Z" },
     { url = "https://files.pythonhosted.org/packages/e5/b9/7664d1592a0e5a74903f357cd5b28ceb7336f3473256c5a4e8c8432f1881/pydantic_core-2.50.1-graalpy312-graalpy250_312_native-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:88e492e8b9d0312e7dc13667c30222abf284dc3b79b5302b3607b41a5784ce61", size = 2269883, upload-time = "2026-10-11T18:35:22.48Z" },
+]
+
+[[package]]
+name = "pygeomag"
+version = "1.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f4/05/0479687afaf337f7e549b8d576a53de65c9b491ddd8e1e1a254f97c7aff8/pygeomag-1.1.0.tar.gz", hash = "sha256:c38943c43f7e0e771e25f101b2b94077f00307436760bbf5e79b84c3a41569d7", size = 237585, upload-time = "2024-12-21T17:42:03.245Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/65/af/4416ce7b7f2b924d32ae8834d6b76bde02980fca7619fbb26d171140c5b8/pygeomag-1.1.0-py3-none-any.whl", hash = "sha256:b08fc5de7ca545721e511f62a342d415a4d76e695fec28ef9ef255e994e6727b", size = 249073, upload-time = "2024-12-21T17:42:01.772Z" },
 ]
 
 [[package]]

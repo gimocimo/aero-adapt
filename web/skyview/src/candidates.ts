@@ -1,6 +1,6 @@
-// UK hero-site candidates for the week-1 tile survey (docs/04 §11.1). Coordinates are
-// approximate starting points; the survey refines them. If you know the club field you
-// will fly from in months 9-12, add it here: the simulated site then becomes a digital twin.
+// UK sites for the viewer. The first entry is the chosen development site, which mirrors
+// configs/sites/cambridge_west.yaml (origin and surveyed ground height). The others are the
+// week-1 survey candidates (docs/04 §11.1, tools/tile_survey.md), with approximate coordinates.
 
 export interface SiteCandidate {
   id: string;
@@ -8,22 +8,25 @@ export interface SiteCandidate {
   lat: number;
   lon: number;
   note: string;
+  /** Surveyed WGS84 ellipsoidal ground height from the site config; else terrain is sampled. */
+  hEllipsoidM?: number;
 }
 
 export const CANDIDATES: readonly SiteCandidate[] = [
+  {
+    id: "cambridge_west",
+    name: "Cambridge west — Coton fields (dev site)",
+    lat: 52.2075,
+    lon: 0.0747,
+    hEllipsoidM: 63.9,
+    note: "Chosen dev site: flat arable field between Coton and the M11; West Cambridge campus NE",
+  },
   {
     id: "south_downs",
     name: "South Downs — Devil's Dyke (near Brighton)",
     lat: 50.8853,
     lon: -0.2133,
     note: "Chalk ridges, fields, town edge, coastline",
-  },
-  {
-    id: "cambridge_west",
-    name: "Cambridge west fringe — Coton",
-    lat: 52.2075,
-    lon: 0.06,
-    note: "Flat farmland, villages, M11; check nearby aerodrome airspace",
   },
   {
     id: "bath_lansdown",

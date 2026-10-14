@@ -1,0 +1,50 @@
+schema_version: 1
+id: cambridge_west
+name: Cambridge west fringe — Coton Countryside fields
+description: >-
+  UK development (and candidate hero) site. A large, flat arable field between Coton village
+  (north-west) and the M11 (about 200 m east), with a woodland strip to the north and the West
+  Cambridge campus across the motorway to the north-east. Fields to the south. Ground-risk
+  features (village, motorway, campus) all lie within 1 km.
+
+origin:
+  lat_deg: 52.2075
+  lon_deg: 0.0747
+  h_ellipsoid_m: 63.9   # WGS84 ellipsoidal ground height at the origin (geoid ≈ +46 m here)
+
+ground_model: flat      # M5 replaces this with a DEM
+ground_survey:
+  method: >-
+    Google Photorealistic 3D Tiles surface (scene.sampleHeightMostDetailed) on a 150 m grid
+    within ±600 m of the origin, cross-checked against Cesium World Terrain (ion asset 1).
+    The 3D-tiles surface over open ground is used because that is the surface the viewer
+    renders. In this area Cesium World Terrain sits 1-5 m above it.
+  date: 2026-10-14
+  origin_tiles_surface_m: 63.92
+  origin_terrain_dtm_m: 64.72
+  within_300m_surface_m: {min: 63.23, median: 64.4}
+  flat_area_note: >-
+    Flat to about ±1 m within 300 m of the origin. Trees and buildings in the woodland strip
+    to the north stand 5-28 m above the field. The terrain rises 20-50 m towards Madingley
+    1-2 km to the west, so M1 safe zones (flat-ground model) must stay in the flat area east
+    of Coton.
+
+isa:
+  temp_offset_k: 0.0
+  qnh_hpa: 1013.25
+
+magnetic:               # tools/site_magnetic.py 52.2075 0.0747 63.9 2026.784
+  model: WMM2025
+  epoch_year: 2026.784
+  declination_deg: 1.229
+  inclination_deg: 67.128
+  total_field_gauss: 0.49334
+  field_ned_gauss: [0.19171, 0.00411, 0.45455]
+
+airspace_notes: >-
+  About 7.8 km west of Cambridge City Airport (EGSC) and away from its runway-05/23 extended
+  centrelines, so by our estimate outside its flight restriction zone (runway protection zones
+  extend 5 km beyond the thresholds). Bourn airfield lies about 8 km west. Simulation only:
+  verify on the CAA's official drone airspace map before any real-world use.
+
+safe_zones: []          # pre-surveyed ditch zones: defined in M1 week 3 (classical contingency)

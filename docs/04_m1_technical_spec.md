@@ -837,3 +837,10 @@ Never cut V3, V11, V12, the recorder or the replay viewer.
 3. **vite-plugin-static-copy removed:** its dependency chain pulled in an advisory for `braces` (three high-severity findings in `npm audit`). It is replaced by a ~30-line in-repo Vite plugin; the audit now reports 0 vulnerabilities.
 4. **V2 translational check:** the extra "NED velocity constant" invariant uses a relative tolerance (≤1e-9), like the other invariants. The absolute drift was 4e-9 m/s on a 20 m/s body, which is RK4 truncation, not a defect.
 5. **ruff:** `docs/` is excluded, because ruff 0.17 reformats Python blocks inside Markdown.
+6. **UK dev site: `cambridge_west`** (Coton fields, 52.2075 N 0.0747 E, ground 63.9 m ellipsoidal), chosen after the tile survey.
+   - **Lesson:** a site's ground height must come from the *rendered* 3D-tiles surface over open ground. Cesium World Terrain is deterministic but coarse: it sat ~5 m above the tiles in Coton village.
+   - **Lesson:** M1's flat-ground model constrains safe zones to the flat area east of Coton (the ground rises 20–50 m towards Madingley).
+   - A site schema (`aeroadapt.scenarios.site`) and the WMM2025 magnetic field (`tools/site_magnetic.py`) were added ahead of week 4.
+   - The viewer's site list duplicates the config's origin and height until week 4, when the viewer loads site configs directly.
+7. **Viewer ground-height bug fixed:** `sampleHeightMostDetailed` was hitting our own up-scaled calibration model. Heights are now taken from the terrain model and the 3D tiles (with the aircraft excluded), or from the site config.
+8. **Environment hazard:** the repository lives under an iCloud-synced `~/Desktop`. iCloud created " 2" conflict copies inside `.venv` and `dist` and flagged `.venv` files hidden, which Python 3.12+ skips in `.pth` handling. That broke the editable install; `.venv` was rebuilt. Moving the repository out of iCloud-synced folders is recommended.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from itertools import pairwise
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -109,19 +110,118 @@ class Motor(_Strict):
 
 class Battery(_Strict):
     n_cells: int = Field(gt=0)
-    v_cell_v: float = Field(gt=0)
+    v_cell_v: float = Field(gt=0, description="Ideal-battery cell voltage (B&M V_max)")
+    capacity_ah: float = Field(gt=0)
+    r_internal_ohm: float = Field(ge=0, description="Pack internal resistance")
+    avionics_current_a: float = Field(ge=0)
+    ocv_curve: list[tuple[float, float]] = Field(
+        min_length=2, description="[state of charge, open-circuit volts per cell]"
+    )
 
     @property
     def v_max(self) -> float:
         return self.n_cells * self.v_cell_v
+
+    @model_validator(mode="after")
+    def _ocv_curve_is_valid(self) -> Battery:
+        soc = [x for x, _ in self.ocv_curve]
+        volts = [v for _, v in self.ocv_curve]
+        if soc[0] != 0.0 or soc[-1] != 1.0 or any(b <= a for a, b in pairwise(soc)):
+            raise ValueError("ocv_curve SOC must increase strictly from 0.0 to 1.0")
+        if any(b < a for a, b in pairwise(volts)):
+            raise ValueError("ocv_curve voltage must be non-decreasing with SOC")
+        return self
 
 
 class Propulsion(_Strict):
     prop_diameter_m: float = Field(gt=0)
     C_T: tuple[float, float, float]
     C_Q: tuple[float, float, float]
+    windmill_cd: float = Field(ge=0, description="Stopped-prop drag coefficient on disc area")
     motor: Motor
     battery: Battery
+
+
+class SurfaceActuator(_Strict):
+    max_deflection_deg: float = Field(gt=0, le=60)
+    rate_limit_dps: float = Field(gt=0)
+    tau_s: float = Field(gt=0)
+    delay_s: float = Field(ge=0, le=0.15, description="Transport delay (<= 150 ms buffer)")
+    deadband_deg: float = Field(ge=0)
+    trim_deg: float = 0.0
+    reversed: bool = False
+
+
+class Surfaces(_Strict):
+    aileron: SurfaceActuator
+    elevator: SurfaceActuator
+    rudder: SurfaceActuator
+
+
+class ThrottleActuator(_Strict):
+    tau_s: float = Field(gt=0)
+    delay_s: float = Field(ge=0, le=0.15)
+
+
+class Actuators(_Strict):
+    surfaces: Surfaces
+    throttle: ThrottleActuator
+
+
+class Imu(_Strict):
+    rate_hz: float = Field(gt=0)
+    gyro_noise_rps: float = Field(ge=0)
+    gyro_bias_rw: float = Field(ge=0)
+    gyro_bias_init_rps: float = Field(ge=0)
+    accel_noise_mps2: float = Field(ge=0)
+    accel_bias_rw: float = Field(ge=0)
+    accel_bias_init_mps2: float = Field(ge=0)
+
+
+class Baro(_Strict):
+    rate_hz: float = Field(gt=0)
+    noise_pa: float = Field(ge=0)
+    drift_rw_pa_per_sqrt_s: float = Field(ge=0)
+
+
+class AirspeedSensor(_Strict):
+    rate_hz: float = Field(gt=0)
+    noise_pa: float = Field(ge=0)
+
+
+class Gnss(_Strict):
+    rate_hz: float = Field(gt=0)
+    latency_s: float = Field(ge=0, le=0.3, description="<= 300 ms history buffer")
+    pos_sigma_h_m: float = Field(ge=0)
+    pos_sigma_v_m: float = Field(ge=0)
+    pos_tau_s: float = Field(gt=0)
+    vel_sigma_mps: float = Field(ge=0)
+
+
+class Mag(_Strict):
+    rate_hz: float = Field(gt=0)
+    noise_gauss: float = Field(ge=0)
+
+
+class BatterySensor(_Strict):
+    rate_hz: float = Field(gt=0)
+    voltage_noise_v: float = Field(ge=0)
+    current_noise_a: float = Field(ge=0)
+
+
+class Esc(_Strict):
+    rate_hz: float = Field(gt=0)
+    rpm_noise_frac: float = Field(ge=0)
+
+
+class Sensors(_Strict):
+    imu: Imu
+    baro: Baro
+    airspeed: AirspeedSensor
+    gnss: Gnss
+    mag: Mag
+    battery: BatterySensor
+    esc: Esc
 
 
 class Airframe(_Strict):
@@ -133,3 +233,5 @@ class Airframe(_Strict):
     geometry: Geometry
     aero: Aero
     propulsion: Propulsion
+    actuators: Actuators
+    sensors: Sensors

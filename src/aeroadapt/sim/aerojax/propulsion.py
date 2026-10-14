@@ -1,9 +1,9 @@
 """Electric propulsion: DC motor + fixed-pitch propeller (McLain's addendum to B&M ch. 4).
 
 Validity: the quadratic for the propeller speed Ω has a positive root only while
-``c < 0``, i.e. while the motor drives the propeller. That covers the whole nominal
-envelope. A cut motor (``V_in = 0``) is outside the model's validity, so the motor-cut
-fault (week 2) uses a separate windmilling-drag branch instead (spec §6.2).
+``c < 0``, i.e. while the motor drives the propeller. That covers the whole nominal envelope.
+A cut motor (``V_in = 0`` from an ESC that is not driving) is outside the model, so the
+motor-cut fault uses :func:`windmill` instead (spec §6.2).
 """
 
 from __future__ import annotations
@@ -20,10 +20,19 @@ class PropulsionOutput(NamedTuple):
     thrust: Array  # N, along +x_body
     torque: Array  # N·m, aerodynamic torque on the propeller (airframe reaction is -torque)
     omega: Array  # rad/s, propeller speed
+    motor_current: Array  # A, motor winding current; pack current ≈ δt · motor_current
 
 
-def propeller(p: AirframeParams, rho: float, va: Array, delta_t: Array) -> PropulsionOutput:
-    v_in = p.V_max * delta_t
+def propeller(
+    p: AirframeParams,
+    rho: float | Array,
+    va: Array,
+    delta_t: Array,
+    v_supply: Array | None = None,
+) -> PropulsionOutput:
+    """``v_supply`` is the battery voltage at the ESC (default: B&M ideal ``V_max``)."""
+    rho = jnp.asarray(rho)
+    v_in = (p.V_max if v_supply is None else v_supply) * delta_t
     d = p.D_prop
     two_pi = 2.0 * jnp.pi
     a = rho * d**5 * p.C_Q0 / two_pi**2
@@ -38,4 +47,11 @@ def propeller(p: AirframeParams, rho: float, va: Array, delta_t: Array) -> Propu
         thrust=rho * rev_per_s_sq * d**4 * c_t,
         torque=rho * rev_per_s_sq * d**5 * c_q,
         omega=omega,
+        motor_current=(v_in - p.KV * omega) / p.R_motor,
     )
+
+
+def windmill_thrust(p: AirframeParams, rho: float | Array, va: Array) -> Array:
+    """Thrust of an unpowered, windmilling/stopped propeller: a drag on the disc area."""
+    disc_area = jnp.pi * p.D_prop**2 / 4.0
+    return -0.5 * jnp.asarray(rho) * va**2 * disc_area * p.C_windmill

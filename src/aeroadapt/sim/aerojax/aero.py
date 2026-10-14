@@ -22,8 +22,12 @@ class AirData(NamedTuple):
     v_air_body: Array  # (3,) air-relative velocity in body axes
 
 
-def air_data(state: RigidBodyState, wind_ned: Array) -> AirData:
-    v_air = state.vel_body - quaternion.ned_to_body(state.quat, wind_ned)
+def air_data(state: RigidBodyState, wind_ned: Array, gust_body: Array | None = None) -> AirData:
+    """Air-relative velocity with a steady NED wind plus an optional body-axis gust (B&M 4.1)."""
+    wind_body = quaternion.ned_to_body(state.quat, wind_ned)
+    if gust_body is not None:
+        wind_body = wind_body + gust_body
+    v_air = state.vel_body - wind_body
     ur, vr, wr = v_air[..., 0], v_air[..., 1], v_air[..., 2]
     va = jnp.linalg.norm(v_air, axis=-1)
     alpha = jnp.arctan2(wr, ur)
@@ -62,13 +66,13 @@ def drag_coefficient(p: AirframeParams, alpha: Array) -> Array:
 
 
 def aero_forces_moments(
-    p: AirframeParams, rho: float, air: AirData, omega: Array, u: SurfaceControls
+    p: AirframeParams, rho: float | Array, air: AirData, omega: Array, u: SurfaceControls
 ) -> tuple[Array, Array]:
     """Aerodynamic force and moment in body axes (excluding gravity and propulsion)."""
     va, alpha, beta = air.va, air.alpha, air.beta
     pr, qr, rr = omega[..., 0], omega[..., 1], omega[..., 2]
     two_va = 2.0 * jnp.maximum(va, VA_MIN)
-    qbar_s = 0.5 * rho * va**2 * p.S
+    qbar_s = 0.5 * jnp.asarray(rho) * va**2 * p.S
 
     lift = qbar_s * (
         lift_coefficient(p, alpha) + p.C_L_q * p.c / two_va * qr + p.C_L_delta_e * u.delta_e

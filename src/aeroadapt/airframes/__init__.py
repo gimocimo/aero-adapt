@@ -6,12 +6,31 @@ from pathlib import Path
 
 import yaml
 
-from aeroadapt.airframes.params import AirframeParams, to_params
+from aeroadapt.airframes.params import (
+    ActuatorParams,
+    AirframeParams,
+    BatteryParams,
+    SensorParams,
+    VehicleParams,
+    to_params,
+    to_vehicle_params,
+)
 from aeroadapt.airframes.schema import Airframe
 
 AIRFRAME_DIR = Path(__file__).resolve().parents[3] / "configs" / "airframes"
 
-__all__ = ["AIRFRAME_DIR", "Airframe", "AirframeParams", "load_airframe", "to_params"]
+__all__ = [
+    "AIRFRAME_DIR",
+    "ActuatorParams",
+    "Airframe",
+    "AirframeParams",
+    "BatteryParams",
+    "SensorParams",
+    "VehicleParams",
+    "load_airframe",
+    "to_params",
+    "to_vehicle_params",
+]
 
 
 def load_airframe(name_or_path: str | Path) -> Airframe:

@@ -70,10 +70,45 @@ propulsion:
   prop_diameter_m: 0.508          # 20 in
   C_T: [0.09357, -0.06044, -0.1079]   # [C_T0, C_T1, C_T2], C_T(J) = C_T0 + C_T1 J + C_T2 J^2
   C_Q: [0.005230, 0.004970, -0.01664] # [C_Q0, C_Q1, C_Q2]
+  windmill_cd: 0.02               # ours: stopped/windmilling-prop drag on the disc area (to calibrate)
   motor:
     KV_rpm_per_volt: 145.0
     R_ohm: 0.042
     i0_a: 1.5
   battery:
     n_cells: 12
-    v_cell_v: 3.7                 # B&M: V_max = 3.7 V x n_cells (ideal battery; v0 battery model in week 2)
+    v_cell_v: 3.7                 # B&M ideal battery: V_max = 3.7 V x n_cells (used for parity)
+    # --- ours (realistic battery, spec §6.4) ---
+    capacity_ah: 16.0
+    r_internal_ohm: 0.048         # pack (4 mOhm per cell)
+    avionics_current_a: 1.0
+    ocv_curve: [[0.0, 3.30], [0.1, 3.60], [0.2, 3.70], [0.3, 3.74], [0.4, 3.77], [0.5, 3.80],
+                [0.6, 3.85], [0.7, 3.90], [0.8, 3.98], [0.9, 4.08], [1.0, 4.20]]  # [SOC, V/cell] LiPo
+
+# ---------------------------------------------------------------------------------------------
+# Everything below is ours (not in the textbook): actuator dynamics and the sensor suite (spec
+# §6.3, §6.7). M1 defaults; randomised from M2. Signs: commands use aircraft-response semantics
+# (aileron +1 = roll right, elevator +1 = nose up, rudder +1 = nose right); the simulator maps
+# them to B&M deflection signs from the signs of the primary control derivatives (ADR-001).
+actuators:
+  surfaces:
+    aileron:  {max_deflection_deg: 25.0, rate_limit_dps: 300.0, tau_s: 0.02, delay_s: 0.02, deadband_deg: 0.2, trim_deg: 0.0, reversed: false}
+    elevator: {max_deflection_deg: 25.0, rate_limit_dps: 300.0, tau_s: 0.02, delay_s: 0.02, deadband_deg: 0.2, trim_deg: 0.0, reversed: false}
+    rudder:   {max_deflection_deg: 25.0, rate_limit_dps: 300.0, tau_s: 0.02, delay_s: 0.02, deadband_deg: 0.2, trim_deg: 0.0, reversed: false}
+  throttle: {tau_s: 0.05, delay_s: 0.01}
+
+sensors:
+  imu:
+    rate_hz: 100.0
+    gyro_noise_rps: 0.005
+    gyro_bias_rw: 1.0e-4          # rad/s/sqrt(s)
+    gyro_bias_init_rps: 0.003     # 1-sigma turn-on bias
+    accel_noise_mps2: 0.05
+    accel_bias_rw: 1.0e-3         # m/s^2/sqrt(s)
+    accel_bias_init_mps2: 0.05
+  baro: {rate_hz: 20.0, noise_pa: 3.0, drift_rw_pa_per_sqrt_s: 0.0645}   # 0.5 Pa/min random walk
+  airspeed: {rate_hz: 20.0, noise_pa: 1.5}
+  gnss: {rate_hz: 5.0, latency_s: 0.12, pos_sigma_h_m: 1.0, pos_sigma_v_m: 2.0, pos_tau_s: 300.0, vel_sigma_mps: 0.1}
+  mag: {rate_hz: 50.0, noise_gauss: 0.005}
+  battery: {rate_hz: 10.0, voltage_noise_v: 0.05, current_noise_a: 0.2}
+  esc: {rate_hz: 10.0, rpm_noise_frac: 0.01}

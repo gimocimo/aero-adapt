@@ -48,6 +48,8 @@ interface Prepared {
  * frame (no React re-render in the 60 fps path).
  */
 export class SceneController {
+  /** Seconds of trail behind the aircraft (stills for the write-up use the whole flight). */
+  trailSeconds = TRAIL_S;
   private frame: SiteFrame | null = null;
   private main: Prepared | null = null;
   private ghost: Prepared | null = null;
@@ -231,7 +233,7 @@ export class SceneController {
   private rebuildTrail(p: Prepared, time: number, alpha: number): void {
     const r = p.replay;
     const end = Math.min(Math.floor((time * r.manifest.rates.viz_hz) / TRAIL_STRIDE), p.positions.length - 1);
-    const start = Math.max(0, end - Math.round((TRAIL_S * r.manifest.rates.viz_hz) / TRAIL_STRIDE));
+    const start = Math.max(0, end - Math.round((this.trailSeconds * r.manifest.rates.viz_hz) / TRAIL_STRIDE));
     let runStart = start;
     for (let i = start + 1; i <= end + 1; i++) {
       if (i > end || p.category[i] !== p.category[runStart]) {

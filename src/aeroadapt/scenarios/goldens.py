@@ -8,10 +8,12 @@ within tolerance across machines).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
 
+from aeroadapt.scenarios.resolve import ResolvedScenario, resolve
 from aeroadapt.scenarios.runner import run_scenario
 from aeroadapt.scenarios.schema import load_scenario
 
@@ -41,8 +43,14 @@ TOLERANCES: dict[str, float | None] = {
 }
 
 
-def metrics(scenario_id: str) -> dict[str, Any]:
-    r = run_scenario(load_scenario(scenario_id))
+def metrics(
+    scenario_id: str,
+    transform: Callable[[ResolvedScenario], ResolvedScenario] | None = None,
+) -> dict[str, Any]:
+    """Golden metrics of a scenario; ``transform`` edits the resolved scenario first (V16 flies
+    the goldens with tabulated aerodynamics this way)."""
+    resolved = resolve(load_scenario(scenario_id))
+    r = run_scenario(transform(resolved) if transform else resolved)
     c, ev = r.cols, r.events
     t = c["time_us"] * 1e-6
     m: dict[str, Any] = {

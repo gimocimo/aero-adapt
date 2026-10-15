@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from itertools import pairwise
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -92,6 +93,13 @@ class Stall(_Strict):
 
 
 class Aero(_Strict):
+    """``model`` selects the static-coefficient source (M2 spec §3).
+
+    ``bm_analytic`` evaluates the Beard & McLain formulas (aero v1). ``bm_tabulated`` samples the
+    same formulas onto the aero v2 grid, so a B&M airframe can fly in a batch of tabulated ones.
+    """
+
+    model: Literal["bm_analytic", "bm_tabulated"] = "bm_analytic"
     longitudinal: Longitudinal
     lateral: Lateral
     stall: Stall
@@ -225,7 +233,7 @@ class Sensors(_Strict):
 
 
 class Airframe(_Strict):
-    schema_version: int = Field(ge=1, le=1)
+    schema_version: int = Field(ge=1, le=2)
     id: str
     name: str
     provenance: Provenance

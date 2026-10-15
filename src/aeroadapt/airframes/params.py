@@ -14,6 +14,27 @@ import numpy as np
 
 from aeroadapt.airframes.schema import Airframe, SurfaceActuator
 
+ALPHA_GRID_N = 721  # aero v2: uniform 0.5° grid over [-180°, 180°] (M2 spec §3.1)
+
+
+def alpha_grid() -> np.ndarray:
+    """Angles of attack (rad) at which aero v2 tables are tabulated."""
+    return np.linspace(-math.pi, math.pi, ALPHA_GRID_N)
+
+
+class AeroTables(NamedTuple):
+    """Aero v2 static coefficients and effectiveness factors, each of shape (ALPHA_GRID_N,).
+
+    ``eta_ctrl`` scales the control-surface derivatives and ``eta_damp`` the rate-damping
+    derivatives (1 in attached flow, falling past the stall).
+    """
+
+    C_L: np.ndarray
+    C_D: np.ndarray
+    C_m: np.ndarray
+    eta_ctrl: np.ndarray
+    eta_damp: np.ndarray
+
 
 class AirframeParams(NamedTuple):
     # mass and inertia
@@ -76,6 +97,8 @@ class AirframeParams(NamedTuple):
     i0: float
     V_max: float
     C_windmill: float  # stopped/windmilling propeller drag coefficient on disc area
+    # aero v2: static tables; None selects the analytic B&M model (a static choice under jit)
+    tables: AeroTables | None = None
 
 
 class ActuatorParams(NamedTuple):
@@ -135,6 +158,32 @@ class VehicleParams(NamedTuple):
     sensors: SensorParams
 
 
+def bm_tables(p: AirframeParams) -> AeroTables:
+    """The Beard & McLain static model (eqs. 4.9-4.11, C_m linear in α) sampled on the grid.
+
+    Written in NumPy, separately from the JAX formulas, so that V16 compares two codings.
+    """
+    a = alpha_grid()
+    ln_a, ln_b = -p.M * (a - p.alpha0), p.M * (a + p.alpha0)
+    # σ = (1 + e^ln_a + e^ln_b) / ((1 + e^ln_a)(1 + e^ln_b)), with exponents clipped for float64
+    ea, eb = np.exp(np.minimum(ln_a, 700.0)), np.exp(np.minimum(ln_b, 700.0))
+    sigma = np.where(
+        np.isfinite(ea * eb),
+        (1.0 + ea + eb) / ((1.0 + ea) * (1.0 + eb)),
+        1.0,
+    )
+    linear = p.C_L_0 + p.C_L_alpha * a
+    flat_plate = 2.0 * np.sign(a) * np.sin(a) ** 2 * np.cos(a)
+    ones = np.ones_like(a)
+    return AeroTables(
+        C_L=(1.0 - sigma) * linear + sigma * flat_plate,
+        C_D=p.C_D_p + linear**2 / (math.pi * p.e_oswald * p.AR),
+        C_m=p.C_m_0 + p.C_m_alpha * a,
+        eta_ctrl=ones,
+        eta_damp=ones.copy(),
+    )
+
+
 def to_params(af: Airframe) -> AirframeParams:
     mi, g, lo, la, st, pr = (
         af.mass_inertia,
@@ -145,7 +194,7 @@ def to_params(af: Airframe) -> AirframeParams:
         af.propulsion,
     )
     kv = pr.motor.KV_v_s_per_rad
-    return AirframeParams(
+    params = AirframeParams(
         mass=mi.mass_kg,
         Jx=mi.Jx_kgm2,
         Jy=mi.Jy_kgm2,
@@ -174,6 +223,9 @@ def to_params(af: Airframe) -> AirframeParams:
         V_max=pr.battery.v_max,
         C_windmill=pr.windmill_cd,
     )
+    if af.aero.model == "bm_tabulated":
+        params = params._replace(tables=bm_tables(params))
+    return params
 
 
 def to_vehicle_params(af: Airframe) -> VehicleParams:

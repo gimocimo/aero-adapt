@@ -7,11 +7,15 @@ from pathlib import Path
 import yaml
 
 from aeroadapt.airframes.params import (
+    ALPHA_GRID_N,
     ActuatorParams,
+    AeroTables,
     AirframeParams,
     BatteryParams,
     SensorParams,
     VehicleParams,
+    alpha_grid,
+    bm_tables,
     to_params,
     to_vehicle_params,
 )
@@ -21,12 +25,16 @@ AIRFRAME_DIR = Path(__file__).resolve().parents[3] / "configs" / "airframes"
 
 __all__ = [
     "AIRFRAME_DIR",
+    "ALPHA_GRID_N",
     "ActuatorParams",
+    "AeroTables",
     "Airframe",
     "AirframeParams",
     "BatteryParams",
     "SensorParams",
     "VehicleParams",
+    "alpha_grid",
+    "bm_tables",
     "load_airframe",
     "to_params",
     "to_vehicle_params",

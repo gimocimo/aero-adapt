@@ -16,6 +16,7 @@ Purpose: N-version validation (V3) of ``aeroadapt.sim.aerojax``. Rules of this m
   quaternion kinematics   ½ Ω(ω) q matrix form             ½ q ⊗ [0, ω] product form
   angular acceleration    solve(J, M − ω × Jω)             Γ-coefficient form (B&M 3.13)
   stall sigmoid σ(α)      direct B&M formula (4.10)        log-sum-exp form
+  aero v2 tables          np.interp on an explicit grid    index arithmetic on a uniform grid
   lift/drag → body        stability-axis rotation matrix   expanded scalar expressions
   parameters              raw YAML dict                    pydantic schema + NamedTuple
   ======================  ===============================  ==============================
@@ -121,6 +122,15 @@ def air_data(x: np.ndarray, wind_ned: np.ndarray) -> tuple[float, float, float]:
 
 
 # --------------------------------------------------------------------------- aerodynamics
+# Aero v2 (M2 spec §3): static tables on 721 points, -180° to 180° in 0.5° steps. A params dict
+# may carry p["tables"] = {"C_L", "C_D", "C_m", "eta_ctrl", "eta_damp"} (arrays of 721).
+TABLE_GRID_RAD = np.radians(np.arange(-180.0, 180.0 + 0.25, 0.5))
+
+
+def _table(p: Params, name: str, alpha: float) -> float:
+    return float(np.interp(alpha, TABLE_GRID_RAD, p["tables"][name]))
+
+
 def sigma(p: Params, alpha: float) -> float:
     """Stall blending function, B&M eq. 4.10 (direct form)."""
     m, a0 = p["M"], p["alpha0"]
@@ -174,17 +184,20 @@ def forces_moments(
     # Gravity: rotate the NED weight vector into the body frame.
     f_grav = rotate_ned_to_body(e, np.array([0.0, 0.0, p["mass"] * p["gravity"]]))
 
+    # Static coefficients and effectiveness factors (kc: controls, kd: rate damping).
+    if "tables" in p:
+        cl_static, cd_static = _table(p, "C_L", alpha), _table(p, "C_D", alpha)
+        cm_static = _table(p, "C_m", alpha)
+        kc, kd = _table(p, "eta_ctrl", alpha), _table(p, "eta_damp", alpha)
+    else:
+        cl_static, cd_static = c_lift(p, alpha), c_drag(p, alpha)
+        cm_static = p["C_m_0"] + p["C_m_alpha"] * alpha
+        kc = kd = 1.0
+    hc, hb = c / (2 * va_safe), b / (2 * va_safe)
+
     # Lift and drag in the stability frame, then rotated into the body frame.
-    lift = (
-        qbar
-        * s_w
-        * (c_lift(p, alpha) + p["C_L_q"] * c / (2 * va_safe) * qr + p["C_L_delta_e"] * de)
-    )
-    drag = (
-        qbar
-        * s_w
-        * (c_drag(p, alpha) + p["C_D_q"] * c / (2 * va_safe) * qr + p["C_D_delta_e"] * de)
-    )
+    lift = qbar * s_w * (cl_static + kd * p["C_L_q"] * hc * qr + kc * p["C_L_delta_e"] * de)
+    drag = qbar * s_w * (cd_static + kd * p["C_D_q"] * hc * qr + kc * p["C_D_delta_e"] * de)
     r_body_stab = np.array(
         [
             [math.cos(alpha), 0.0, -math.sin(alpha)],
@@ -200,10 +213,8 @@ def forces_moments(
         * (
             p["C_Y_0"]
             + p["C_Y_beta"] * beta
-            + p["C_Y_p"] * b / (2 * va_safe) * pr
-            + p["C_Y_r"] * b / (2 * va_safe) * rr
-            + p["C_Y_delta_a"] * da
-            + p["C_Y_delta_r"] * dr
+            + kd * (p["C_Y_p"] * hb * pr + p["C_Y_r"] * hb * rr)
+            + kc * (p["C_Y_delta_a"] * da + p["C_Y_delta_r"] * dr)
         )
     )
 
@@ -218,23 +229,11 @@ def forces_moments(
         * (
             p["C_ell_0"]
             + p["C_ell_beta"] * beta
-            + p["C_ell_p"] * b / (2 * va_safe) * pr
-            + p["C_ell_r"] * b / (2 * va_safe) * rr
-            + p["C_ell_delta_a"] * da
-            + p["C_ell_delta_r"] * dr
+            + kd * (p["C_ell_p"] * hb * pr + p["C_ell_r"] * hb * rr)
+            + kc * (p["C_ell_delta_a"] * da + p["C_ell_delta_r"] * dr)
         )
     )
-    m_pitch = (
-        qbar
-        * s_w
-        * c
-        * (
-            p["C_m_0"]
-            + p["C_m_alpha"] * alpha
-            + p["C_m_q"] * c / (2 * va_safe) * qr
-            + p["C_m_delta_e"] * de
-        )
-    )
+    m_pitch = qbar * s_w * c * (cm_static + kd * p["C_m_q"] * hc * qr + kc * p["C_m_delta_e"] * de)
     n_yaw = (
         qbar
         * s_w
@@ -242,10 +241,8 @@ def forces_moments(
         * (
             p["C_n_0"]
             + p["C_n_beta"] * beta
-            + p["C_n_p"] * b / (2 * va_safe) * pr
-            + p["C_n_r"] * b / (2 * va_safe) * rr
-            + p["C_n_delta_a"] * da
-            + p["C_n_delta_r"] * dr
+            + kd * (p["C_n_p"] * hb * pr + p["C_n_r"] * hb * rr)
+            + kc * (p["C_n_delta_a"] * da + p["C_n_delta_r"] * dr)
         )
     )
     # Propeller reaction torque: the propeller spins positively about +x_body, so the

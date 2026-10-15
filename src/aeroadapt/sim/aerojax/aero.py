@@ -1,4 +1,11 @@
-"""Aerodynamic model: Beard & McLain (2012) ch. 4, nonlinear lift/drag with stall blending."""
+"""Aerodynamic model: Beard & McLain (2012) ch. 4.
+
+Static coefficients come either from B&M's formulas (lift and drag with stall blending, aero
+v1) or from aero v2 tables over 360° of angle of attack (``AirframeParams.tables``). With
+tables, the rate-damping and control derivatives are scaled by the tabulated effectiveness
+factors. The choice is static under ``jit``: ``tables is None`` selects the analytic model,
+whose expressions are left exactly as in M1.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +17,7 @@ from jax.scipy.special import logsumexp
 
 from aeroadapt.airframes.params import AirframeParams
 from aeroadapt.core import quaternion
+from aeroadapt.sim.aerojax.aero_tables import table_lookup
 from aeroadapt.sim.aerojax.state import RigidBodyState, SurfaceControls
 
 VA_MIN = 1e-6  # guard against division by zero at (unphysical) zero airspeed
@@ -65,6 +73,10 @@ def drag_coefficient(p: AirframeParams, alpha: Array) -> Array:
     return p.C_D_p + (p.C_L_0 + p.C_L_alpha * alpha) ** 2 / (jnp.pi * p.e_oswald * p.AR)
 
 
+def _scaled(eta: Array | None, x: Array) -> Array:
+    return x if eta is None else eta * x
+
+
 def aero_forces_moments(
     p: AirframeParams, rho: float | Array, air: AirData, omega: Array, u: SurfaceControls
 ) -> tuple[Array, Array]:
@@ -74,11 +86,25 @@ def aero_forces_moments(
     two_va = 2.0 * jnp.maximum(va, VA_MIN)
     qbar_s = 0.5 * jnp.asarray(rho) * va**2 * p.S
 
+    t = p.tables
+    if t is None:
+        c_lift, c_drag = lift_coefficient(p, alpha), drag_coefficient(p, alpha)
+        c_pitch = p.C_m_0 + p.C_m_alpha * alpha
+        eta_c = eta_d = None
+    else:
+        c_lift, c_drag = table_lookup(t.C_L, alpha), table_lookup(t.C_D, alpha)
+        c_pitch = table_lookup(t.C_m, alpha)
+        eta_c, eta_d = table_lookup(t.eta_ctrl, alpha), table_lookup(t.eta_damp, alpha)
+
     lift = qbar_s * (
-        lift_coefficient(p, alpha) + p.C_L_q * p.c / two_va * qr + p.C_L_delta_e * u.delta_e
+        c_lift
+        + _scaled(eta_d, p.C_L_q * p.c / two_va * qr)
+        + _scaled(eta_c, p.C_L_delta_e * u.delta_e)
     )
     drag = qbar_s * (
-        drag_coefficient(p, alpha) + p.C_D_q * p.c / two_va * qr + p.C_D_delta_e * u.delta_e
+        c_drag
+        + _scaled(eta_d, p.C_D_q * p.c / two_va * qr)
+        + _scaled(eta_c, p.C_D_delta_e * u.delta_e)
     )
     ca, sa = jnp.cos(alpha), jnp.sin(alpha)
     fx = -ca * drag + sa * lift
@@ -86,10 +112,10 @@ def aero_forces_moments(
     fy = qbar_s * (
         p.C_Y_0
         + p.C_Y_beta * beta
-        + p.C_Y_p * p.b / two_va * pr
-        + p.C_Y_r * p.b / two_va * rr
-        + p.C_Y_delta_a * u.delta_a
-        + p.C_Y_delta_r * u.delta_r
+        + _scaled(eta_d, p.C_Y_p * p.b / two_va * pr)
+        + _scaled(eta_d, p.C_Y_r * p.b / two_va * rr)
+        + _scaled(eta_c, p.C_Y_delta_a * u.delta_a)
+        + _scaled(eta_c, p.C_Y_delta_r * u.delta_r)
     )
 
     ell = (
@@ -98,16 +124,20 @@ def aero_forces_moments(
         * (
             p.C_ell_0
             + p.C_ell_beta * beta
-            + p.C_ell_p * p.b / two_va * pr
-            + p.C_ell_r * p.b / two_va * rr
-            + p.C_ell_delta_a * u.delta_a
-            + p.C_ell_delta_r * u.delta_r
+            + _scaled(eta_d, p.C_ell_p * p.b / two_va * pr)
+            + _scaled(eta_d, p.C_ell_r * p.b / two_va * rr)
+            + _scaled(eta_c, p.C_ell_delta_a * u.delta_a)
+            + _scaled(eta_c, p.C_ell_delta_r * u.delta_r)
         )
     )
     m = (
         qbar_s
         * p.c
-        * (p.C_m_0 + p.C_m_alpha * alpha + p.C_m_q * p.c / two_va * qr + p.C_m_delta_e * u.delta_e)
+        * (
+            c_pitch
+            + _scaled(eta_d, p.C_m_q * p.c / two_va * qr)
+            + _scaled(eta_c, p.C_m_delta_e * u.delta_e)
+        )
     )
     n = (
         qbar_s
@@ -115,10 +145,10 @@ def aero_forces_moments(
         * (
             p.C_n_0
             + p.C_n_beta * beta
-            + p.C_n_p * p.b / two_va * pr
-            + p.C_n_r * p.b / two_va * rr
-            + p.C_n_delta_a * u.delta_a
-            + p.C_n_delta_r * u.delta_r
+            + _scaled(eta_d, p.C_n_p * p.b / two_va * pr)
+            + _scaled(eta_d, p.C_n_r * p.b / two_va * rr)
+            + _scaled(eta_c, p.C_n_delta_a * u.delta_a)
+            + _scaled(eta_c, p.C_n_delta_r * u.delta_r)
         )
     )
     return jnp.stack([fx, fy, fz], axis=-1), jnp.stack([ell, m, n], axis=-1)

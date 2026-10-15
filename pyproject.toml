@@ -18,6 +18,11 @@ dependencies = [
 [project.scripts]
 aeroadapt = "aeroadapt.cli:main"
 
+[project.optional-dependencies]
+jsbsim = [
+    "jsbsim>=1.2",
+]
+
 [dependency-groups]
 dev = [
     "hypothesis>=6.100",

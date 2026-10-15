@@ -15,7 +15,7 @@ jobs:
       - uses: astral-sh/setup-uv@v10.3.0
         with:
           enable-cache: true
-      - run: uv sync --locked
+      - run: uv sync --locked --all-extras
       - run: uv run pytest -q
 
   validation-report:
@@ -27,7 +27,7 @@ jobs:
       - uses: astral-sh/setup-uv@v10.3.0
         with:
           enable-cache: true
-      - run: uv sync --locked
+      - run: uv sync --locked --all-extras
       - run: uv run python -m validation.report --out validation-report
       - uses: actions/upload-artifact@v7
         with:

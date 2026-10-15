@@ -31,3 +31,26 @@ source_modules =
     reference
 forbidden_modules =
     aeroadapt
+
+# The flight stack is a pure consumer of messages: it never reaches into a vehicle backend or
+# the harness that couples it to the simulator.
+[importlinter:contract:stack-is-backend-agnostic]
+name = Flight stack must not import vehicle backends or harnesses
+type = forbidden
+source_modules =
+    aeroadapt.stack
+forbidden_modules =
+    aeroadapt.vehicle
+    aeroadapt.harness
+
+# The simulator and the vehicle adapters know nothing about the autopilot that flies them.
+[importlinter:contract:plant-does-not-know-the-controller]
+name = Simulator and vehicle adapters must not import the flight stack
+type = forbidden
+source_modules =
+    aeroadapt.sim
+    aeroadapt.vehicle
+    aeroadapt.faultlab
+forbidden_modules =
+    aeroadapt.stack
+    aeroadapt.harness

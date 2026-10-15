@@ -91,9 +91,11 @@ propulsion:
 # (aileron +1 = roll right, elevator +1 = nose up, rudder +1 = nose right); the simulator maps
 # them to B&M deflection signs from the signs of the primary control derivatives (ADR-001).
 actuators:
+  # Elevator ±30°: the B&M pitching-moment model needs ~34° of elevator to trim at best glide
+  # (α ≈ 13°); with ±25° the aircraft cannot trim below ~18 m/s, leaving no flare authority.
   surfaces:
     aileron:  {max_deflection_deg: 25.0, rate_limit_dps: 300.0, tau_s: 0.02, delay_s: 0.02, deadband_deg: 0.2, trim_deg: 0.0, reversed: false}
-    elevator: {max_deflection_deg: 25.0, rate_limit_dps: 300.0, tau_s: 0.02, delay_s: 0.02, deadband_deg: 0.2, trim_deg: 0.0, reversed: false}
+    elevator: {max_deflection_deg: 30.0, rate_limit_dps: 300.0, tau_s: 0.02, delay_s: 0.02, deadband_deg: 0.2, trim_deg: 0.0, reversed: false}
     rudder:   {max_deflection_deg: 25.0, rate_limit_dps: 300.0, tau_s: 0.02, delay_s: 0.02, deadband_deg: 0.2, trim_deg: 0.0, reversed: false}
   throttle: {tau_s: 0.05, delay_s: 0.01}
 
@@ -102,7 +104,7 @@ sensors:
     rate_hz: 100.0
     gyro_noise_rps: 0.005
     gyro_bias_rw: 1.0e-4          # rad/s/sqrt(s)
-    gyro_bias_init_rps: 0.003     # 1-sigma turn-on bias
+    gyro_bias_init_rps: 0.0005    # 1-sigma residual after the boot-time gyro calibration (INS_GYR_CAL)
     accel_noise_mps2: 0.05
     accel_bias_rw: 1.0e-3         # m/s^2/sqrt(s)
     accel_bias_init_mps2: 0.05

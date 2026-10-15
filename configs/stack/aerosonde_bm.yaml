@@ -1,0 +1,83 @@
+# Flight-stack parameters for the Aerosonde (B&M) — the analogue of an ArduPlane .parm file.
+# ArduPlane equivalents are noted where they exist. Trim-derived values come from
+# tools/tune_stack.py (straight-and-level trim at 25 m/s, 120 m AGL, Cambridge, full battery);
+# loop gains come from the V11 step-response tuning (aeroadapt.harness.acceptance).
+schema_version: 1
+id: aerosonde_bm_stock
+airframe: aerosonde_bm
+
+navigator:
+  att_kp: 0.3                 # Mahony proportional gain (1/s); ArduPilot AHRS_RP_P analogue
+  att_ki: 0.003               # gyro-bias integral gain (1/s^2)
+  mag_kp: 0.3                 # heading correction gain (1/s); AHRS_YAW_P analogue
+  accel_gate_g: 0.3           # accel reference used only within ±0.3 g of 1 g
+  gnss_latency_s: 0.12        # GPS_DELAY_MS
+  gnss_pos_gain: 0.25         # per GNSS sample
+  gnss_vel_gain: 0.4          # per GNSS sample
+  gnss_pos_to_vel_gain: 0.05  # (m/s)/m, per GNSS sample
+  baro_gain: 0.1              # per baro sample
+  baro_vel_gain: 0.05         # (m/s)/m, per baro sample
+  wind_tau_s: 20.0
+  airspeed_fail_mps: 5.0      # ARSPD_OPTIONS mismatch-check analogue
+  airspeed_fail_s: 5.0
+  airspeed_recover_s: 10.0
+
+l1:
+  period_s: 15.0              # NAVL1_PERIOD
+  damping: 0.75               # NAVL1_DAMPING
+  wp_radius_m: 60.0           # WP_RADIUS
+  roll_limit_deg: 45.0        # LIM_ROLL_CD
+  loiter_radius_m: 150.0      # WP_LOITER_RAD
+
+tecs:
+  time_const_s: 3.0           # TECS_TIME_CONST
+  thr_damp: 0.5               # TECS_THR_DAMP
+  ptch_damp: 0.6              # TECS_PTCH_DAMP
+  integ_gain: 0.4             # TECS_INTEG_GAIN
+  spd_weight: 1.0             # TECS_SPDWEIGHT
+  climb_max_mps: 5.0          # TECS_CLMB_MAX
+  sink_min_mps: 2.0           # TECS_SINK_MIN
+  sink_max_mps: 5.0           # TECS_SINK_MAX
+  vert_acc_mps2: 7.0          # TECS_VERT_ACC
+  rll2thr: 10.0               # TECS_RLL2THR
+  pitch_max_deg: 20.0         # TECS_PITCH_MAX
+  pitch_min_deg: -15.0        # TECS_PITCH_MIN
+  thr_cruise: 0.682           # TRIM_THROTTLE at cruise (tools/tune_stack.py)
+  thr_slope: 0.0261           # throttle trim per m/s of speed demand (tools/tune_stack.py)
+  pitch_trim_deg: 3.11        # trim pitch attitude at cruise (tools/tune_stack.py)
+  pitch_trim_b_deg: 5.60      # pitch trim + b*((V_cruise/V)^2 - 1) (tools/tune_stack.py)
+  airspeed_min_mps: 18.0      # AIRSPEED_MIN
+  airspeed_cruise_mps: 25.0   # AIRSPEED_CRUISE
+  airspeed_max_mps: 35.0      # AIRSPEED_MAX
+
+attitude:
+  roll:  {tconst_s: 0.35, rate_max_dps: 75.0, ff: 0.40, p: 0.10, i: 0.10, imax: 0.15}   # RLL2SRV_TCONST, RLL_RATE_*
+  pitch: {tconst_s: 0.25, rate_max_dps: 45.0, ff: 1.80, p: 0.80, i: 0.50, imax: 0.40}   # PTCH2SRV_TCONST, PTCH_RATE_*
+  yaw:   {ff: 0.30, damp: 0.30, slip_i: 0.02, imax: 0.20}                             # YAW2SRV_*
+  scaler_min: 0.5
+  scaler_max: 2.0
+  servo_trim:                 # SERVOn_TRIM analogues; from tools/tune_stack.py
+    aileron: 0.0137
+    rudder: 0.0022
+    elevator_a: -0.2563       # elevator trim a + b*n*(V_cruise/V)^2 (fit residual < 0.001)
+    elevator_b: 0.5167
+
+contingency:
+  enabled: true               # false = stock ArduPlane (baseline B0): no motor-failure logic
+  esc_telemetry: true
+  rpm_fraction: 0.5           # failed if rpm < 0.5 x (KV x V_batt x throttle) ... (loaded/no-load
+                              # rpm >= 0.96 over the envelope; spec's 0.2 cannot meet 1.0 s latency)
+  rpm_min_throttle: 0.3       # ... while throttle > 0.3 ...
+  esc_persist_s: 0.5          # ... for 0.5 s
+  energy_drop_mps: 1.0        # backup: energy-rate residual (m/s of climb equivalent) ...
+  energy_persist_s: 2.0       # ... for 2 s
+  glide_speed_min_mps: 18.5     # B&M elevator saturates near best glide (14.7 m/s); keep authority
+  headwind_speed_gain: 0.5    # speed-to-fly: + 0.5 x headwind
+  h_pattern_m: 30.0
+  h_margin_m: 10.0
+  circle_radius_m: 100.0
+  final_length_m: 250.0
+  flare_alt_m: 3.0
+  flare_sink_mps: 0.5         # TECS_LAND_SINK analogue
+  flare_pitch_gain: 0.08      # rad per (m/s) of sink-rate error
+  land_roll_limit_deg: 8.0    # LEVEL_ROLL_LIMIT analogue

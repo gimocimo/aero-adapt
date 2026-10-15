@@ -69,8 +69,13 @@ contingency:
                               # rpm >= 0.96 over the envelope; spec's 0.2 cannot meet 1.0 s latency)
   rpm_min_throttle: 0.3       # ... while throttle > 0.3 ...
   esc_persist_s: 0.5          # ... for 0.5 s
-  energy_drop_mps: 1.0        # backup: energy-rate residual (m/s of climb equivalent) ...
-  energy_persist_s: 2.0       # ... for 2 s
+  # Backup detector (no ESC telemetry): CUSUM on the total-energy-rate residual (m/s of climb
+  # equivalent) against TECS's throttle model. A cut loses ~3 m/s; gusts in light turbulence
+  # move the residual by ~1.4 m/s RMS, worst at climbing turns. Tuned for zero false alarms
+  # first (a false alarm forces a landing): latency median ~3 s but a 10 s tail (see V12).
+  energy_tau_s: 0.5
+  energy_slack_mps: 2.0       # k
+  energy_threshold_m: 4.0     # h: sum of (deficit - k)·dt
   glide_speed_min_mps: 18.5     # B&M elevator saturates near best glide (14.7 m/s); keep authority
   headwind_speed_gain: 0.5    # speed-to-fly: + 0.5 x headwind
   h_pattern_m: 30.0

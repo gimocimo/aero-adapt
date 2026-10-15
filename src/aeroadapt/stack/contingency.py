@@ -1,7 +1,8 @@
 """Classical contingency v0 (spec §9.3), the seed of baseline B2. Pure JAX state machine.
 
 1. **Detect** a motor failure from ESC telemetry (rpm far below what the commanded throttle
-   should give), or from a total-energy-rate residual on airframes without ESC telemetry.
+   should give), or, on airframes without ESC telemetry, with a CUSUM test on the
+   total-energy-rate residual against TECS's throttle model.
 2. **Assess** every pre-surveyed zone: the height needed to glide to the start of its final
    approach and down the final, using the nominal glide ratio scaled by the wind-triangle
    ground-to-air speed ratio, plus pattern and safety margins. Pick the best reachable zone
@@ -76,6 +77,7 @@ FINAL_ROLL_LIMIT_RAD = 0.44  # 25°
 INTERCEPT_FACTOR = 0.41  # extra path per metre of lateral offset at a 45° intercept (√2 − 1)
 FLARE_PITCH_MAX_RAD = 0.21  # 12°
 FLARE_SEC = 2.0
+ENERGY_ARM_S = 20.0  # energy-residual detector armed after navigator convergence
 FLOAT_M = 60.0  # the glide path aims this far short of the touchdown point (flare float)
 
 
@@ -83,7 +85,7 @@ class ContState(NamedTuple):
     failed: Array  # bool, latched
     t_detect: Array  # time of detection (s since stack start), -1 before
     esc_t: Array  # persistence timers
-    energy_t: Array
+    energy_cusum: Array  # CUSUM of the energy-rate deficit (m)
     edot_lp: Array  # filtered total-energy rate, m/s climb equivalent
     phase: Array
     zone: Array  # selected zone (-1 = none)
@@ -117,7 +119,7 @@ def cont_init(dtype=jnp.float32) -> ContState:
         failed=jnp.zeros((), bool),
         t_detect=z - 1,
         esc_t=z,
-        energy_t=z,
+        energy_cusum=z,
         edot_lp=z,
         phase=jnp.zeros((), jnp.int32),
         zone=jnp.full((), -1, jnp.int32),
@@ -269,24 +271,36 @@ def contingency_step(
     )
     # The held (sample-and-hold) ESC reading counts every step it stays low.
     esc_t = jnp.where(jnp.logical_and(cp.esc_enabled, low_rpm), s.esc_t + dt, 0.0)
-    # Backup: total-energy rate (climb equivalent) far below what the throttle should give
-    # on the TECS model, STEdot ≈ (throttle − cruise)·(climb_max + sink_min).
+    # Backup: total-energy rate (climb equivalent) far below what the commanded throttle should
+    # give on TECS's own model: STEdot = (throttle − trim(V))·(climb_max + sink_min), less the
+    # induced drag of a bank (TECS_RLL2THR). A cut loses ≈2.5 m/s at cruise thrust.
     edot = est.climb_rate + est.airspeed * (est.accel[0] - G * jnp.sin(est.pitch)) / G
-    edot_lp = s.edot_lp + dt * (edot - s.edot_lp)  # τ = 1 s
-    expected = (throttle_prev - tp.thr_cruise) * (tp.climb_max + tp.sink_min)
-    low_energy = jnp.logical_and(throttle_prev > 0.8, edot_lp < expected - cp.energy_drop)
-    energy_t = jnp.where(
-        jnp.logical_and(jnp.logical_not(cp.esc_enabled), low_energy), s.energy_t + dt, 0.0
+    edot_lp = s.edot_lp + (dt / cp.energy_tau) * (edot - s.edot_lp)
+    thr_trim = tp.thr_cruise + tp.thr_slope * (est.airspeed - tp.v_cruise)
+    cos_r = jnp.maximum(jnp.cos(est.roll), 0.2)
+    turn = tp.rll2thr * (1.0 / cos_r**2 - 1.0) / G
+    expected = (throttle_prev - thr_trim) * (tp.climb_max + tp.sink_min) - turn
+    # CUSUM: accumulate the deficit beyond the slack k, decide at h. Gusts move the residual by
+    # ~1.4 m/s RMS for seconds at a time; a cut is a sustained ≈3 m/s step. Armed once the
+    # navigator has converged (the estimate swings by several m/s while it aligns).
+    armed = jnp.logical_and(
+        jnp.logical_and(t > ENERGY_ARM_S, throttle_prev > cp.rpm_min_throttle),
+        jnp.logical_not(cp.esc_enabled),
+    )
+    deficit = expected - edot_lp
+    energy_cusum = jnp.where(
+        armed, jnp.maximum(s.energy_cusum + (deficit - cp.energy_slack) * dt, 0.0), 0.0
     )
     detect = jnp.logical_and(
-        cp.enabled, jnp.logical_or(esc_t >= cp.esc_persist, energy_t >= cp.energy_persist)
+        cp.enabled,
+        jnp.logical_or(esc_t >= cp.esc_persist, energy_cusum >= cp.energy_threshold),
     )
     newly = jnp.logical_and(detect, ~s.failed)
     s = s._replace(
         failed=jnp.logical_or(s.failed, detect),
         t_detect=jnp.where(newly, t, s.t_detect),
         esc_t=esc_t,
-        energy_t=energy_t,
+        energy_cusum=energy_cusum,
         edot_lp=edot_lp,
     )
 

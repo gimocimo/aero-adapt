@@ -116,8 +116,9 @@ class ContingencyCfg(_Strict):
     rpm_fraction: float = Field(gt=0, lt=1)
     rpm_min_throttle: float = Field(ge=0, le=1)
     esc_persist_s: float = Field(gt=0)
-    energy_drop_mps: float = Field(gt=0)
-    energy_persist_s: float = Field(gt=0)
+    energy_tau_s: float = Field(gt=0)  # energy-rate residual low-pass
+    energy_slack_mps: float = Field(gt=0)  # CUSUM slack k
+    energy_threshold_m: float = Field(gt=0)  # CUSUM decision threshold h
     glide_speed_min_mps: float = Field(gt=0)
     headwind_speed_gain: float = Field(ge=0)
     h_pattern_m: float = Field(ge=0)
@@ -234,8 +235,9 @@ class ContParams(NamedTuple):
     rpm_min_throttle: float
     esc_persist: float
     kv_rpm_per_volt: float  # nominal motor KV (airframe data)
-    energy_drop: float
-    energy_persist: float
+    energy_tau: float
+    energy_slack: float
+    energy_threshold: float
     ld_max: float  # nominal glide polar (incl. windmilling drag)
     v_bg_rho0: float  # best-glide airspeed at ρ0
     v_glide_min: float
@@ -414,8 +416,9 @@ def build_stack_params(cfg: StackCfg, airframe: Airframe, site: Site, dt: float)
             rpm_min_throttle=co.rpm_min_throttle,
             esc_persist=co.esc_persist_s,
             kv_rpm_per_volt=airframe.propulsion.motor.KV_rpm_per_volt,
-            energy_drop=co.energy_drop_mps,
-            energy_persist=co.energy_persist_s,
+            energy_tau=co.energy_tau_s,
+            energy_slack=co.energy_slack_mps,
+            energy_threshold=co.energy_threshold_m,
             ld_max=ld,
             v_bg_rho0=v_bg,
             v_glide_min=co.glide_speed_min_mps,

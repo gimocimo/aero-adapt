@@ -196,8 +196,11 @@ class Connection:
 async def _handler(ws: ServerConnection, catalogue: Catalogue, scenario_id: str) -> None:
     session = await asyncio.to_thread(catalogue.session, scenario_id, None)
     conn = Connection(ws, catalogue, scenario_id, None, session)
-    await conn.hello()
-    await conn.status()
+    try:
+        await conn.hello()
+        await conn.status()
+    except ConnectionClosed:  # the client left before the session started (a page reload)
+        return
     tasks = [asyncio.create_task(conn.receive()), asyncio.create_task(conn.run())]
     try:
         done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)

@@ -13,9 +13,12 @@ test("live mode: a fault injected from the panel is logged and detected; a senso
   await expect(page.getByTestId("clock")).toContainText("LIVE", { timeout: 60_000 });
   await page.getByRole("button", { name: "4×" }).click();
 
-  await page.getByRole("button", { name: "Motor cut", exact: true }).click();
+  // Retried: a click that lands just before a dev-server reload is lost with the page.
   const active = page.getByTestId("active-faults");
-  await expect(active).toContainText("Motor cut @");
+  await expect(async () => {
+    await page.getByRole("button", { name: "Motor cut", exact: true }).click();
+    await expect(active).toContainText("Motor cut @", { timeout: 3_000 });
+  }).toPass({ timeout: 30_000 });
   await expect(page.getByText("Fault: motor cut")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText("Motor failure detected")).toBeVisible({ timeout: 30_000 });
 

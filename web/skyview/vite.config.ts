@@ -50,6 +50,9 @@ function cesiumStatic(): Plugin {
 export default defineConfig({
   define: { CESIUM_BASE_URL: JSON.stringify(`/${CESIUM_BASE}`) },
   plugins: [react(), cesiumStatic()],
+  // Pre-bundle the live client's codec: discovered at runtime instead, it makes a cold dev
+  // server reload the page once (the live connection then drops with 1001).
+  optimizeDeps: { include: ["@msgpack/msgpack"] },
   // CesiumJS alone is ~4 MB minified (~1.2 MB gzip); code-splitting it buys little here.
   build: { chunkSizeWarningLimit: 5000 },
   test: { environment: "node", include: ["src/**/*.test.ts"] },

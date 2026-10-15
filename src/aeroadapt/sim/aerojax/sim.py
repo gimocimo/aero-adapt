@@ -261,7 +261,10 @@ def init_state(
     """Initial state with actuators settled at ``cmd0``, developed turbulence, and a first
     (all-fresh) sensor sample."""
     k_turb, k_sens = jax.random.split(key)
-    dtype = rb0.pos_ned.dtype
+    dtype = jnp.asarray(rb0.pos_ned).dtype
+    # Strong, uniform dtypes: a weak-typed leaf (e.g. a quaternion built from Python floats)
+    # would make the first jitted step compile twice.
+    rb0 = jax.tree_util.tree_map(lambda x: jnp.asarray(x, dtype=dtype), rb0)
     act = init_actuators(vp.airframe, vp.actuators, jnp.asarray(cmd0, dtype))
     h_agl, _, _, rho, wind = _atmosphere(env, rb0)
     va = air_data(rb0, wind).va

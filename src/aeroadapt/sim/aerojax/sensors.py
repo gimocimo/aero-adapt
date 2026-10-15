@@ -16,37 +16,10 @@ from jax import Array
 
 from aeroadapt.airframes.params import SensorParams
 from aeroadapt.core import quaternion
+from aeroadapt.core.messages import FreshFlags, SensorArrays
 from aeroadapt.faultlab.slots import PitotFault
 
 GNSS_HISTORY = 32  # control steps of truth history (320 ms at 100 Hz) for GNSS latency
-
-
-class FreshFlags(NamedTuple):
-    imu: Array
-    baro: Array
-    airspeed: Array
-    gnss: Array
-    mag: Array
-    battery: Array
-    esc: Array
-
-
-class SensorArrays(NamedTuple):
-    gyro: Array  # (3,) rad/s, body
-    accel: Array  # (3,) m/s², specific force, body
-    baro_pa: Array
-    baro_temp_k: Array
-    airspeed_dp_pa: Array  # raw differential pressure; IAS is derived by the navigator
-    airspeed_temp_k: Array
-    gnss_pos_ned: Array  # (3,) m, local NED
-    gnss_vel_ned: Array  # (3,) m/s
-    gnss_time_s: Array  # time of validity (latency already applied)
-    mag: Array  # (3,) gauss, body
-    battery_v: Array
-    battery_a: Array
-    battery_mah: Array
-    esc_rpm: Array
-    fresh: FreshFlags
 
 
 class SensorTruth(NamedTuple):

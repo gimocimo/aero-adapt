@@ -34,7 +34,7 @@ def setup():
     vp = to_vehicle_params(load_airframe("aerosonde_bm"))
     site = load_site("cambridge_west")
     env = make_env(
-        alt_origin_msl_m=site.origin.h_ellipsoid_m - 46.0,
+        alt_origin_msl_m=site.ground_msl_m,
         magnetic_ned_gauss=site.magnetic.field_ned_gauss,
         wind_from_deg=250.0,
         wind_speed_mps=5.0,
@@ -75,6 +75,8 @@ def bench_batched(vp, env, faults, rb0, cmd, batch: int, steps: int, cfg: SimCon
 
 
 def bench_host_stepped(vp, env, faults, rb0, cmd, steps: int, cfg: SimConfig):
+    # Parameters live on the device; host NumPy params would be re-transferred every call.
+    vp, env, faults = jax.device_put((vp, env, faults))
     step = jax.jit(sim_step, static_argnames="config")
     s, _ = init_state(vp, env, faults, rb0, cmd, jax.random.PRNGKey(0), config=cfg)
     keys = jax.random.split(jax.random.PRNGKey(1), steps + 1)

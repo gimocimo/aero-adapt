@@ -4,7 +4,13 @@
 
 AeroAdapt is built simulation-first. It is validated rigorously and compared against strong classical baselines. The aim is to move from simulation to a real aircraft once the simulated system is proven.
 
-> **Status:** Milestone M1 (vertical slice), week 2 done. The full simulator is in place: actuators, battery, ISA and turbulence, sensors, fault injection, trim, and validation. Next: the flight stack (navigator, ArduPlane-equivalent autopilot, classical contingency).
+> **Status:** Milestone M1 (vertical slice), week 3 done.
+>
+> - **Simulator:** actuators, battery, ISA and turbulence, sensors, fault injection, trim and validation are in place.
+> - **Flight stack:** a DCM-class navigator and an ArduPlane-equivalent autopilot (L1, TECS, attitude loops, AUTO/RTL/GUIDED modes) meet every V11 acceptance criterion, in calm air and in light turbulence.
+> - **Motor failure:** the classical contingency detects a motor cut in 0.7 s. It glides a circuit to a pre-surveyed field and lands in it on the hand-made test cases.
+>
+> Next: scenarios, the runner, the recorder, the Skyview replay and the statistical V12 campaign.
 
 ## Plan and design documents
 
@@ -42,7 +48,9 @@ make web-dev
 | `src/aeroadapt/sim/aerojax` | JAX 6-DoF fixed-wing simulator, written as a pure functional core (ADR-002): actuators, battery, atmosphere and turbulence, sensors, trim |
 | `src/aeroadapt/faultlab` | Fault specifications, fixed-shape fault slots and ground-truth labels (ADR-003) |
 | `src/aeroadapt/scenarios` | Site definitions (and, from week 4, scenarios) |
-| `src/aeroadapt/stack` | Flight stack. It runs on sensor data only and must not import the simulator (ADR-006). |
+| `src/aeroadapt/stack` | Flight stack: navigator, L1, TECS, attitude loops, modes and mission, classical motor-failure contingency, and the `FlightStack` host shell. It runs on sensor data only and must not import the simulator or a vehicle backend (ADR-006). |
+| `src/aeroadapt/vehicle` | The `Vehicle` interface (ADR-004) and the `AerojaxVehicle` adapter, with privileged truth access (ADR-006) |
+| `src/aeroadapt/harness` | Closed loop (simulator + stack) in one `lax.scan`, vmap-able. V11 acceptance tests. |
 | `reference/bm_numpy` | Independent NumPy reference implementation, used only for N-version validation |
 | `configs/` | Airframe, site and scenario definitions |
 | `web/skyview` | Browser viewer (CesiumJS) |

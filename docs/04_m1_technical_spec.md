@@ -925,3 +925,109 @@ Host-stepped mode: 397 µs per control step, i.e. a real-time factor of 25× for
 4. **Servo-map signs are derived from the signs of the primary control derivatives,** so they cannot be misconfigured. The `reversed` flag flips a channel, which the M2 mixer-reversal fault will use.
 5. **The ISA origin altitude uses an approximate UK geoid (46 m) in fixtures and the benchmark.** A geoid value moves into the site config when the scenario runner lands in week 4.
 6. **The host-stepped real-time factor (25×) covers the simulator only.** The week-3 flight stack adds overhead. If needed, closing over the static parameters is the obvious optimisation, because pytree flattening dominates call latency.
+
+### Week 3 (15 Oct 2026)
+
+**Delivered**
+
+- **Messages and the vehicle boundary.**
+  - `core/messages.py`: `SensorFrame` (WGS84 GNSS), `ActuatorCommand`, and the array form `SensorArrays` (local NED), with float64 conversions.
+  - `vehicle/`: the `Vehicle` and `PrivilegedVehicle` protocols, and `AerojaxVehicle` (trimmed start, termination, impact record, truth snapshot; ADR-004/006).
+- **Navigator v0** (`stack/navigator.py`).
+  - Mahony attitude filter with ArduPilot DCM's GNSS acceleration reference.
+  - GNSS fused against the delayed estimate history; barometer as the primary height source.
+  - Air data, wind estimate, and an airspeed-health check with a synthetic-airspeed fallback.
+- **Stock autopilot** (`stack/guidance.py`, `tecs.py`, `attitude.py`, `autopilot.py`).
+  - L1 waypoint and loiter guidance.
+  - AP_TECS-structured energy control.
+  - Roll/pitch/yaw rate loops with a speed scaler.
+  - AUTO / RTL / GUIDED modes and mission sequencing. GUIDED takes an external `Target` each step: the test harness uses it for steps, and the learned policy will use it later.
+- **Classical contingency v0** (`stack/contingency.py`).
+  - ESC and energy-rate failure detection.
+  - Wind-triangle reachability; zone selection by quality × margin.
+  - A glider-style circuit: hold circle, downwind, base, final, flare. Speed to fly comes from the nominal polar.
+  - Straight in, into wind, when no zone is reachable.
+- **`FlightStack` host shell** (`stack/flight_stack.py`): SensorFrame → jitted core → ActuatorCommand. One packed vector in and one out per step.
+- **Closed-loop harness** (`harness/closed_loop.py`): simulator + stack in one `lax.scan`, vmap-able.
+- **V11 acceptance suite** (`harness/acceptance.py`), shared by the tests and the tuning.
+- **Tuning tool** (`tools/tune_stack.py`): trim-derived throttle, pitch and servo trims, and the speed schedules.
+- **Four safe zones at Cambridge west** (fields A, B, C, F). Corners were picked on the 3D Tiles surface through a dev-only Skyview hook and inset 15 m.
+- **Import contracts**: the stack must not import vehicle backends or harnesses; the simulator, vehicle and faultlab must not import the stack.
+
+**Results**
+
+*Navigator* (stock autopilot in closed loop; 30° turns, 6 m/s wind, light turbulence; after convergence):
+
+| Quantity | RMS error | Spec |
+|---|---|---|
+| Roll / pitch / yaw | 0.47° / 0.62° / 0.98° | 2° / 2° / 3° |
+| Horizontal position | 0.88 m (GNSS bias excluded: <1 m scatter) | 1.5 m |
+| Height | 0.12 m | 0.5 m |
+| Velocity | 0.09 m/s | 0.5 m/s |
+| TAS | 0.09 m/s | 0.3 m/s |
+| Wind | ≈0.8 m/s | 1.5 m/s |
+
+Switching from the accelerometer reference (with centripetal and airspeed-rate compensation) to the GNSS reference cut the errors from 1.46° / 0.89° / 2.32° (roll / pitch / yaw) and 0.21 m/s (velocity).
+
+*V11 (Aerosonde, 25 m/s, float64 as in the tests).* Every criterion passes, in calm air (15/15) and in light turbulence (14/14). Turbulence metrics are scored on the ensemble mean of 16 seeds.
+
+| Test | Calm | Light turbulence | Limit |
+|---|---|---|---|
+| Roll 0→30°: rise / overshoot / steady-state error | 0.48 s / 5.1% / 0.03° | 0.50 s / 2.7% / 0.55° | 1.0 s / 10% / 1° |
+| Pitch +5°: rise / overshoot | 0.46 s / 3.4% | 0.41 s / 1.7% | 0.8 s / 15% |
+| Altitude +20 m: error after 20 s / overshoot / airspeed deviation | 0.49 m / 0.57 m / 1.17 m/s | 0.47 m / 0.48 m / 1.48 m/s | 2 m / 3 m / 2 m/s |
+| Airspeed +5 m/s: error after 15 s / altitude deviation | 0.04 m/s / 0.63 m | 0.22 m/s / 2.40 m | 0.5 m/s / 3 m |
+| L1 cross-track RMS / loiter radius RMS | 1.49 m / 1.26 m | 0.99 m / 1.10 m | 2 m (calm), 5 m / 5 m |
+| \|β\| in a 30° turn | 0.62° | 0.85° | 3° |
+| Servo saturation / limit cycle (0.3–5 Hz attitude RMS) | 0% / 0.08° | 0% / — | 5% / 0.25° |
+
+The tightest margin is the altitude deviation during the airspeed step in turbulence (2.40 m against 3 m). The roll rate integrator was raised from 0.1 to 0.3 after the first full-tier run measured a 1.09° roll steady-state error in turbulence.
+
+*Contingency, hand-made motor cuts* (light turbulence, 0–6 m/s wind from four directions, float64):
+
+- **Detection latency:** 0.70 s (V12 limit: 1.0 s).
+- **In reach:** all 5 cases land in the selected zone with controlled touchdowns.
+- **Out of reach:** both cases glide straight in, into wind (controlled / hard touchdowns).
+- **Marginal case:** one cut about 900 m out sits on the reachability boundary and flips between precisions. It is kept as a no-crash check only.
+- Over a wider float32 exploration (24 cases), there were no crashes once the flare used the 2-second rule.
+
+*Throughput:*
+
+- Host-stepped `AerojaxVehicle` + `FlightStack`: 487 µs per step (stack 158 µs, vehicle 330 µs), i.e. 21× real time. The §5 target is ≥20×.
+- Single closed-loop `lax.scan`: 85× real time.
+- Batched (64 flights): 236k control steps/s, about 2,360× real time in aggregate.
+
+*Tests:* 120 fast and 21 full-tier tests; pyright reports 0 errors; 5 import contracts are kept.
+
+**Deviations from this spec**
+
+1. **Flat stack package.** It is `stack/{navigator, guidance, tecs, attitude, autopilot, contingency, types, config, flight_stack}.py` instead of the sub-packages in §2; the code is small enough. The flattened `SensorFrame` carries WGS84 GNSS; the stack works in local NED.
+2. **Navigator.** These are additions to the DCM-class design; none adds a state estimator beyond DCM.
+   - The attitude reference is the GNSS-velocity-derived specific force over a sliding 1 s window (AP_AHRS_DCM drift correction). The accelerometer reference with ω×v_air and dTAS/dt compensation is used only when GNSS is stale.
+   - Heading comes from the magnetometer only: in wind, GNSS course ≠ heading.
+   - Fast-convergence start-up: the attitude gains are boosted ×10, decaying with τ = 2 s. The wind filter starts at 15% of its time constant.
+3. **Sensor and airframe configuration.**
+   - The gyro turn-on bias is 0.0005 rad/s: the residual after ArduPilot's boot-time gyro calibration. The previous value, 0.003, was an uncalibrated sensor.
+   - The elevator throw is ±30° (was ±25°). The B&M pitching-moment model needs about 34° to trim at best glide; at ±25° the aircraft cannot trim below about 18 m/s, which leaves no authority to flare.
+4. **Stock autopilot vs ArduPlane.** These choices make the baseline stronger and are noted for the M6 comparison.
+   - Speed-scheduled trims: an elevator trim curve a + b·n·(V_c/V)², and throttle and pitch trims scheduled with the TECS speed demand. All are fitted from the trim table by `tools/tune_stack.py` (residual < 0.001).
+   - TECS follows AP_TECS: lagged height and speed demands, a non-stepping integrator clamp (#4066), and TECS_RLL2THR.
+   - Tuned values: TECS time constant 3 s (ArduPlane default 5), integrator gain 0.4, pitch damping 0.6; pitch-loop FF 1.8 / P 0.8 / I 0.5 / τ 0.25 s; roll-loop I 0.3.
+5. **V11 operational definitions** (the spec left these open).
+   - Steps start at t = 20 s, once the navigator has converged. At 3 s, a wind-dependent 1.5° roll-estimate bias is still present.
+   - Overshoot is measured against the settled value; the steady-state error against the command.
+   - L1 cross-track is measured on legs flown ≥25 s after a waypoint switch.
+   - "No limit cycles": attitude RMS in the 0.3–5 Hz band ≤ 0.25° in calm level flight.
+   - Turbulence step metrics use 16-seed ensemble means.
+6. **Contingency.**
+   - ESC threshold: rpm < 50% of expected (spec: 20%). With a 0.3 s spin-down, 20% plus 0.5 s persistence cannot meet the 1.0 s latency target. The loaded/no-load rpm ratio is ≥0.96 over the envelope, so 50% keeps a 2× margin.
+   - The pattern is a glider circuit, not "loiter down, then leave at h_final". One lap costs more height (≈50–80 m) than a final can absorb (≈30 m), so a circle-only pattern leaves height gaps that wind turns into short or long landings. The downwind leg makes the absorbable height continuous.
+   - Speeds: glide ≥ 18.5 m/s; final 20–26 m/s (elevator authority). Plans use a glide efficiency of 0.92. The glide path aims 60 m short of the touchdown point to allow for the flare float. Flare at max(3 m, 2 s × sink) (LAND_FLARE_SEC).
+   - The energy-rate backup detector is implemented but only validated in week 4.
+7. **Safe zones.** There are four, all near the origin: flat-ground M1 needs zone heights within ±1.5 m of the site ground. Fields further west rise to about 97 m, and fields east of the M11 lie at 58–61 m; both wait for the M5 terrain model.
+
+**Known limitations and week-4 items**
+
+- The contingency is validated on hand-made cases only. The 50-scenario V12 campaign will measure the in-zone rate statistically. Two failure modes need watching: long headwind finals, and cuts at the reachability boundary.
+- The estimated wind's crosswind component reads about 0.8 m/s low in steady flight. It is within spec but worth checking against the yaw estimate.
+- The ISA geoid value is still approximate (site config: 46 m ± 1 m).

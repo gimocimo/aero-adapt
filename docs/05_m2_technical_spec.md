@@ -448,3 +448,76 @@ Never cut aero v2 parity (V16/V17), V14, V20, the bench or live fault injection.
 ## 14. Implementation log (living section)
 
 *Appended weekly: results, deviations, and the Definition of Done status.*
+
+### Week 5 (15 Oct 2026)
+
+**Built**
+
+- **Aero v2** (§3):
+  - Static C_L, C_D and C_m tabulated over 360° of α on a uniform 0.5° grid (721 points),
+    with effectiveness tables scaling the damping and control derivatives.
+  - `AirframeParams.tables = None` keeps the analytic B&M model with *unchanged expressions*,
+    so the M1 goldens and V13 are untouched.
+  - `aero.model: bm_tabulated` samples the B&M formulas onto the grid (in NumPy, separately
+    from the JAX formulas).
+  - Lookups are index arithmetic, so a heterogeneous fleet `vmap`s with one shape.
+- **Ground effect** (Should, done):
+  - McCormick's induced-drag factor, selected by `aero.ground_effect`. With the flag at 0 the
+    correction is exactly zero.
+  - Off for the textbook Aerosonde; it will be on for the generated fleet.
+  - The lift-curve-slope increase is neglected (documented).
+- **JSBSim backend** (`jsbsim` optional extra, LGPL, installed in CI):
+  - `sim/jsbsim/export.py` writes any aerojax airframe as a JSBSim model:
+    - body-axis forces, with lift and drag rotated by α only, as in B&M;
+    - tables and effectiveness factors;
+    - ground effect;
+    - external reactions for thrust and propeller torque.
+  - `tools/jsbsim/aircraft/aerosonde_bm` is generated, and a test checks that it is current.
+  - `JSBSimFDM` is an SI wrapper around JSBSim.
+  - `JSBSimVehicle` puts JSBSim behind the `Vehicle` interface:
+    - JSBSim provides the rigid body, gravity, Earth, atmosphere, wind and Milspec turbulence;
+    - actuators, motor, propeller, battery, sensors and faults reuse the aerojax models.
+- **Rascal 110:** `sim/jsbsim/rascal.py` fetches it from ArduPilot at a pinned commit into
+  `~/.cache/aeroadapt/jsbsim` (GPL, never committed).
+  - The model as fetched: 5.9 kg; a 2.2 kW JSBSim electric engine with an 18×8 propeller; its
+    own control system with asymmetric elevator travel (−0.35/+0.30 rad).
+  - Its surface signs map directly onto B&M signs.
+- **Report builder:** now writes `docs/validation/m2_report.md` (M1 sections recomputed, plus
+  V14 and V16/V17). `m1_report.md` is the frozen M1 artefact.
+
+**Results**
+
+| Check | Result | Criterion |
+|---|---|---|
+| V14 power-off glide trim at 22.5 m/s (ρ and g matched) | α 4.567° vs 4.558° (Δ 0.009°); γ −4.471° vs −4.475° (Δ 0.005°) | Δα ≤ 0.1°, Δγ ≤ 0.05° ✅ |
+| V14 elevator doublet ±2°, 10 s | 0.051° RMS in pitch | ≤ 0.3° ✅ |
+| V14 aileron doublet ±2°, 10 s (recorded) | 0.31° RMS in roll on a 23° response; 0.27° in heading | ≤ 1° ✅ (sign conventions and the product of inertia confirmed) |
+| Exporter vs aerojax, all six axes, 40 random conditions (random tables, β, rates, ground effect) | within 2e-5 of q̄S (q̄Sb for moments) | ✅ |
+| V16 tables vs analytic, α ∈ [−15°, 20°] | C_L 9.6e-5, C_D 1.4e-5, C_m 2e-15 | ≤ 1e-3 ✅ |
+| V16 golden flights on tabulated aero | all 5 within golden tolerances | ✅ |
+| V17 reference parity (random tables; 20 s trajectory; ground effect at 0–6 m) | ≤ 1e-10 relative | ✅ |
+| Stock stack in JSBSim (Aerosonde, 5 m/s wind, 90 s box mission) | altitude ±2 m, navigator–truth position error ≤ 2 m, 6.9× real time (aerojax host-stepped: 13.6×) | D3 ✅ |
+
+**Deviations**
+
+1. **The Rascal's first flight moves to week 7.** It needs a stack configuration and a
+   "datasheet" airframe that must not come from its JSBSim aerodynamic tables (it is held out).
+   - Week 6's generator, which estimates coefficients from geometry, provides that airframe.
+   - Week 7's auto-configuration provides the stack configuration.
+   - Hand-tuning it now would be thrown away.
+2. **V14 runs in the fast tier**, not the full tier: it takes about 2 s.
+3. **JSBSim integrators.** JSBSim's defaults are used (rectangular Euler for the rotational
+   states, Adams–Bashforth 2/3 for the translational ones) at 200 Hz, to keep the simulator
+   independent. The roll-response difference in V14 is consistent with that.
+4. **`JSBSimVehicle` initial state.** It starts from aerojax's trim of the same airframe (the
+   stack's view of trim), and JSBSim settles from there within the first second.
+
+**Definition of Done status (M2)**
+
+| # | Status |
+|---|---|
+| D1 CI green | ✅ (week 5 commits) |
+| D2 Aero v2 + V16/V17 | ✅ |
+| D3 JSBSim backend + V14 | ✅ |
+| D4 Rascal flies (Should) | ⏳ week 7 (deviation 1) |
+| D5–D11 | ⏳ weeks 6–8 |

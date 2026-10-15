@@ -1,9 +1,10 @@
-"""M1 validation report (spec §12, deliverable D2): ``docs/validation/m1_report.md`` + figures.
+"""Validation report: ``docs/validation/m2_report.md`` + figures (M1 spec §12, M2 spec §10).
 
 It recomputes every piece of evidence, independently of the pytest tiers: parity against
 the NumPy reference (V3), invariants (V2), trims and modes (V4/V5), integrator convergence
 (V6), precision (V7), Dryden statistics (V8), autopilot acceptance (V11), the contingency
-(V12) and throughput (V15).
+(V12) and throughput (V15) from M1; and from M2 the JSBSim cross-check (V14) and the aero v2
+tables (V16, V17). ``docs/validation/m1_report.md`` is the frozen M1 artefact.
 
 It lives outside the ``aeroadapt`` package because it imports the reference implementation,
 which production code must never import (import-linter contract).
@@ -38,7 +39,7 @@ import numpy as np  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
 from scipy.signal import welch  # noqa: E402
 
-from aeroadapt.airframes import AIRFRAME_DIR, load_airframe, to_params  # noqa: E402
+from aeroadapt.airframes import AIRFRAME_DIR, bm_tables, load_airframe, to_params  # noqa: E402
 from aeroadapt.core import quaternion as Q  # noqa: E402
 from aeroadapt.harness.acceptance import TESTS, Guided, V11Runner, _mean, run_v11  # noqa: E402
 from aeroadapt.scenarios import load_site  # noqa: E402
@@ -54,6 +55,8 @@ from aeroadapt.sim.aerojax import (  # noqa: E402
     state_from_vector,
     state_to_vector,
 )
+from aeroadapt.sim.aerojax.aero import drag_coefficient, lift_coefficient  # noqa: E402
+from aeroadapt.sim.aerojax.aero_tables import table_lookup  # noqa: E402
 from aeroadapt.sim.aerojax.atmosphere import (  # noqa: E402
     TurbulenceParams,
     dryden_scales,
@@ -62,6 +65,7 @@ from aeroadapt.sim.aerojax.atmosphere import (  # noqa: E402
 )
 from aeroadapt.sim.aerojax.integrators import rk4  # noqa: E402
 from aeroadapt.sim.aerojax.trim import linearise, trim  # noqa: E402
+from aeroadapt.sim.jsbsim.v14 import AIRSPEED, run_v14  # noqa: E402
 from aeroadapt.stack.autopilot import MODE_GUIDED  # noqa: E402
 from aeroadapt.stack.config import build_stack_params, load_stack_cfg  # noqa: E402
 from reference.bm_numpy import model as ref  # noqa: E402
@@ -574,6 +578,99 @@ def v12_contingency(r: Report, quick: bool) -> None:
     r.figure(fig, "v12_campaign_map", "V12: mini-campaign map; ○ in-zone landing, × other")
 
 
+# --------------------------------------------------------------------------- V14
+def v14_jsbsim(r: Report) -> None:
+    p = to_params(load_airframe("aerosonde_bm"))
+    v = run_v14(p)
+    r.h(2, "V14 · JSBSim cross-check (Aerosonde exported to JSBSim)")
+    r.p(
+        "The Aerosonde's aerodynamics are exported to a JSBSim model (`tools/jsbsim`); JSBSim "
+        "supplies its own equations of motion, integrators, WGS84 gravity, rotating Earth and "
+        f"atmosphere. Each simulator finds its own power-off glide trim at {AIRSPEED} m/s "
+        f"(ρ = {v.rho:.4f} kg/m³ and g = {v.gravity:.4f} m/s² matched), then flies the same "
+        "doublets open loop for 10 s."
+    )
+    rows = [
+        ("α (°)", v.aerojax.alpha, v.jsbsim.alpha, v.alpha_error_deg, "≤ 0.1"),
+        ("δe (°)", v.aerojax.delta_e, v.jsbsim.delta_e, None, "—"),
+        ("γ (°)", v.aerojax.gamma, v.jsbsim.gamma, v.gamma_error_deg, "≤ 0.05"),
+    ]
+    r.table(
+        ["Glide trim", "aerojax", "JSBSim", "Difference", "Criterion"],
+        [
+            (n, f"{a * DEG:.3f}", f"{b * DEG:.3f}", "—" if d is None else f"{d:.4f}", c)
+            for n, a, b, d, c in rows
+        ],
+    )
+    r.table(
+        ["Response", "RMS difference", "Criterion", ""],
+        [
+            ("Pitch, elevator doublet ±2°", f"{v.pitch_rms_deg:.3f}°", "≤ 0.3°", mark(v.passed)),
+            (
+                "Roll, aileron doublet ±2°",
+                f"{v.roll_rms_deg:.3f}°",
+                "recorded (≤ 1°)",
+                mark(v.roll_rms_deg <= 1),
+            ),
+            (
+                "Heading, aileron doublet ±2°",
+                f"{v.yaw_rms_deg:.3f}°",
+                "recorded (≤ 1°)",
+                mark(v.yaw_rms_deg <= 1),
+            ),
+        ],
+    )
+    fig, ax = plt.subplots(1, 2, figsize=(10, 3.2))
+    ax[0].plot(v.t, v.elevator_aerojax[:, 1] * DEG, label="aerojax")
+    ax[0].plot(v.t, v.elevator_jsbsim[:, 1] * DEG, "--", label="JSBSim")
+    ax[0].set(xlabel="time (s)", ylabel="Δθ (°)", title="elevator doublet")
+    ax[1].plot(v.t, v.aileron_aerojax[:, 0] * DEG, label="aerojax φ")
+    ax[1].plot(v.t, v.aileron_jsbsim[:, 0] * DEG, "--", label="JSBSim φ")
+    ax[1].set(xlabel="time (s)", ylabel="Δφ (°)", title="aileron doublet")
+    for a in ax:
+        a.legend()
+        a.grid(alpha=0.3)
+    r.figure(fig, "v14_jsbsim", "V14: aerojax and JSBSim from their own power-off glide trims")
+
+
+# --------------------------------------------------------------------------- V16 / V17
+def v16_v17_tables(r: Report) -> None:
+    p = to_params(load_airframe("aerosonde_bm"))
+    t = bm_tables(p)
+    alpha = np.radians(np.linspace(-15.0, 20.0, 3_501))
+    errs = {
+        name: float(
+            np.max(np.abs(np.asarray(table_lookup(jnp.asarray(tab), jnp.asarray(alpha))) - exact))
+        )
+        for name, tab, exact in (
+            ("C_L", t.C_L, np.asarray(lift_coefficient(p, jnp.asarray(alpha)))),
+            ("C_D", t.C_D, np.asarray(drag_coefficient(p, jnp.asarray(alpha)))),
+            ("C_m", t.C_m, p.C_m_0 + p.C_m_alpha * alpha),
+        )
+    }
+    r.h(2, "V16 / V17 · Aero v2 tables")
+    r.p(
+        "Aero v2 tabulates the static coefficients over 360° of α (0.5° grid) and scales the "
+        "damping and control derivatives by effectiveness tables. **V16**: the B&M formulas "
+        "sampled onto the grid reproduce the analytic model in the flight envelope "
+        "(α ∈ [−15°, 20°]):"
+    )
+    r.table(
+        ["Coefficient", "Max abs(tabulated − analytic)", "Criterion", ""],
+        [(k, f"{e:.1e}", "≤ 1e-3", mark(e <= 1e-3)) for k, e in errs.items()],
+    )
+    r.p(
+        "The golden flights also pass with tabulated aerodynamics (fast tier: nominal and "
+        "classical motor cut; full tier: all five). **V17**: the NumPy reference interpolates "
+        "the tables independently (`np.interp` on an explicit grid, against index arithmetic "
+        "in aerojax) and agrees to 1e-10 relative on random tables, pointwise and over a 20 s "
+        "trajectory, and with ground effect enabled near the ground (`tests/validation/"
+        "test_v16_v17_aero_tables.py`). The JSBSim exporter reproduces aerojax's forces and "
+        "moments in all six axes to 2e-5 of q̄S (q̄Sb for moments) at random flight conditions, "
+        "including tables, effectiveness factors, sideslip, rates and ground effect."
+    )
+
+
 # --------------------------------------------------------------------------- V15
 def v15_throughput(r: Report) -> None:
     out = subprocess.run(
@@ -592,15 +689,16 @@ def build_report(out: Path, quick: bool = False) -> Path:
     t0 = time.perf_counter()
     gi = git_info()
     r.lines += [
-        "# M1 validation report",
+        "# Validation report (M1 and M2)",
         "",
         f"*Generated {dt.date.today().isoformat()} by `validation/report.py` · commit "
         f"`{gi.get('commit', 'unknown')[:10]}`{' (dirty)' if gi.get('dirty') else ''} · "
         f"{platform.machine()} {platform.system()} · Python {platform.python_version()} · "
         f"JAX {jax.__version__}{' · quick mode' if quick else ''}*",
         "",
-        "Evidence for spec §12. Each section recomputes its results; the pytest tiers gate the "
-        "same criteria in CI (fast) and nightly (full).",
+        "Evidence for the M1 spec §12 and the M2 spec §10. Each section recomputes its "
+        "results; the pytest tiers gate the same criteria in CI (fast) and nightly (full). "
+        "The frozen M1 artefact is [m1_report.md](m1_report.md).",
     ]
     sections: list[Callable[[], None]] = [
         lambda: v3_parity(r),
@@ -611,12 +709,14 @@ def build_report(out: Path, quick: bool = False) -> Path:
         lambda: v8_dryden(r, quick),
         lambda: v11_autopilot(r, quick),
         lambda: v12_contingency(r, quick),
+        lambda: v14_jsbsim(r),
+        lambda: v16_v17_tables(r),
         lambda: v15_throughput(r),
     ]
     for section in sections:
         section()
     r.p("", f"*Built in {time.perf_counter() - t0:.0f} s. V11 test names: {', '.join(TESTS)}.*")
-    path = out / "m1_report.md"
+    path = out / "m2_report.md"
     path.write_text("\n".join(r.lines).strip() + "\n")
     return path
 

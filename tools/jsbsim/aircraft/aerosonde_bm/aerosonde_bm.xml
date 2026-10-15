@@ -3682,6 +3682,7 @@
         </tableData>
       </table>
     </function>
+
     <function name="aero/coefficient/CL_total">
       <sum><property>aero/coefficient/C_L</property><product><value>7.95</value><property>aero/ci2vel</property><property>velocities/q-rad_sec</property><property>aero/coefficient/eta_damp</property></product><product><value>0.13</value><property>fcs/de-rad</property><property>aero/coefficient/eta_ctrl</property></product></sum>
     </function>

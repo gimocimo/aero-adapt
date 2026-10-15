@@ -172,3 +172,33 @@ def test_v17_tabulated_trajectory_parity(params: AirframeParams, ref_params: ref
     )(jnp.asarray(x0), u, w)
     xs_ref = ref.simulate(rp, x0, u, w, DT)
     np.testing.assert_allclose(np.asarray(state_to_vector(traj)), xs_ref, rtol=1e-9, atol=1e-8)
+
+
+def test_v17_ground_effect_parity(params: AirframeParams, ref_params: ref.Params) -> None:
+    """Ground effect (tabulated airframe, wing 0-6 m above the ground) against the reference."""
+    t = random_tables(9)
+    p_tab = params._replace(tables=t, ground_effect=1.0)
+    rp = {**_ref_with_tables(ref_params, t), "ground_effect": 1.0}
+    xs, us, ws = _sample(300, seed=10)
+    xs[:, 2] = -np.random.default_rng(11).uniform(0.0, 6.0, len(xs))
+    fm = jax.jit(
+        jax.vmap(
+            lambda x, u, w: forces_moments(
+                p_tab, BM_PARITY, state_from_vector(x), controls_from_vector(u), w
+            )
+        )
+    )(xs, us, ws)
+    ref_f = np.array(
+        [ref.forces_moments(rp, x, u, w)[0] for x, u, w in zip(xs, us, ws, strict=True)]
+    )
+    np.testing.assert_allclose(fm.force_body, ref_f, rtol=1e-10, atol=1e-9)
+    # And it matters: the same states without ground effect have more drag.
+    p_off = p_tab._replace(ground_effect=0.0)
+    off = jax.jit(
+        jax.vmap(
+            lambda x, u, w: forces_moments(
+                p_off, BM_PARITY, state_from_vector(x), controls_from_vector(u), w
+            )
+        )
+    )(xs, us, ws)
+    assert float(jnp.max(jnp.abs(off.force_body - fm.force_body))) > 0.1

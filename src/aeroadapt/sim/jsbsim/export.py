@@ -75,12 +75,24 @@ def airframe_xml(p: AirframeParams, name: str, description: str) -> str:
         _rate(p.C_L_q, ci2v, qr),
         _ctrl(p.C_L_delta_e, de),
     )
-    drag = _sum_function(
-        "aero/coefficient/CD_total",
-        _p("aero/coefficient/C_D"),
-        _rate(p.C_D_q, ci2v, qr),
-        _ctrl(p.C_D_delta_e, de),
-    )
+    drag_terms = [_p("aero/coefficient/C_D"), _rate(p.C_D_q, ci2v, qr), _ctrl(p.C_D_delta_e, de)]
+    ground = ""
+    if p.ground_effect:
+        # McCormick: induced drag C_L²/(π e AR) scaled by φ = x²/(1 + x²), x = 16 h/b.
+        x = (
+            f"<product>{_v(16.0)}<quotient>{_p('position/h-agl-ft')}"
+            f"{_p('metrics/bw-ft')}</quotient></product>"
+        )
+        x2 = f"<pow>{x}{_v(2.0)}</pow>"
+        phi = f"<quotient>{x2}<sum>{_v(1.0)}{x2}</sum></quotient>"
+        k = -p.ground_effect / (np.pi * p.e_oswald * p.AR)
+        ground = (
+            '    <function name="aero/coefficient/CD_ground">\n      <product>'
+            f"{_v(k)}{_p('aero/coefficient/C_L')}{_p('aero/coefficient/C_L')}"
+            f"<difference>{_v(1.0)}{phi}</difference></product>\n    </function>"
+        )
+        drag_terms.append(_p("aero/coefficient/CD_ground"))
+    drag = _sum_function("aero/coefficient/CD_total", *drag_terms)
     side = _sum_function(
         "aero/coefficient/CY_total",
         _v(p.C_Y_0),
@@ -186,6 +198,7 @@ def airframe_xml(p: AirframeParams, name: str, description: str) -> str:
   </flight_control>
   <aerodynamics>
 {tables}
+{ground}
 {lift}
 {drag}
 {side}

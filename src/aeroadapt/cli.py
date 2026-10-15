@@ -3,7 +3,7 @@
 aeroadapt run <scenario> [--out DIR]           one flight → replay bundle
 aeroadapt campaign <campaign> [--out DIR]      seeded variations → outcomes + summary
 aeroadapt validate [--tier fast|full]          the V1–V15 test tiers (pytest)
-aeroadapt report [--out DIR]                   docs/validation/m1_report.md + figures
+aeroadapt report [--out DIR]                   docs/validation/m2_report.md + figures
 aeroadapt bench                                throughput benchmark (V15)
 aeroadapt export-viz <bundle> [--to DIR]       copy a bundle's browser files for Skyview
 """

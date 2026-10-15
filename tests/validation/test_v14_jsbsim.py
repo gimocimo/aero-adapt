@@ -1,12 +1,21 @@
-"""V14: aerojax against JSBSim on the B&M Aerosonde (power-off glide trim and doublets)."""
+"""V14: aerojax against JSBSim on the B&M Aerosonde (power-off glide trim and doublets), and
+the JSBSim exporter against aerojax's aerodynamics, pointwise in all six axes."""
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from aeroadapt.airframes import AirframeParams
+from aeroadapt.core import quaternion
+from aeroadapt.sim.aerojax.aero import aero_forces_moments, air_data
+from aeroadapt.sim.aerojax.state import RigidBodyState, SurfaceControls
 from aeroadapt.sim.jsbsim.export import airframe_xml
-from aeroadapt.sim.jsbsim.fdm import JSBSIM_ROOT
+from aeroadapt.sim.jsbsim.fdm import FT, JSBSIM_ROOT, JSBSimFDM
+from tests.validation.test_v16_v17_aero_tables import random_tables
 
 pytest.importorskip("jsbsim")
 
@@ -14,6 +23,7 @@ from aeroadapt.sim.jsbsim.v14 import run_v14
 
 COMMITTED = JSBSIM_ROOT / "aircraft" / "aerosonde_bm" / "aerosonde_bm.xml"
 COMMITTED_DESCRIPTION = "Beard and McLain Aerosonde, exported from aerojax (V14)"
+LBF, LBF_FT = 4.448_221_615, 1.355_817_948
 
 
 def test_committed_jsbsim_model_is_current(params: AirframeParams) -> None:
@@ -31,3 +41,47 @@ def test_v14_trim_and_doublets_match_jsbsim(params: AirframeParams) -> None:
     # Lateral conventions (product-of-inertia sign, aileron and rudder signs): recorded with a
     # loose bound that any sign error would exceed by an order of magnitude.
     assert r.roll_rms_deg <= 1.0 and r.yaw_rms_deg <= 1.0, (r.roll_rms_deg, r.yaw_rms_deg)
+
+
+def test_export_reproduces_aerojax_forces_pointwise(params: AirframeParams, tmp_path: Path) -> None:
+    """Every axis of the exported model (lift, drag, side force, three moments, tables,
+    effectiveness factors and ground effect) against aerojax at random flight conditions."""
+    p = params._replace(tables=random_tables(7), ground_effect=1.0)
+    (tmp_path / "aircraft" / "ge").mkdir(parents=True)
+    (tmp_path / "aircraft" / "ge" / "ge.xml").write_text(airframe_xml(p, "ge", "test"))
+    fdm = JSBSimFDM("ge", root=tmp_path)
+    rng = np.random.default_rng(8)
+    for _ in range(40):
+        h = float(rng.choice([0.5, 2.0, 5.0, 60.0]))
+        va, alpha, beta = rng.uniform(12, 30), rng.uniform(-0.3, 0.5), rng.uniform(-0.2, 0.2)
+        rates, surf = rng.uniform(-0.5, 0.5, 3), rng.uniform(-0.3, 0.3, 3)
+        fdm["position/terrain-elevation-asl-ft"] = 0.0
+        for name, r in zip(("p", "q", "r"), rates, strict=True):
+            fdm[f"ic/{name}-rad_sec"] = r
+        fdm["ic/beta-rad"] = beta
+        fdm["ic/h-sl-ft"], fdm["ic/vt-fps"], fdm["ic/alpha-rad"] = h / FT, va / FT, alpha
+        fdm.set_surfaces(*surf)
+        fdm.fdm.run_ic()
+        fdm.set_surfaces(*surf)
+        fdm.fdm.run_ic()  # evaluate with the surfaces in place
+        js_f = LBF * np.array([fdm[f"forces/fb{a}-aero-lbs"] for a in "xyz"])
+        js_m = LBF_FT * np.array([fdm[f"moments/{a}-aero-lbsft"] for a in "lmn"])
+
+        vel = va * np.array(
+            [np.cos(alpha) * np.cos(beta), np.sin(beta), np.sin(alpha) * np.cos(beta)]
+        )
+        omega = np.array([fdm[f"velocities/{k}-rad_sec"] for k in "pqr"])
+        s = RigidBodyState(
+            jnp.array([0.0, 0.0, -h]),
+            jnp.asarray(vel),
+            quaternion.from_euler(0.0, 0.0, 0.0),
+            jnp.asarray(omega),
+        )
+        da, de, dr = (jnp.asarray(x) for x in surf)
+        u = SurfaceControls(da, de, dr, jnp.asarray(0.0))
+        aj_f, aj_m = aero_forces_moments(
+            p, fdm.rho, air_data(s, jnp.zeros(3)), s.omega, u, jnp.asarray(h)
+        )
+        qs = 0.5 * fdm.rho * va**2 * p.S
+        np.testing.assert_allclose(js_f / qs, np.asarray(aj_f) / qs, atol=2e-5)
+        np.testing.assert_allclose(js_m / (qs * p.b), np.asarray(aj_m) / (qs * p.b), atol=2e-5)

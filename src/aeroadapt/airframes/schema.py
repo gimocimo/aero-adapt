@@ -100,6 +100,9 @@ class Aero(_Strict):
     """
 
     model: Literal["bm_analytic", "bm_tabulated"] = "bm_analytic"
+    ground_effect: bool = Field(
+        default=False, description="Induced-drag reduction near the ground (McCormick)"
+    )
     longitudinal: Longitudinal
     lateral: Lateral
     stall: Stall

@@ -43,7 +43,7 @@ def forces_moments(
     gust, ideal battery (``V_max``) and a healthy motor.
     """
     air = air_data(s, wind_ned, gust_body)
-    f_aero, m_aero = aero_forces_moments(p, env.rho, air, s.omega, u)
+    f_aero, m_aero = aero_forces_moments(p, env.rho, air, s.omega, u, -s.pos_ned[..., 2])
     weight_ned = jnp.zeros_like(s.pos_ned).at[..., 2].set(p.mass * env.gravity)
     f_grav = quaternion.ned_to_body(s.quat, weight_ned)
     prop = propeller(p, env.rho, air.va, u.delta_t, v_supply)

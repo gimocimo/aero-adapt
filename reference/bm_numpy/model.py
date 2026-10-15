@@ -194,6 +194,11 @@ def forces_moments(
         cm_static = p["C_m_0"] + p["C_m_alpha"] * alpha
         kc = kd = 1.0
     hc, hb = c / (2 * va_safe), b / (2 * va_safe)
+    if p.get("ground_effect", 0.0):
+        # McCormick: the induced drag C_L²/(π e AR) is scaled by (16h/b)²/(1 + (16h/b)²).
+        ratio = (16.0 * max(-x[2], 0.0) / b) ** 2
+        induced = cl_static**2 / (math.pi * p["e"] * p["AR"])
+        cd_static -= p["ground_effect"] * induced * (1.0 - ratio / (1.0 + ratio))
 
     # Lift and drag in the stability frame, then rotated into the body frame.
     lift = qbar * s_w * (cl_static + kd * p["C_L_q"] * hc * qr + kc * p["C_L_delta_e"] * de)

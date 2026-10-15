@@ -28,7 +28,7 @@ validate:
 
 check: lint typecheck imports test
 
-## Validation report (docs/validation/m1_report.md + figures)
+## Validation report (docs/validation/m2_report.md + figures; m1_report.md is the frozen M1 artefact)
 report:
 	uv run python -m validation.report
 

@@ -97,6 +97,7 @@ class AirframeParams(NamedTuple):
     i0: float
     V_max: float
     C_windmill: float  # stopped/windmilling propeller drag coefficient on disc area
+    ground_effect: float = 0.0  # 1: induced-drag reduction near the ground (0 leaves v1 exact)
     # aero v2: static tables; None selects the analytic B&M model (a static choice under jit)
     tables: AeroTables | None = None
 
@@ -222,6 +223,7 @@ def to_params(af: Airframe) -> AirframeParams:
         i0=pr.motor.i0_a,
         V_max=pr.battery.v_max,
         C_windmill=pr.windmill_cd,
+        ground_effect=float(af.aero.ground_effect),
     )
     if af.aero.model == "bm_tabulated":
         params = params._replace(tables=bm_tables(params))

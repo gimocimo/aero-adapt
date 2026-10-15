@@ -77,10 +77,28 @@ def _scaled(eta: Array | None, x: Array) -> Array:
     return x if eta is None else eta * x
 
 
+def ground_effect_factor(h_agl: Array, span: float | Array) -> Array:
+    """McCormick's induced-drag factor φ = (16h/b)² / (1 + (16h/b)²): 1 far from the ground,
+    falling towards 0 as the wing approaches it."""
+    x = 16.0 * jnp.maximum(h_agl, 0.0) / span
+    return x * x / (1.0 + x * x)
+
+
 def aero_forces_moments(
-    p: AirframeParams, rho: float | Array, air: AirData, omega: Array, u: SurfaceControls
+    p: AirframeParams,
+    rho: float | Array,
+    air: AirData,
+    omega: Array,
+    u: SurfaceControls,
+    h_agl: Array | None = None,
 ) -> tuple[Array, Array]:
-    """Aerodynamic force and moment in body axes (excluding gravity and propulsion)."""
+    """Aerodynamic force and moment in body axes (excluding gravity and propulsion).
+
+    With ``h_agl`` and ``p.ground_effect = 1``, the induced drag (estimated from the static
+    lift coefficient and the parabolic polar) is reduced by the ground-effect factor. The
+    lift-curve-slope increase in ground effect is neglected. With ``ground_effect = 0`` the
+    correction is exactly zero, so aero v1 is unchanged.
+    """
     va, alpha, beta = air.va, air.alpha, air.beta
     pr, qr, rr = omega[..., 0], omega[..., 1], omega[..., 2]
     two_va = 2.0 * jnp.maximum(va, VA_MIN)
@@ -95,6 +113,9 @@ def aero_forces_moments(
         c_lift, c_drag = table_lookup(t.C_L, alpha), table_lookup(t.C_D, alpha)
         c_pitch = table_lookup(t.C_m, alpha)
         eta_c, eta_d = table_lookup(t.eta_ctrl, alpha), table_lookup(t.eta_damp, alpha)
+    if h_agl is not None:
+        cdi = c_lift * c_lift / (jnp.pi * p.e_oswald * p.AR)
+        c_drag = c_drag - p.ground_effect * (1.0 - ground_effect_factor(h_agl, p.b)) * cdi
 
     lift = qbar_s * (
         c_lift

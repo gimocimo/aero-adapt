@@ -51,7 +51,7 @@ tecs:
   airspeed_max_mps: 35.0      # AIRSPEED_MAX
 
 attitude:
-  roll:  {tconst_s: 0.35, rate_max_dps: 75.0, ff: 0.40, p: 0.10, i: 0.10, imax: 0.15}   # RLL2SRV_TCONST, RLL_RATE_*
+  roll:  {tconst_s: 0.35, rate_max_dps: 75.0, ff: 0.40, p: 0.10, i: 0.30, imax: 0.20}   # RLL2SRV_TCONST, RLL_RATE_*
   pitch: {tconst_s: 0.25, rate_max_dps: 45.0, ff: 1.80, p: 0.80, i: 0.50, imax: 0.40}   # PTCH2SRV_TCONST, PTCH_RATE_*
   yaw:   {ff: 0.30, damp: 0.30, slip_i: 0.02, imax: 0.20}                             # YAW2SRV_*
   scaler_min: 0.5

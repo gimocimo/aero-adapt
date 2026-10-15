@@ -521,3 +521,104 @@ Never cut aero v2 parity (V16/V17), V14, V20, the bench or live fault injection.
 | D3 JSBSim backend + V14 | ✅ |
 | D4 Rascal flies (Should) | ⏳ week 7 (deviation 1) |
 | D5–D11 | ⏳ weeks 6–8 |
+
+### Week 6 (15 Oct 2026)
+
+**Built**
+
+- **`aeroadapt.generator`** (offline, `generator` extra: AeroSandbox 4.2, NeuralFoil, trimesh). A
+  new import-linter contract keeps it out of everything that flies; generated airframes reach the
+  simulator only as data.
+  - `design.py`: five classes. Mass is kept within 0.8–15 kg by narrowing the wing-loading range
+    with size.
+  - `geometry.py`: layout from tail volume coefficients, then AeroSandbox airplanes with
+    ailerons, elevator, rudder or ruddervators.
+  - `mass.py`: component budget. The battery station sets the CG at the target static margin;
+    the inertia tensor is in body axes.
+  - `aero.py`: static tables, derivatives and effectiveness factors.
+  - `propulsion.py`: motor, propeller and battery sizing.
+  - `filters.py`: batched aerojax trim (three speeds), modes, static margin, roll authority,
+    thrust-to-weight, stall speed and wing loading. One compilation covers any fleet size.
+  - `gltf.py`: a viewer model of each airframe, in the calibration-model frame.
+  - `fleet.py`: parallel builds, fleet bundles, `load_fleet` and subsets. CLI:
+    `aeroadapt fleet <id> --n N`, `make fleet`.
+  - `references.py`: V18.
+- **Schema:** airframes gained `aero.model: tabulated` with inline `tables` (validated on the
+  grid). `configs/fleets/sample` holds 10 airframes (2 per class, 308 kB) for tests and Skyview.
+- **Report:** V18 and V19 sections.
+
+**Results**
+
+- **The fleet** (`runs/fleets/m2-fleet`, git-ignored, 257 MB):
+  - **10,000 accepted from 11,062 designs (90 % yield) in 28.5 min** on 9 worker processes. The
+    AeroSandbox stage takes about 0.7 s per airframe.
+  - Yield by class: conventional 94 %, T-tail 93 %, V-tail 92 %, twin-boom 91 %, glider 81 %.
+  - Rejections: spiral divergence 728, no payload margin 150, Dutch-roll damping 60, roll
+    authority 65, battery station 35, fast-trim throttle 31, thrust-to-weight 11, stall speed 1.
+
+| Quantity | Min | Median | Max |
+|---|---|---|---|
+| Span (m) | 1.0 | 2.48 | 4.0 |
+| Mass (kg) | 0.80 | 4.71 | 15.0 |
+| Wing loading (N/m²) | 20 | 78 | 150 |
+| Stall speed (m/s) | 5.0 | 9.5 | 14.0 |
+| Cruise speed (m/s) | 7.0 | 16 | 24.5 |
+| Static margin (aerojax) | 0.046 | 0.104 | 0.164 |
+| Steady roll rate (°/s) | 61 | 218 | 937 |
+| Static thrust / weight | 0.40 | 0.83 | 1.76 |
+
+- **Consistency:**
+  - aerojax's static margin from the tables matches the generator's CG placement within 0.03 in
+    every unit test.
+  - Open-loop flights from trim stay stable after an elevator pulse in every class.
+  - A stored (float32) bundle re-passes the filters (V19 test).
+- **V18:**
+  - C_Lα: Aerosonde +2 %, X8 +8 % (≤ 15 % ✅).
+  - Both statically stable ✅.
+  - C_ℓp: X8 −26 % (criterion 25 %: marginal miss); Aerosonde −67 % ❌, see deviation 4.
+  - Other derivatives recorded in the report.
+
+**Deviations**
+
+1. **Tripped boundary layers.** NeuralFoil with free transition gives laminar-separation kinks
+   in the lift curves of thin tail sections at chord Reynolds numbers of about 1e5. Pitch
+   stability then varied in sign across 5° of α, and the neutral point depended on where it was
+   measured.
+   - All generated surfaces use forced transition at 5 % chord, standing in for rough surfaces,
+     hinge gaps and turbulent air. Lift curves become smooth, with slightly more drag.
+   - The neutral point is computed at the cruise α with the same model.
+2. **Mass bound.** The first build reached 36.8 kg, above doc 03's 0.8–15 kg (and the UK Open
+   category's 25 kg). The wing-loading range is now narrowed by size; the fleet was rebuilt.
+3. **AeroBuildup for everything, VLM rejected.** The vortex-lattice method gave better roll
+   damping for the X8 (−11 %), but erratic pitch-rate derivatives (C_Lq 3–6× off). Choosing a
+   source per derivative to match two reference aircraft would be fitting to the test, so one
+   method is used throughout.
+4. **V18 misses, explained rather than tuned away:**
+   - The textbook Aerosonde's C_ℓp (−0.51) is below strip theory for its own AR-15 wing (about
+     −0.9) and below VLM (−0.71). B&M gives no tail geometry, so only wing-dominated derivatives
+     are meaningful for it.
+   - The X8's control power differs mostly because its elevon sizes are not published; ours
+     follow thin-airfoil theory for the surfaces as sized.
+   - Flying-wing directional derivatives (C_nβ, C_n,r, C_Yβ) are under-predicted by the buildup
+     method. The flying wing is held out, and the X8 will fly with its published coefficients.
+5. **Known approximations:**
+   - post-stall tables;
+   - the propeller family (scaled from B&M's propeller by pitch ratio);
+   - the mass budget;
+   - effectiveness η(α) taken from the elevator and also applied to damping;
+   - generous roll authority (thin-airfoil control power, a median of 218°/s).
+
+   Backlash in the actuators moves to faultlab v1 (week 7), where it is also a fault.
+6. **Filter ranges.** The stall-speed lower bound is 5 m/s, not §4.1's 7 m/s: light motor
+   gliders stall at 5–7 m/s. The static-margin target is sampled in 6–15 %.
+
+**Definition of Done status (M2)**
+
+| # | Status |
+|---|---|
+| D1 CI green | ✅ |
+| D2 Aero v2 | ✅ (week 5) |
+| D3 JSBSim + V14 | ✅ (week 5) |
+| D4 Rascal (Should) | ⏳ week 7 |
+| D5 Generator: 10k airframes, glTF, yield, V18 | ✅ 10,000 accepted. V18: C_Lα and stability pass; C_ℓp misses (deviation 4) |
+| D6–D11 | ⏳ weeks 7–8 |

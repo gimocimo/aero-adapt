@@ -1,0 +1,40 @@
+{
+  "accepted": 10,
+  "designs_tried": 11062,
+  "fleet_id": "sample",
+  "generator_version": "1",
+  "note": "A subset of an accepted fleet; counts and reasons describe the parent fleet.",
+  "per_class": {
+    "conventional": {
+      "accepted": 2081,
+      "tried": 2213
+    },
+    "glider": {
+      "accepted": 1794,
+      "tried": 2212
+    },
+    "t_tail": {
+      "accepted": 2066,
+      "tried": 2213
+    },
+    "twin_boom": {
+      "accepted": 2016,
+      "tried": 2212
+    },
+    "v_tail": {
+      "accepted": 2043,
+      "tried": 2212
+    }
+  },
+  "rejection_reasons": {
+    "Dutch roll damping": 60,
+    "balance: battery station outside the fuselage": 35,
+    "mass budget: no payload margin": 150,
+    "roll authority": 65,
+    "spiral divergence": 728,
+    "stall speed": 1,
+    "thrust-to-weight": 11,
+    "trim fast: throttle out of range": 31
+  },
+  "subset_of": "m2-fleet"
+}

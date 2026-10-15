@@ -756,7 +756,9 @@ def v19_fleet(r: Report) -> None:
     classes = list(m["per_class"])
     for ax, (k, label) in zip(axes.ravel(), keys, strict=True):
         data = [np.array([x[k] for x in acc if x["cls"] == c], dtype=float) for c in classes]
-        ax.hist(data, bins=30, stacked=True, label=classes)
+        # Cruise speeds are rounded to 0.5 m/s: align the bins with that grid.
+        bins = np.arange(6.75, 25.5, 0.5) if k == "v_cruise" else 30
+        ax.hist(data, bins=bins, stacked=True, label=classes)
         ax.set(xlabel=label)
     axes[0, 0].legend(fontsize=7)
     r.figure(fig, "v19_fleet", "V19: distributions over the accepted fleet, stacked by class")

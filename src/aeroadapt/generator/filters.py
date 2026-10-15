@@ -8,7 +8,8 @@ over the fleet with ``vmap`` (one compilation for any number of airframes):
   within 80 % of travel and α below the stall at the slow point;
 - modes at cruise: short period ζ ≥ 0.25, Dutch roll ζ ≥ 0.05, roll subsidence stable,
   phugoid not faster than a 0.02 1/s divergence, spiral time to double ≥ 10 s;
-- static margin 3-25 % from the tables; steady roll rate ≥ 60°/s at cruise with full aileron;
+- static margin 3-25 % from the tables; C_nβ > 0 and C_ℓβ < 0 (static directional and lateral
+  stability); steady roll rate ≥ 60°/s at cruise with full aileron;
   static thrust-to-weight ≥ 0.4; stall speed 5-20 m/s; wing loading 20-150 N/m².
 """
 
@@ -26,13 +27,10 @@ from jax import Array
 from aeroadapt.airframes import Airframe, AirframeParams, to_vehicle_params
 from aeroadapt.sim.aerojax.aero_tables import table_lookup
 from aeroadapt.sim.aerojax.environment import Environment
-from aeroadapt.sim.aerojax.model import state_derivative
 from aeroadapt.sim.aerojax.propulsion import propeller
-from aeroadapt.sim.aerojax.state import SurfaceControls
-from aeroadapt.sim.aerojax.trim import LAT, LON, _euler_model, _trim_state
+from aeroadapt.sim.aerojax.trim import LAT, LON, _euler_model, trim_level
 
 RHO0, G0 = 1.225, 9.806_65
-NEWTON_ITERS = 40
 
 
 @dataclass(frozen=True)
@@ -51,32 +49,10 @@ def stack_params(airframes: Sequence[Airframe]) -> tuple[AirframeParams, np.ndar
     return params, travel
 
 
-def _residual(p: AirframeParams, z: Array, va: Array) -> Array:
-    env = Environment(RHO0, G0)
-    s = _trim_state(z, va, 0.0, 100.0)  # pyright: ignore[reportArgumentType]  (traced va)
-    u = SurfaceControls(z[3], z[4], z[5], z[6])
-    d = state_derivative(p, env, s, u, jnp.zeros(3), v_supply=jnp.asarray(p.V_max))
-    climb = -d.pos_ned[2]
-    return jnp.concatenate([d.vel_body, d.omega, (climb / va)[None]])
-
-
-def _newton(p: AirframeParams, va: Array) -> tuple[Array, Array]:
-    z0 = jnp.array([0.05, 0.05, 0.0, 0.0, 0.0, 0.0, 0.5])
-
-    def body(z: Array, _: None) -> tuple[Array, None]:
-        r = _residual(p, z, va)
-        j = jax.jacfwd(_residual, argnums=1)(p, z, va)
-        dz = jnp.linalg.solve(j, r)
-        dz = dz * jnp.minimum(1.0, 0.3 / (jnp.max(jnp.abs(dz)) + 1e-12))  # damped steps
-        return z - dz, None
-
-    z, _ = jax.lax.scan(body, z0, None, length=NEWTON_ITERS)
-    return z, jnp.max(jnp.abs(_residual(p, z, va)))
-
-
 @jax.jit
 def _trim_batch(p: AirframeParams, va: Array) -> tuple[Array, Array]:
-    return jax.vmap(_newton)(p, va)
+    env = Environment(RHO0, G0)
+    return jax.vmap(lambda pi, v: trim_level(pi, env, jnp.asarray(pi.V_max), v))(p, va)
 
 
 @jax.jit
@@ -146,6 +122,7 @@ def check(airframes: Sequence[Airframe], meta: Sequence[dict]) -> FilterResult:
     tw = static_t / (mass * G0)
     wl = mass * G0 / np.asarray(p.S)
     alpha_stall = np.array([a.aero.stall.alpha0_rad for a in airframes])
+    cnb, clb = np.asarray(p.C_n_beta), np.asarray(p.C_ell_beta)
 
     accepted = np.ones(n, bool)
     reasons: list[list[str]] = [[] for _ in range(n)]
@@ -181,6 +158,10 @@ def check(airframes: Sequence[Airframe], meta: Sequence[dict]) -> FilterResult:
             fail(i, "spiral divergence")
         if not 0.03 <= sm[i] <= 0.25:
             fail(i, "static margin")
+        if not cnb[i] > 0.0:
+            fail(i, "directional stability (C_n,beta)")
+        if not clb[i] < 0.0:
+            fail(i, "dihedral effect (C_l,beta)")
         if roll_rate[i] < 60.0:
             fail(i, "roll authority")
         if tw[i] < 0.4:

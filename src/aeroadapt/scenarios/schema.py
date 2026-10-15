@@ -66,9 +66,44 @@ class TurbulenceCfg(_Strict):
         return TURBULENCE_W20_KT[self.intensity] * 0.514444
 
 
+class GustCfg(_Strict):
+    """A discrete 1−cos gust (MIL-F-8785C shape)."""
+
+    at_time_s: float = Field(ge=0)
+    duration_s: float = Field(gt=0)
+    speed_mps: float = Field(ge=0)  # horizontal peak
+    from_deg: float = 0.0
+    vertical_mps: float = 0.0  # upward positive
+
+
+class ShearCfg(_Strict):
+    """Low-level wind shear: the wind changes by ``speed_change_mps`` from ``from_deg`` at the
+    ground, fading linearly to nothing at ``height_m``."""
+
+    height_m: float = Field(gt=0)
+    speed_change_mps: float
+    from_deg: float = 0.0
+
+
+class ThermalCfg(_Strict):
+    """An updraft (``w_peak_mps`` > 0) or sink (< 0) column with a ring of opposite flow."""
+
+    centre_ne_m: tuple[float, float]
+    radius_m: float = Field(gt=0)
+    w_peak_mps: float
+    at_time_s: float = Field(default=0.0, ge=0)
+
+
+class EventsCfg(_Strict):
+    gust: GustCfg | None = None
+    shear: ShearCfg | None = None
+    thermals: list[ThermalCfg] = Field(default_factory=list, max_length=2)
+
+
 class EnvironmentCfg(_Strict):
     wind: WindCfg = WindCfg()
     turbulence: TurbulenceCfg = TurbulenceCfg()
+    events: EventsCfg = EventsCfg()
     temp_offset_k: float | None = None  # None: the site's value
     qnh_hpa: float | None = None
 

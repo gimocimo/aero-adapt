@@ -158,3 +158,39 @@ def linearise(
         a[np.ix_(lat, lat)],
         b[np.ix_(lat, [0, 2])],
     )
+
+
+# --------------------------------------------------------------------------- batched trim
+TRIM_NEWTON_ITERS = 40
+
+
+def _level_residual(
+    p: AirframeParams, env: Environment, v_supply: Array, z: Array, va: Array
+) -> Array:
+    s = _trim_state(z, va, 0.0, 100.0)  # pyright: ignore[reportArgumentType]  (traced va)
+    u = SurfaceControls(z[3], z[4], z[5], z[6])
+    d = state_derivative(p, env, s, u, jnp.zeros(3), v_supply=v_supply)
+    climb = -d.pos_ned[2]
+    return jnp.concatenate([d.vel_body, d.omega, (climb / va)[None]])
+
+
+def trim_level(
+    p: AirframeParams, env: Environment, v_supply: Array, va: Array
+) -> tuple[Array, Array]:
+    """Straight-and-level trim as a pure, jit- and vmap-able function of the parameters.
+
+    Damped Newton on z = (α, θ, φ, δa, δe, δr, δt) with a fixed iteration count, so a fleet
+    of airframes (same pytree shapes) trims in one compiled program. Returns (z, max |residual|);
+    callers check the residual and the control ranges.
+    """
+    z0 = jnp.array([0.05, 0.05, 0.0, 0.0, 0.0, 0.0, 0.5], dtype=jnp.result_type(float))
+
+    def body(z: Array, _: None) -> tuple[Array, None]:
+        r = _level_residual(p, env, v_supply, z, va)
+        j = jax.jacfwd(_level_residual, argnums=3)(p, env, v_supply, z, va)
+        dz = jnp.linalg.solve(j, r)
+        dz = dz * jnp.minimum(1.0, 0.3 / (jnp.max(jnp.abs(dz)) + 1e-12))
+        return z - dz, None
+
+    z, _ = jax.lax.scan(body, z0, None, length=TRIM_NEWTON_ITERS)
+    return z, jnp.max(jnp.abs(_level_residual(p, env, v_supply, z, va)))

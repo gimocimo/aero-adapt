@@ -74,7 +74,7 @@ class Guided:
     pitch_trim: float = 0.0
     throttle: float = 0.0
 
-    def __call__(self, t: Array) -> Target:
+    def __call__(self, t: Array, sp: StackParams | None = None) -> Target:
         after = t >= T_STEP
         level = dict(lateral=LAT_DIRECT, roll_dem=0.0, roll_limit=math.radians(45.0))
         tecs = dict(vertical=VERT_TECS, alt=ALT0, speed=V0)

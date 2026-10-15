@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
+
 from aeroadapt.airframes import Airframe, load_airframe
+from aeroadapt.core.frames import wind_from_to_ned
 from aeroadapt.faultlab import FaultConfig, build_fault_config
-from aeroadapt.scenarios.schema import Scenario
+from aeroadapt.scenarios.schema import EventsCfg, Scenario
 from aeroadapt.scenarios.site import Site, load_site
 from aeroadapt.sim.aerojax import EnvParams, SimConfig, make_env
+from aeroadapt.sim.aerojax.atmosphere import EnvEvents, no_events
 from aeroadapt.stack.config import StackCfg, StackParams, build_stack_params, load_stack_cfg
 from aeroadapt.stack.types import Mission, make_mission
 from aeroadapt.vehicle.protocol import InitialCondition
@@ -32,9 +36,35 @@ class ResolvedScenario:
         return round(self.scenario.duration_s / self.config.dt_control)
 
 
+def build_events(cfg: EventsCfg) -> EnvEvents:
+    ev = no_events()
+    if cfg.gust is not None:
+        g = cfg.gust
+        horizontal = np.asarray(wind_from_to_ned(g.from_deg, g.speed_mps))
+        ev = ev._replace(
+            gust_onset_s=np.array(g.at_time_s),
+            gust_duration_s=np.array(g.duration_s),
+            gust_ned=horizontal + np.array([0.0, 0.0, -g.vertical_mps]),
+        )
+    if cfg.shear is not None:
+        sh = cfg.shear
+        ev = ev._replace(
+            shear_height_m=np.array(sh.height_m),
+            shear_ned=np.asarray(wind_from_to_ned(sh.from_deg, sh.speed_change_mps)),
+        )
+    ne, radius = ev.thermal_ne.copy(), ev.thermal_radius_m.copy()
+    w, onset = ev.thermal_w_mps.copy(), ev.thermal_onset_s.copy()
+    for i, th in enumerate(cfg.thermals):
+        ne[i], radius[i], w[i], onset[i] = th.centre_ne_m, th.radius_m, th.w_peak_mps, th.at_time_s
+    return ev._replace(
+        thermal_ne=ne, thermal_radius_m=radius, thermal_w_mps=w, thermal_onset_s=onset
+    )
+
+
 def build_env(scenario: Scenario, site: Site) -> EnvParams:
     e = scenario.environment
     return make_env(
+        events=build_events(e.events),
         alt_origin_msl_m=site.ground_msl_m,
         magnetic_ned_gauss=site.magnetic.field_ned_gauss,
         wind_from_deg=e.wind.from_deg,

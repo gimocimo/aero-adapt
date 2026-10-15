@@ -34,7 +34,7 @@ from aeroadapt.stack.types import Mission, Target
 from aeroadapt.vehicle.aerojax_vehicle import trimmed_start
 from aeroadapt.vehicle.protocol import InitialCondition
 
-GuidedFn = Callable[[Array], Target]
+GuidedFn = Callable[[Array, StackParams], Target]  # (time, stack parameters) → target
 Carry = tuple[SimState, StackState, SensorArrays]
 
 
@@ -113,7 +113,7 @@ def closed_loop(
 
     def step(carry: Carry, k: Array) -> tuple[Carry, LoopLog]:
         sim, st, z_in = carry
-        st, out = stack_step(sp, st, z_in, mission, None if guided is None else guided(sim.t))
+        st, out = stack_step(sp, st, z_in, mission, None if guided is None else guided(sim.t, sp))
         sim, z, info = sim_step(vp, env, faults, sim, out.cmd, k, config)
         rb, tr = sim.rb, info.truth
         e, c = out.est, out.cont

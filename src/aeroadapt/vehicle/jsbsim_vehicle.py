@@ -5,10 +5,13 @@ rotating Earth, atmosphere, wind and Milspec turbulence. Everything that is not 
 dynamics stays in our layer and reuses the aerojax models, so the two backends differ only in
 the flight dynamics:
 
-- actuators (delay, lag, rate limit, deadband, servo-jam fault);
-- motor, propeller and battery, applied to JSBSim as body-axis external reactions (a motor
-  cut leaves only the windmilling-propeller drag);
-- sensors and the pitot fault, sampled from JSBSim's truth.
+- actuators (delay, lag, rate limit, deadband) and their faults;
+- motor, propeller and battery, applied to JSBSim as body-axis external reactions, with the
+  propulsion and energy faults (a motor cut leaves only the windmilling-propeller drag);
+- sensors and the sensor faults, sampled from JSBSim's truth.
+
+faultlab v1 airframe faults (CG shift, payload drop, wing damage) change the rigid body
+itself and are aerojax-only for now.
 
 Heights: JSBSim is initialised with its altitude above sea level equal to our MSL altitude,
 and the terrain at the site's ground MSL height. ISA quantities therefore line up with
@@ -43,7 +46,7 @@ from aeroadapt.sim.aerojax.battery import (
 )
 from aeroadapt.sim.aerojax.propulsion import propeller, windmill_thrust
 from aeroadapt.sim.aerojax.sensors import SensorState, SensorTruth, init_sensors, sample
-from aeroadapt.sim.aerojax.sim import MOTOR_SPIN_DOWN_S
+from aeroadapt.sim.aerojax.sim import MOTOR_SPIN_DOWN_S, faulted_plant
 from aeroadapt.sim.jsbsim.fdm import FT, JSBSIM_ROOT, SLUG_PER_FT3, JSBSimFDM
 from aeroadapt.vehicle.aerojax_vehicle import trimmed_start
 from aeroadapt.vehicle.protocol import (
@@ -92,30 +95,43 @@ class JSBSimVehicle:
             t: jax.Array,
             rho: jax.Array,
             va: jax.Array,
+            flow: jax.Array,
         ):
             """Actuators, then propulsion at the current airspeed, then the battery (the
             aerojax physics-substep order)."""
             af = vp.airframe
-            act = actuator_step(af, vp.actuators, faults_d.servo_jam, act, cmd, t, dt)
-            v_batt = terminal_voltage(vp.battery, batt)
+            _, bp, phys, ceiling = faulted_plant(vp, faults_d, t)
+            act = actuator_step(
+                af, vp.actuators, faults_d.servo_jam, act, cmd, t, dt, faults_d.actuators, flow
+            )
+            act = act._replace(throttle=jnp.minimum(act.throttle, ceiling))
+            v_batt = terminal_voltage(bp, batt)
             cut = fault_labels(faults_d, t).motor_cut
             prop = propeller(af, rho, va, act.throttle, v_batt)
-            thrust = jnp.where(cut, windmill_thrust(af, rho, va), prop.thrust)
-            torque = jnp.where(cut, 0.0, prop.torque)
+            thrust = jnp.where(cut, windmill_thrust(af, rho, va), prop.thrust * phys.thrust_scale)
+            torque = jnp.where(cut, 0.0, prop.torque * phys.thrust_scale)
             draw = jnp.maximum(act.throttle * prop.motor_current, 0.0)
-            pack = vp.battery.avionics_current + jnp.where(cut, 0.0, draw)
+            pack = bp.avionics_current + jnp.where(cut, 0.0, draw)
             omega = jnp.where(cut, prop_omega * jnp.exp(-dt / MOTOR_SPIN_DOWN_S), prop.omega)
-            batt = battery_step(vp.battery, batt, pack, dt)
+            batt = battery_step(bp, batt, pack, dt)
             return act, batt, omega, thrust, torque
 
         def sense(sens: SensorState, st: SensorTruth, key: jax.Array):
             return sample(
-                vp.sensors, faults_d.pitot, sens, st, config.dt_control, config.control_hz, key
+                vp.sensors,
+                faults_d.pitot,
+                sens,
+                st,
+                config.dt_control,
+                config.control_hz,
+                key,
+                faults_d.sensors,
+                faults_d.propulsion,
             )
 
         self._pre = jax.jit(pre_substep)
         self._sense = jax.jit(sense)
-        self._vterm = jax.jit(lambda b: terminal_voltage(vp.battery, b))
+        self._vterm = jax.jit(lambda b, t: terminal_voltage(faulted_plant(vp, faults_d, t)[1], b))
         self._env_d = env_d
         self._key = jax.random.PRNGKey(0)
         self._t = 0.0
@@ -182,6 +198,8 @@ class JSBSimVehicle:
             self._config.dt_control,
             self._config.control_hz,
             k_sens,
+            self._faults.sensors,
+            self._faults.propulsion,
         )
         return frame_from_arrays(jax.device_get(z), 0, self._origin)
 
@@ -192,8 +210,16 @@ class JSBSimVehicle:
             c = jnp.asarray(cmd.as_array())
             for _ in range(self._config.substeps):
                 f = self._fdm
+                v = max(f.airspeed, 1.0)
+                flow = jnp.asarray(
+                    [
+                        f.alpha,
+                        f["aero/beta-rad"],
+                        f["velocities/p-rad_sec"] * self._vp.airframe.b / (2 * v),
+                    ]
+                )
                 act, batt, omega, thrust, torque = self._pre(
-                    self._act, self._batt, self._prop_omega, c, self._t, f.rho, f.airspeed
+                    self._act, self._batt, self._prop_omega, c, self._t, f.rho, f.airspeed, flow
                 )
                 self._act, self._batt, self._prop_omega = act, batt, omega
                 self._thrust = float(thrust)
@@ -260,7 +286,7 @@ class JSBSimVehicle:
             temp_k=jnp.asarray(f["atmosphere/T-R"] / 1.8),
             rho=jnp.asarray(f["atmosphere/rho-slugs_ft3"] * SLUG_PER_FT3),
             u_air=jnp.asarray(f["velocities/u-aero-fps"] * FT),
-            battery_v=self._vterm(self._batt),
+            battery_v=self._vterm(self._batt, jnp.asarray(self._t)),
             battery_a=self._batt.current,
             battery_mah=self._batt.consumed_mah,
             prop_omega=self._prop_omega,
@@ -306,7 +332,7 @@ class JSBSimVehicle:
             surfaces_rad=np.asarray(self._act.surfaces),
             throttle=float(self._act.throttle),
             thrust_n=self._thrust,
-            battery_v=float(self._vterm(self._batt)),
+            battery_v=float(self._vterm(self._batt, jnp.asarray(self._t))),
             soc=float(self._batt.soc),
             fault_labels={k: np.asarray(v) for k, v in labels._asdict().items()},
         )

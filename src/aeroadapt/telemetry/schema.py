@@ -10,6 +10,13 @@ from typing import Any
 
 import numpy as np
 
+from aeroadapt.faultlab.slots import (
+    ACTUATOR_KINDS,
+    AIRFRAME_KINDS,
+    ENERGY_KINDS,
+    PROPULSION_KINDS,
+    SENSOR_KINDS,
+)
 from aeroadapt.harness.closed_loop import LoopLog
 
 BUNDLE_SCHEMA_VERSION = 1
@@ -21,6 +28,20 @@ FAULT_BITS = {
     "servo_jam_elevator": 8,
     "servo_jam_rudder": 16,
 }
+# faultlab v1 kinds (M2 spec §7): one bit per kind, from bit 5 upwards (31 bits in all).
+FAULT_FAMILIES = {
+    "sensor": SENSOR_KINDS[1:],
+    "actuator": ACTUATOR_KINDS[1:],
+    "propulsion": PROPULSION_KINDS[1:],
+    "energy": ENERGY_KINDS[1:],
+    "airframe": AIRFRAME_KINDS[1:],
+}
+_bit = 5
+for _family, _kinds in FAULT_FAMILIES.items():
+    for _kind in _kinds:
+        FAULT_BITS[f"{_family}:{_kind}"] = 1 << _bit
+        _bit += 1
+assert _bit <= 31, "fault bits must fit an int32"
 
 Getter = Callable[[LoopLog], np.ndarray]
 
@@ -57,6 +78,11 @@ def _fault_bits(log: LoopLog) -> np.ndarray:
     jam = np.asarray(lab.servo_jam)
     for k, name in enumerate(("aileron", "elevator", "rudder")):
         bits += jam[:, k].astype(np.int32) * FAULT_BITS[f"servo_jam_{name}"]
+    for family, kinds in FAULT_FAMILIES.items():
+        active = np.asarray(getattr(lab, f"{family}_kind"))
+        active = active.reshape(active.shape[0], -1)  # (steps, slots)
+        for k, kind in enumerate(kinds, start=1):
+            bits |= np.any(active == k, axis=1).astype(np.int32) * FAULT_BITS[f"{family}:{kind}"]
     return bits
 
 

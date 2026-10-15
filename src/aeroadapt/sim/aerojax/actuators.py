@@ -16,9 +16,10 @@ from typing import NamedTuple
 
 import jax.numpy as jnp
 from jax import Array
+from jax.typing import ArrayLike
 
 from aeroadapt.airframes.params import ActuatorParams, AirframeParams
-from aeroadapt.faultlab.slots import ServoJamFault
+from aeroadapt.faultlab.slots import ACTUATOR_KINDS, ActuatorFaultSlots, ServoJamFault, active_kind
 
 DELAY_BUFFER = 32  # physics steps of history (160 ms at 200 Hz); schema caps delays at 150 ms
 
@@ -61,6 +62,10 @@ def init_actuators(af: AirframeParams, act: ActuatorParams, cmd: Array) -> Actua
     )
 
 
+_K = {name: i for i, name in enumerate(ACTUATOR_KINDS)}
+FLOAT_TRAIL = 0.6  # a floating surface trails at about −0.6 × the local flow angle
+
+
 def actuator_step(
     af: AirframeParams,
     act: ActuatorParams,
@@ -69,7 +74,11 @@ def actuator_step(
     cmd: Array,
     t: Array,
     dt: float,
+    faults: ActuatorFaultSlots | None = None,
+    flow: Array | None = None,
 ) -> ActuatorState:
+    """``faults`` (faultlab v1) and ``flow`` = (α, β, p·b/2V) are optional; without them the
+    M1 pipeline is unchanged."""
     target = command_to_target(af, act, cmd)
     buffer = s.buffer.at[s.head].set(target)
     lag_steps = jnp.round(jnp.asarray(act.delay) / dt).astype(jnp.int32)
@@ -84,13 +93,19 @@ def actuator_step(
     jam_latched = jnp.logical_or(s.jam_latched, jam_now)
     surf_target = jnp.where(jam_now, jam_position, delayed[:3])
 
+    rate_limit = act.rate_limit
+    limit = act.max_deflection + jnp.abs(act.trim)
+    half_db = act.deadband / 2
+    if faults is not None:
+        surf_target, rate_limit, limit, half_db = _apply_actuator_faults(
+            faults, act, surf_target, rate_limit, limit, half_db, t, flow
+        )
+
     # Lag with deadband, clipped by the rate limit; then mechanical limits.
     err = surf_target - s.surfaces
-    half_db = act.deadband / 2
     err_db = jnp.sign(err) * jnp.maximum(jnp.abs(err) - half_db, 0.0)
     alpha = 1.0 - jnp.exp(-dt / act.tau[:3])
-    step = jnp.clip(alpha * err_db, -act.rate_limit * dt, act.rate_limit * dt)
-    limit = act.max_deflection + jnp.abs(act.trim)
+    step = jnp.clip(alpha * err_db, -rate_limit * dt, rate_limit * dt)
     surfaces = jnp.clip(s.surfaces + step, -limit, limit)
 
     throttle = s.throttle + (1.0 - jnp.exp(-dt / act.tau[3])) * (delayed[3] - s.throttle)
@@ -102,3 +117,38 @@ def actuator_step(
         jam_latched=jam_latched,
         jam_position=jam_position,
     )
+
+
+def _apply_actuator_faults(
+    f: ActuatorFaultSlots,
+    act: ActuatorParams,
+    target: ArrayLike,
+    rate_limit: ArrayLike,
+    limit: ArrayLike,
+    half_db: ArrayLike,
+    t: Array,
+    flow: Array | None,
+) -> tuple[Array, Array, Array, Array]:
+    """faultlab v1 actuator faults, slot by slot (each acts on one surface)."""
+    target, rate_limit = jnp.asarray(target), jnp.asarray(rate_limit)
+    limit, half_db = jnp.asarray(limit), jnp.asarray(half_db)
+    max_defl, trim = jnp.asarray(act.max_deflection), jnp.asarray(act.trim)
+    flow = jnp.zeros(3) if flow is None else flow
+    # Local flow angle seen by each surface: aileron ~ roll-rate helix, elevator ~ α, rudder ~ β.
+    local = jnp.stack([flow[2], flow[0], flow[1]])
+    for i in range(f.kind.shape[0]):
+        kind = active_kind(f.kind[i], f.onset_s[i], t)
+        on = jnp.arange(3) == f.surface[i]
+        m = f.magnitude[i]
+
+        def where(k: str, new: Array, old: Array, kind: Array = kind, on: Array = on) -> Array:
+            return jnp.where(jnp.logical_and(kind == _K[k], on), new, old)
+
+        target = where("hard_over", jnp.sign(m + 1e-12) * max_defl, target)
+        target = where("floating", -FLOAT_TRAIL * local, target)
+        target = where("reversed", 2.0 * trim - target, target)
+        rate_limit = where("slow", rate_limit * jnp.clip(m, 0.02, 1.0), rate_limit)
+        limit = where("reduced_throw", limit * jnp.clip(m, 0.0, 1.0), limit)
+        # Backlash: a dead zone in the linkage (half the magnitude, in degrees, each side).
+        half_db = where("backlash", half_db + jnp.deg2rad(jnp.abs(m)) / 2, half_db)
+    return target, rate_limit, limit, half_db

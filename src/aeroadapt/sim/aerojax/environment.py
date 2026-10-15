@@ -13,7 +13,14 @@ import jax.numpy as jnp
 from jax import Array
 
 from aeroadapt.core.frames import wind_from_to_ned
-from aeroadapt.sim.aerojax.atmosphere import G0, IsaParams, TurbulenceParams, WindParams
+from aeroadapt.sim.aerojax.atmosphere import (
+    G0,
+    EnvEvents,
+    IsaParams,
+    TurbulenceParams,
+    WindParams,
+    no_events,
+)
 
 
 class Environment(NamedTuple):
@@ -31,6 +38,7 @@ class EnvParams(NamedTuple):
     wind: WindParams
     turbulence: TurbulenceParams
     magnetic_ned_gauss: Array  # (3,)
+    events: EnvEvents = no_events()
 
 
 def make_env(
@@ -45,6 +53,7 @@ def make_env(
     temp_offset_k: float = 0.0,
     qnh_hpa: float = 1013.25,
     gravity: float = G0,
+    events: EnvEvents | None = None,
 ) -> EnvParams:
     """Host-side convenience builder (aviation 'wind from' convention at the boundary)."""
     return EnvParams(
@@ -53,4 +62,5 @@ def make_env(
         wind=WindParams(wind_from_to_ned(wind_from_deg, wind_speed_mps), bl_alpha, bl_ref_m),
         turbulence=TurbulenceParams(w20_mps),
         magnetic_ned_gauss=jnp.asarray(magnetic_ned_gauss),
+        events=no_events() if events is None else events,
     )

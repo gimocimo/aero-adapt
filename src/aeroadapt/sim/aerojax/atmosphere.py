@@ -1,11 +1,13 @@
-"""Atmosphere: ISA troposphere, steady wind with an optional boundary-layer profile, and
-Dryden turbulence (MIL-HDBK-1797 low-altitude model). Spec §6.5."""
+"""Atmosphere: ISA troposphere, steady wind with an optional boundary-layer profile, Dryden
+turbulence (MIL-HDBK-1797 low-altitude model; M1 spec §6.5) and discrete weather events
+(M2 spec §7.2): a 1−cos gust, low-level wind shear, and thermals or sink."""
 
 from __future__ import annotations
 
 from typing import NamedTuple
 
 import jax.numpy as jnp
+import numpy as np
 from jax import Array
 from jax.typing import ArrayLike
 
@@ -126,3 +128,47 @@ def dryden_stationary(
         v=jnp.stack([jnp.sqrt(tau_v**3 / 4) * n[1], jnp.sqrt(tau_v / 4) * n[2]]),
         w=jnp.stack([jnp.sqrt(tau_w**3 / 4) * n[3], jnp.sqrt(tau_w / 4) * n[4]]),
     )
+
+
+# --------------------------------------------------------------------------- weather events
+MAX_THERMALS = 2
+
+
+class EnvEvents(NamedTuple):
+    """Host-side event data (NumPy); traced like any other pytree leaf under ``jit``."""
+
+    gust_onset_s: np.ndarray  # ()
+    gust_duration_s: np.ndarray  # () > 0
+    gust_ned: np.ndarray  # (3,) peak gust velocity (air-mass motion), m/s
+    shear_height_m: np.ndarray  # () the shear acts below this height (0: none)
+    shear_ned: np.ndarray  # (3,) wind change at the ground, fading to zero at the height
+    thermal_ne: np.ndarray  # (T, 2) centres, site frame
+    thermal_radius_m: np.ndarray  # (T,)
+    thermal_w_mps: np.ndarray  # (T,) peak updraft (negative: sink)
+    thermal_onset_s: np.ndarray  # (T,)
+
+
+def no_events() -> EnvEvents:
+    t = MAX_THERMALS
+    z, z3 = np.array(0.0), np.zeros(3)
+    return EnvEvents(
+        z, np.array(1.0), z3, z, z3, np.zeros((t, 2)), np.ones(t), np.zeros(t), np.zeros(t)
+    )
+
+
+def event_wind(ev: EnvEvents, pos_ned: Array, h_agl: Array, t: Array) -> Array:
+    """NED air-mass velocity from the events at a point and time (zero with no events)."""
+    tau = (t - ev.gust_onset_s) / ev.gust_duration_s
+    shape = jnp.where((tau >= 0.0) & (tau <= 1.0), 0.5 * (1.0 - jnp.cos(2.0 * jnp.pi * tau)), 0.0)
+    wind = jnp.asarray(ev.gust_ned) * shape
+    below = jnp.where(
+        ev.shear_height_m > 0.0,
+        jnp.clip(1.0 - h_agl / jnp.maximum(ev.shear_height_m, 1e-6), 0, 1),
+        0.0,
+    )
+    wind = wind + ev.shear_ned * below
+    # Thermals: a bell-shaped core with a ring of sink, w = w₀ (1 − x²) exp(−x²), x = r / R.
+    d = pos_ned[:2] - ev.thermal_ne
+    x2 = jnp.sum(d * d, axis=-1) / ev.thermal_radius_m**2
+    w = jnp.sum(jnp.where(t >= ev.thermal_onset_s, ev.thermal_w_mps * (1 - x2) * jnp.exp(-x2), 0.0))
+    return wind + jnp.stack([jnp.zeros_like(w), jnp.zeros_like(w), -w])

@@ -15,15 +15,25 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from aeroadapt.airframes.params import VehicleParams
+from aeroadapt.airframes.params import AirframeParams, BatteryParams, VehicleParams
 from aeroadapt.core import quaternion
-from aeroadapt.faultlab.slots import FaultConfig, FaultLabels, fault_labels
+from aeroadapt.faultlab.slots import (
+    AIRFRAME_KINDS,
+    ENERGY_KINDS,
+    PROPULSION_KINDS,
+    FaultConfig,
+    FaultLabels,
+    active_kind,
+    fault_labels,
+    ramp,
+)
 from aeroadapt.sim.aerojax.actuators import ActuatorState, actuator_step, init_actuators
 from aeroadapt.sim.aerojax.aero import air_data
 from aeroadapt.sim.aerojax.atmosphere import (
     DrydenState,
     dryden_stationary,
     dryden_step,
+    event_wind,
     isa,
     steady_wind,
 )
@@ -34,7 +44,7 @@ from aeroadapt.sim.aerojax.battery import (
     terminal_voltage,
 )
 from aeroadapt.sim.aerojax.environment import Environment, EnvParams
-from aeroadapt.sim.aerojax.model import forces_moments, step
+from aeroadapt.sim.aerojax.model import PhysFaults, forces_moments, step
 from aeroadapt.sim.aerojax.propulsion import propeller
 from aeroadapt.sim.aerojax.sensors import (
     SensorArrays,
@@ -110,14 +120,57 @@ class StepInfo(NamedTuple):
     labels: FaultLabels
 
 
+_PK = {n: i for i, n in enumerate(PROPULSION_KINDS)}
+_EK = {n: i for i, n in enumerate(ENERGY_KINDS)}
+_AK = {n: i for i, n in enumerate(AIRFRAME_KINDS)}
+
+
+def faulted_plant(
+    vp: VehicleParams, faults: FaultConfig, t: Array
+) -> tuple[AirframeParams, BatteryParams, PhysFaults, Array]:
+    """faultlab v1 propulsion, energy and airframe faults at time ``t``: the effective
+    airframe and battery parameters, the force/moment faults and the throttle ceiling. With
+    no fault every value is exactly the nominal one."""
+    pr, en, af_f = faults.propulsion, faults.energy, faults.airframe
+    pk = active_kind(pr.kind, pr.onset_s, t)
+    ek = active_kind(en.kind, en.onset_s, t)
+    ak = active_kind(af_f.kind, af_f.onset_s, t)
+    lossy = (pk == _PK["partial_loss"]) | (pk == _PK["prop_damage"])
+    thrust_scale = jnp.where(lossy, 1.0 - pr.magnitude, 1.0)
+    ceiling = jnp.where(
+        pk == _PK["thermal_derate"], 1.0 - pr.magnitude * ramp(pr.onset_s, pr.ramp_s, t), 1.0
+    )
+    b = vp.battery
+    b = b._replace(
+        n_cells=jnp.where(ek == _EK["cell_failure"], b.n_cells - 1.0, b.n_cells),
+        r_internal=jnp.where(ek == _EK["abnormal_sag"], b.r_internal * en.magnitude, b.r_internal),
+        capacity_ah=jnp.where(
+            ek == _EK["capacity_loss"], b.capacity_ah * (1.0 - en.magnitude), b.capacity_ah
+        ),
+    )
+    scale = jnp.where(ak == _AK["payload_drop"], 1.0 - af_f.magnitude, 1.0)
+    a = vp.airframe
+    a = a._replace(
+        mass=a.mass * scale, Jx=a.Jx * scale, Jy=a.Jy * scale, Jz=a.Jz * scale, Jxz=a.Jxz * scale
+    )
+    phys = PhysFaults(
+        thrust_scale=thrust_scale,
+        cg_shift=jnp.where(ak == _AK["cg_shift"], af_f.magnitude, 0.0),
+        wing_side=af_f.side,
+        wing_loss=jnp.where(ak == _AK["wing_damage"], af_f.magnitude, 0.0),
+    )
+    return a, b, phys, ceiling
+
+
 def _controls(act: ActuatorState) -> SurfaceControls:
     return SurfaceControls(act.surfaces[0], act.surfaces[1], act.surfaces[2], act.throttle)
 
 
-def _atmosphere(env: EnvParams, rb: RigidBodyState):
+def _atmosphere(env: EnvParams, rb: RigidBodyState, t: Array):
     h_agl = -rb.pos_ned[2]
     temp, p_static, rho = isa(env.isa, env.isa.alt_origin_msl_m + h_agl)
-    return h_agl, temp, p_static, rho, steady_wind(env.wind, h_agl)
+    wind = steady_wind(env.wind, h_agl) + event_wind(env.events, rb.pos_ned, h_agl, t)
+    return h_agl, temp, p_static, rho, wind
 
 
 def _physics_substep(
@@ -129,26 +182,32 @@ def _physics_substep(
     key: Array,
     dt: float,
 ) -> SimState:
-    af = vp.airframe
-    act = actuator_step(af, vp.actuators, faults.servo_jam, s.act, cmd, s.t, dt)
-    h_agl, _, _, rho, wind = _atmosphere(env, s.rb)
-    va0 = air_data(s.rb, wind, s.gust_body).va
-    turb, gust = dryden_step(s.turb, env.turbulence, va0, h_agl, dt, key)
+    af, batt, phys, ceiling = faulted_plant(vp, faults, s.t)
+    h_agl, _, _, rho, wind = _atmosphere(env, s.rb, s.t)
+    air0 = air_data(s.rb, wind, s.gust_body)
+    flow = jnp.stack(
+        [air0.alpha, air0.beta, s.rb.omega[0] * af.b / (2.0 * jnp.maximum(air0.va, 1.0))]
+    )
+    act = actuator_step(
+        af, vp.actuators, faults.servo_jam, s.act, cmd, s.t, dt, faults.actuators, flow
+    )
+    act = act._replace(throttle=jnp.minimum(act.throttle, ceiling))
+    turb, gust = dryden_step(s.turb, env.turbulence, air0.va, h_agl, dt, key)
 
-    v_batt = terminal_voltage(vp.battery, s.battery)
+    v_batt = terminal_voltage(batt, s.battery)
     cut = fault_labels(faults, s.t).motor_cut
     u = _controls(act)
-    rb = step(af, Environment(rho, env.gravity), s.rb, u, wind, dt, gust, v_batt, cut)
+    rb = step(af, Environment(rho, env.gravity), s.rb, u, wind, dt, gust, v_batt, cut, phys)
 
     prop = propeller(af, rho, air_data(s.rb, wind, gust).va, act.throttle, v_batt)
     motor_draw = jnp.maximum(act.throttle * prop.motor_current, 0.0)  # no regeneration
-    pack = vp.battery.avionics_current + jnp.where(cut, 0.0, motor_draw)
+    pack = batt.avionics_current + jnp.where(cut, 0.0, motor_draw)
     omega = jnp.where(cut, s.prop_omega * jnp.exp(-dt / MOTOR_SPIN_DOWN_S), prop.omega)
     return s._replace(
         t=s.t + dt,
         rb=rb,
         act=act,
-        battery=battery_step(vp.battery, s.battery, pack, dt),
+        battery=battery_step(batt, s.battery, pack, dt),
         prop_omega=omega,
         turb=turb,
         gust_body=gust,
@@ -158,12 +217,20 @@ def _physics_substep(
 def _sensor_truth(
     vp: VehicleParams, env: EnvParams, faults: FaultConfig, s: SimState
 ) -> tuple[SensorTruth, Truth]:
-    af = vp.airframe
-    h_agl, temp, p_static, rho, wind = _atmosphere(env, s.rb)
+    af, batt, phys, _ = faulted_plant(vp, faults, s.t)
+    h_agl, temp, p_static, rho, wind = _atmosphere(env, s.rb, s.t)
     cut = fault_labels(faults, s.t).motor_cut
-    v_batt = terminal_voltage(vp.battery, s.battery)
+    v_batt = terminal_voltage(batt, s.battery)
     fm = forces_moments(
-        af, Environment(rho, env.gravity), s.rb, _controls(s.act), wind, s.gust_body, v_batt, cut
+        af,
+        Environment(rho, env.gravity),
+        s.rb,
+        _controls(s.act),
+        wind,
+        s.gust_body,
+        v_batt,
+        cut,
+        phys,
     )
     gravity_body = quaternion.ned_to_body(s.rb.quat, jnp.array([0.0, 0.0, env.gravity]))
     st = SensorTruth(
@@ -242,7 +309,15 @@ def sim_step(
     )
     st, truth = _sensor_truth(vp, env, faults, nxt)
     sens_state, sensors = sample(
-        vp.sensors, faults.pitot, nxt.sensors, st, config.dt_control, config.control_hz, keys[-1]
+        vp.sensors,
+        faults.pitot,
+        nxt.sensors,
+        st,
+        config.dt_control,
+        config.control_hz,
+        keys[-1],
+        faults.sensors,
+        faults.propulsion,
     )
     nxt = nxt._replace(sensors=sens_state)
     return nxt, sensors, StepInfo(truth, fault_labels(faults, nxt.t))
@@ -266,7 +341,7 @@ def init_state(
     # would make the first jitted step compile twice.
     rb0 = jax.tree_util.tree_map(lambda x: jnp.asarray(x, dtype=dtype), rb0)
     act = init_actuators(vp.airframe, vp.actuators, jnp.asarray(cmd0, dtype))
-    h_agl, _, _, rho, wind = _atmosphere(env, rb0)
+    h_agl, _, _, rho, wind = _atmosphere(env, rb0, jnp.zeros((), dtype))
     va = air_data(rb0, wind).va
     battery = init_battery(jnp.asarray(soc0, dtype))
     prop = propeller(vp.airframe, rho, va, act.throttle, terminal_voltage(vp.battery, battery))
@@ -286,5 +361,14 @@ def init_state(
     )
     st, _ = _sensor_truth(vp, env, faults, s)
     config_dt, config_hz = config.dt_control, config.control_hz
-    sens_state, sensors = init_sensors(vp.sensors, faults.pitot, st, config_dt, config_hz, k_sens)
+    sens_state, sensors = init_sensors(
+        vp.sensors,
+        faults.pitot,
+        st,
+        config_dt,
+        config_hz,
+        k_sens,
+        faults.sensors,
+        faults.propulsion,
+    )
     return s._replace(sensors=sens_state), sensors

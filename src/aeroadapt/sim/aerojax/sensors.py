@@ -17,10 +17,24 @@ from jax import Array
 from aeroadapt.airframes.params import SensorParams
 from aeroadapt.core import quaternion
 from aeroadapt.core.messages import FreshFlags, SensorArrays
-from aeroadapt.faultlab.slots import PitotFault
+from aeroadapt.faultlab.slots import (
+    N_SENSOR_SLOTS,
+    PROPULSION_KINDS,
+    SENSOR_KINDS,
+    PitotFault,
+    ScalarFaultSlot,
+    SensorFaultSlots,
+    active_kind,
+    ramp,
+)
 from aeroadapt.sim.aerojax import noise
 
 GNSS_HISTORY = 32  # control steps of truth history (320 ms at 100 Hz) for GNSS latency
+RHO_INDICATED = 1.225  # indicated airspeed is referred to sea-level density
+ACCEL_CLIP = 16 * 9.806_65  # IMU range: vibration saturates here
+PROP_VIB_REF = 600.0  # rad/s: propeller speed at which damage vibration reaches its magnitude
+_S = {name: i for i, name in enumerate(SENSOR_KINDS)}
+_P = {name: i for i, name in enumerate(PROPULSION_KINDS)}
 
 
 class SensorTruth(NamedTuple):
@@ -54,6 +68,8 @@ class SensorState(NamedTuple):
     pitot_latched: Array  # () bool
     pitot_pt: Array  # () Pa, trapped/leaking total pressure under a pitot fault
     held: SensorArrays
+    fault_latched: Array  # (N_SENSOR_SLOTS,) bool: a stuck value has been captured
+    fault_hold: Array  # (N_SENSOR_SLOTS,) the captured value (stuck airspeed: Pa)
 
 
 def _decimation(rate_hz: Array, control_hz: float) -> Array:
@@ -99,7 +115,11 @@ def sample(
     dt_c: float,
     control_hz: float,
     key: Array,
+    sf: SensorFaultSlots | None = None,
+    prop: ScalarFaultSlot | None = None,
 ) -> tuple[SensorState, SensorArrays]:
+    """``sf`` and ``prop`` carry faultlab v1 sensor faults and propeller-damage vibration;
+    empty slots leave every value unchanged (bit for bit)."""
     ks = jax.random.split(key, 12)
     dtype = truth.pos_ned.dtype
     n3 = lambda i: noise.normal(ks[i], (3,), dtype)  # noqa: E731
@@ -152,6 +172,12 @@ def sample(
         esc_rpm=esc_rpm,
         fresh=fresh,
     )
+    fault_latched, fault_hold = s.fault_latched, s.fault_hold
+    if sf is not None:
+        new, fault_latched, fault_hold = _apply_sensor_faults(
+            sf, prop, new, s, truth, jax.random.fold_in(key, 7)
+        )
+        fresh = new.fresh
     h = s.held
     out = SensorArrays(
         gyro=jnp.where(fresh.imu, new.gyro, h.gyro),
@@ -180,8 +206,75 @@ def sample(
         pitot_latched=pitot_latched,
         pitot_pt=pitot_pt,
         held=out,
+        fault_latched=fault_latched,
+        fault_hold=fault_hold,
     )
     return state, out
+
+
+def _apply_sensor_faults(
+    sf: SensorFaultSlots,
+    prop: ScalarFaultSlot | None,
+    z: SensorArrays,
+    s: SensorState,
+    truth: SensorTruth,
+    key: Array,
+) -> tuple[SensorArrays, Array, Array]:
+    """faultlab v1 sensor faults on a fresh sample (M2 spec §7.1)."""
+    t = truth.t
+    dtype = z.accel.dtype
+    k_acc, k_gyr, k_vib = jax.random.split(key, 3)
+    gyro, accel, mag = z.gyro, z.accel, z.mag
+    dp, baro = z.airspeed_dp_pa, z.baro_pa
+    pos, vel, fresh = z.gnss_pos_ned, z.gnss_vel_ned, z.fresh
+    latched, hold = s.fault_latched, s.fault_hold
+    for i in range(N_SENSOR_SLOTS):
+        kind = active_kind(sf.kind[i], sf.onset_s[i], t)
+        r = ramp(sf.onset_s[i], sf.ramp_s[i], t)
+        m = sf.magnitude[i]
+        dt_on = jnp.maximum(t - sf.onset_s[i], 0.0)
+        e = jnp.arange(3) == sf.axis[i]
+
+        def is_(name: str, kind: Array = kind) -> Array:
+            return kind == _S[name]
+
+        # Airspeed: offsets are in m/s of indicated airspeed; "stuck" freezes the pressure.
+        v_ind = jnp.sqrt(2.0 * jnp.maximum(dp, 0.0) / RHO_INDICATED)
+        bias = jnp.where(
+            is_("airspeed_bias"), m * r, jnp.where(is_("airspeed_drift"), m * dt_on, 0.0)
+        )
+        biased = 0.5 * RHO_INDICATED * jnp.maximum(v_ind + bias, 0.0) ** 2
+        dp = jnp.where(is_("airspeed_bias") | is_("airspeed_drift"), biased, dp)
+        newly = is_("airspeed_stuck") & ~latched[i]
+        hold = hold.at[i].set(jnp.where(newly, dp, hold[i]))
+        latched = latched.at[i].set(latched[i] | is_("airspeed_stuck"))
+        dp = jnp.where(is_("airspeed_stuck"), hold[i], dp)
+        # Inertial and magnetic.
+        gyro = gyro + jnp.where(is_("gyro_bias") & e, m * r, 0.0)
+        accel = accel + jnp.where(is_("accel_bias") & e, m * r, 0.0)
+        vib = jnp.where(is_("imu_vibration"), m * r, 0.0)
+        accel = accel + vib * noise.normal(jax.random.fold_in(k_acc, i), (3,), dtype)
+        gyro = gyro + 0.02 * vib * noise.normal(jax.random.fold_in(k_gyr, i), (3,), dtype)
+        mag = mag + jnp.where(is_("mag_interference") & e, m * r, 0.0)
+        baro = baro + jnp.where(is_("baro_drift"), m * dt_on, 0.0)
+        # GNSS.
+        dropout = is_("gnss_dropout") & ((m <= 0.0) | (dt_on < m))
+        fresh = fresh._replace(gnss=fresh.gnss & ~dropout)
+        pos = pos + jnp.where(is_("gnss_drift") & e, m * dt_on, 0.0)
+        pos = pos + jnp.where(is_("gnss_spoof") & e, 0.5 * m * dt_on**2, 0.0)
+        vel = vel + jnp.where(is_("gnss_spoof") & e, m * dt_on, 0.0)
+    if prop is not None:
+        damaged = active_kind(prop.kind, prop.onset_s, t) == _P["prop_damage"]
+        amp = jnp.where(
+            damaged, 20.0 * prop.magnitude * (truth.prop_omega / PROP_VIB_REF) ** 2, 0.0
+        )
+        accel = accel + amp * noise.normal(k_vib, (3,), dtype)
+    accel = jnp.where(jnp.abs(accel) > ACCEL_CLIP, jnp.sign(accel) * ACCEL_CLIP, accel)
+    z = z._replace(
+        gyro=gyro, accel=accel, mag=mag, airspeed_dp_pa=dp, baro_pa=baro,
+        gnss_pos_ned=pos, gnss_vel_ned=vel, fresh=fresh,
+    )  # fmt: skip
+    return z, latched, hold
 
 
 def init_sensors(
@@ -191,6 +284,8 @@ def init_sensors(
     dt_c: float,
     control_hz: float,
     key: Array,
+    sf: SensorFaultSlots | None = None,
+    prop: ScalarFaultSlot | None = None,
 ) -> tuple[SensorState, SensorArrays]:
     """Sample turn-on biases and the stationary GNSS error, prime the GNSS history with the
     initial truth, then take a first sample (k = 0, so every sensor is fresh)."""
@@ -229,5 +324,7 @@ def init_sensors(
         pitot_latched=jnp.zeros((), bool),
         pitot_pt=truth.static_pa,
         held=blank,
+        fault_latched=jnp.zeros(N_SENSOR_SLOTS, bool),
+        fault_hold=jnp.zeros(N_SENSOR_SLOTS, dtype),
     )
-    return sample(sp, pf, s0, truth, dt_c, control_hz, k4)
+    return sample(sp, pf, s0, truth, dt_c, control_hz, k4, sf, prop)

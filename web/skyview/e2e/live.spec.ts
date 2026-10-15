@@ -31,15 +31,16 @@ test("live mode: a fault injected from the panel is logged and detected; a senso
     console.log(`live state: ${state}\nconsole:\n${messages.slice(-30).join("\n")}`);
     throw e;
   }
-  await expect(page.getByText("Fault: motor cut")).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText("Motor failure detected")).toBeVisible({ timeout: 30_000 });
+  const log = page.locator(".eventlog"); // the HUD also badges active faults
+  await expect(log.getByText("Fault: motor cut")).toBeVisible({ timeout: 20_000 });
+  await expect(log.getByText("Motor failure detected")).toBeVisible({ timeout: 30_000 });
 
   await page.locator("summary", { hasText: "GNSS" }).click();
   await page.getByRole("button", { name: "GNSS dropout", exact: true }).click();
   await expect(active).toContainText("GNSS dropout @");
   await active.getByRole("button", { name: "clear" }).click();
   await expect(active).toContainText("cleared");
-  await expect(page.getByText("Fault cleared: gnss dropout")).toBeVisible({ timeout: 20_000 });
+  await expect(log.getByText("Fault cleared: gnss dropout")).toBeVisible({ timeout: 20_000 });
 
   expect(errors).toEqual([]);
 });

@@ -1,0 +1,20 @@
+# Pitot blocked with the drain hole blocked too: the airspeed reading becomes an altimeter.
+# The mission climbs and descends, so the stock TECS chases a wrong airspeed (golden 3, D7b).
+schema_version: 1
+id: m1-pitot-drain-blocked
+description: Pitot and drain blocked at 40 s during a climbing, descending mission; stock stack.
+site: cambridge_west
+airframe: aerosonde_bm
+seed: 1003
+duration_s: 240
+initial: {pos_ne_m: [0, 0], alt_agl_m: 100, heading_deg: 310, airspeed_mps: 25}
+mission:
+  alt_agl_m: 100
+  waypoints_ne_m: [[500, -600, 100], [500, 400, 180], [-900, 400, 80], [-900, -600, 150]]
+  on_complete: loop
+environment:
+  wind: {from_deg: 250, speed_mps: 6}
+  turbulence: {model: dryden_low_alt, intensity: light}
+faults:
+  - {type: pitot_blockage, variant: drain_blocked, trigger: {at_time_s: 40}, ramp_s: 2}
+stack: {autopilot: stock, contingency: classical_v0, estimator: navigator}

@@ -5,6 +5,10 @@ truth next to the stack's estimates. The stack itself only ever receives ``Senso
 the same arrays the host-stepped ``AerojaxVehicle`` path converts to and from
 ``SensorFrame`` messages. ``closed_loop`` is pure, so it vmaps over seeds, faults and
 environments.
+
+The log is what the recorder writes (spec §10.3). ``log_every`` keeps every k-th step only:
+campaigns of many flights read their outcomes from the final states and keep a sparse
+trajectory for maps.
 """
 
 from __future__ import annotations
@@ -21,7 +25,7 @@ from jax import Array
 from aeroadapt.airframes import Airframe, VehicleParams, to_vehicle_params
 from aeroadapt.core import quaternion
 from aeroadapt.core.messages import SensorArrays
-from aeroadapt.faultlab import FaultConfig, no_faults
+from aeroadapt.faultlab import FaultConfig, FaultLabels, no_faults
 from aeroadapt.scenarios import Site
 from aeroadapt.sim.aerojax import EnvParams, SimConfig, SimState, init_state, sim_step
 from aeroadapt.stack.autopilot import MODE_AUTO, StackState, stack_init, stack_step
@@ -31,46 +35,62 @@ from aeroadapt.vehicle.aerojax_vehicle import trimmed_start
 from aeroadapt.vehicle.protocol import InitialCondition
 
 GuidedFn = Callable[[Array], Target]
+Carry = tuple[SimState, StackState, SensorArrays]
 
 
 class LoopLog(NamedTuple):
-    """One row per control step (after the step)."""
+    """One row per logged control step (state after the step)."""
 
     t: Array
-    # truth
+    # truth (privileged)
     pos_ned: Array
     vel_ned: Array
+    quat: Array  # body → NED, scalar first
     euler: Array  # roll, pitch, yaw
     omega: Array
     va: Array
     alpha: Array
     beta: Array
     wind_ned: Array
+    surfaces: Array  # (3,) actual deflections, rad (B&M signs)
     throttle_actual: Array
-    motor_cut: Array  # fault label
+    thrust: Array
+    battery_v: Array
+    soc: Array
+    prop_rpm: Array
+    labels: FaultLabels
+    motor_cut: Array  # = labels.motor_cut (kept for convenience)
     done: Array
     termination: Array
+    # sensors (what the stack received at this step)
+    sensors: SensorArrays
     # stack
     cmd: Array
     est_euler: Array
     est_pos_ned: Array
     est_vel_ned: Array
-    est_airspeed: Array
+    est_ias: Array
+    est_airspeed: Array  # used by the controllers: TAS, or synthetic if unhealthy
     est_wind_ned: Array
     airspeed_healthy: Array
     roll_dem: Array
     pitch_dem: Array
-    alt_dem: Array  # TECS (rate-limited) height demand
+    alt_target: Array
+    speed_target: Array
+    alt_dem: Array  # TECS (rate-limited, lagged) height demand
     speed_dem: Array
+    lat_acc: Array
     xtrack: Array
     mode: Array
     wp_idx: Array
     failed: Array
     phase: Array
     zone: Array
+    zone_margin: Array  # (Z,) reachability height margin per safe zone
+    speed_to_fly: Array
 
 
-@partial(jax.jit, static_argnames=("n_steps", "guided", "config"))
+@partial(jax.jit, static_argnames=("n_steps", "guided", "config", "log_every"))
 def closed_loop(
     vp: VehicleParams,
     env: EnvParams,
@@ -85,48 +105,77 @@ def closed_loop(
     n_steps: int,
     guided: GuidedFn | None = None,
     config: SimConfig = SimConfig(),  # noqa: B008
+    log_every: int = 1,
 ) -> tuple[SimState, StackState, LoopLog]:
-    def body(carry: tuple[SimState, StackState, SensorArrays], k: Array):
-        sim, st, z = carry
-        st, out = stack_step(sp, st, z, mission, None if guided is None else guided(sim.t))
+    """``n_steps`` control steps (a multiple of ``log_every``); logs every ``log_every``-th."""
+    if n_steps % log_every:
+        raise ValueError("n_steps must be a multiple of log_every")
+
+    def step(carry: Carry, k: Array) -> tuple[Carry, LoopLog]:
+        sim, st, z_in = carry
+        st, out = stack_step(sp, st, z_in, mission, None if guided is None else guided(sim.t))
         sim, z, info = sim_step(vp, env, faults, sim, out.cmd, k, config)
         rb, tr = sim.rb, info.truth
+        e, c = out.est, out.cont
         log = LoopLog(
             t=sim.t,
             pos_ned=rb.pos_ned,
             vel_ned=quaternion.body_to_ned(rb.quat, rb.vel_body),
+            quat=rb.quat,
             euler=jnp.stack(quaternion.to_euler(rb.quat)),
             omega=rb.omega,
             va=tr.va,
             alpha=tr.alpha,
             beta=tr.beta,
             wind_ned=tr.wind_ned,
+            surfaces=tr.surfaces,
             throttle_actual=tr.throttle,
+            thrust=tr.thrust,
+            battery_v=tr.battery_v,
+            soc=tr.soc,
+            prop_rpm=tr.prop_omega * (60.0 / (2.0 * jnp.pi)),
+            labels=info.labels,
             motor_cut=info.labels.motor_cut,
             done=sim.done,
             termination=sim.termination,
+            sensors=z_in,
             cmd=out.cmd,
-            est_euler=jnp.stack([out.est.roll, out.est.pitch, out.est.yaw]),
-            est_pos_ned=out.est.pos_ned,
-            est_vel_ned=out.est.vel_ned,
-            est_airspeed=out.est.airspeed,
-            est_wind_ned=out.est.wind_ned,
-            airspeed_healthy=out.est.airspeed_healthy,
+            est_euler=jnp.stack([e.roll, e.pitch, e.yaw]),
+            est_pos_ned=e.pos_ned,
+            est_vel_ned=e.vel_ned,
+            est_ias=e.ias,
+            est_airspeed=e.airspeed,
+            est_wind_ned=e.wind_ned,
+            airspeed_healthy=e.airspeed_healthy,
             roll_dem=out.roll_dem,
             pitch_dem=out.pitch_dem,
+            alt_target=out.target.alt,
+            speed_target=out.target.speed,
             alt_dem=st.tecs.hgt_dem,
             speed_dem=st.tecs.spd_dem,
+            lat_acc=out.lat_acc,
             xtrack=out.xtrack,
             mode=out.mode,
             wp_idx=out.wp_idx,
-            failed=out.cont.active,
-            phase=out.cont.phase,
-            zone=out.cont.zone,
+            failed=c.active,
+            phase=c.phase,
+            zone=c.zone,
+            zone_margin=c.margin,
+            speed_to_fly=c.speed_to_fly,
         )
         return (sim, st, z), log
 
     keys = jax.random.split(key, n_steps)
-    (sim, st, _), log = jax.lax.scan(body, (sim0, stack0, z0), keys)
+    carry0: Carry = (sim0, stack0, z0)
+    if log_every == 1:
+        (sim, st, _), log = jax.lax.scan(step, carry0, keys)
+        return sim, st, log
+
+    def chunk(carry: Carry, ks: Array) -> tuple[Carry, LoopLog]:
+        carry, logs = jax.lax.scan(step, carry, ks)
+        return carry, jax.tree.map(lambda x: x[-1], logs)
+
+    (sim, st, _), log = jax.lax.scan(chunk, carry0, keys.reshape(-1, log_every, *keys.shape[1:]))
     return sim, st, log
 
 
@@ -144,7 +193,12 @@ class LoopSetup:
     config: SimConfig
 
     def run(
-        self, mission: Mission, n_steps: int, key: Array, guided: GuidedFn | None = None
+        self,
+        mission: Mission,
+        n_steps: int,
+        key: Array,
+        guided: GuidedFn | None = None,
+        log_every: int = 1,
     ) -> tuple[SimState, StackState, LoopLog]:
         return closed_loop(
             self.vp,
@@ -159,6 +213,7 @@ class LoopSetup:
             n_steps=n_steps,
             guided=guided,
             config=self.config,
+            log_every=log_every,
         )
 
 

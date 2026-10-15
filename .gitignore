@@ -27,6 +27,8 @@ third_party/
 # Web
 node_modules/
 web/skyview/dist/
+web/skyview/test-results/
+web/skyview/playwright-report/
 
 # OS / editors
 .DS_Store
@@ -35,3 +37,4 @@ web/skyview/dist/
 
 # Local agent tooling
 .claude/
+web/skyview/public/replays/

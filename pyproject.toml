@@ -10,14 +10,19 @@ authors = [{ name = "gimocimo" }]
 dependencies = [
     "jax>=0.4.35",
     "numpy>=2.0",
+    "pyarrow>=17",
     "pydantic>=2.7",
     "pyyaml>=6.0",
 ]
+
+[project.scripts]
+aeroadapt = "aeroadapt.cli:main"
 
 [dependency-groups]
 dev = [
     "hypothesis>=6.100",
     "import-linter>=2.1",
+    "matplotlib>=3.9",
     "pre-commit>=3.8",
     "pygeomag>=1.1.0",
     "pymap3d>=3.1",
@@ -38,7 +43,7 @@ packages = ["src/aeroadapt"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["src", "tests", "reference", "tools"]
+src = ["src", "tests", "reference", "tools", "validation"]
 extend-exclude = ["web", "docs"]
 
 [tool.ruff.lint]
@@ -47,12 +52,16 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "NPY", "RUF"]
 # SIM300: false positive on the idiomatic `value == pytest.approx(expected)`.
 ignore = ["RUF001", "RUF002", "RUF003", "SIM300"]
 
+[tool.ruff.lint.per-file-ignores]
+# Report tables: one row per line reads better than wrapped f-strings.
+"validation/report.py" = ["E501"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["aeroadapt", "reference"]
 
 # ---------------------------------------------------------------------------
 [tool.pyright]
-include = ["src", "tests", "reference", "tools"]
+include = ["src", "tests", "reference", "tools", "validation"]
 pythonVersion = "3.12"
 typeCheckingMode = "standard"
 # Strict mode is enabled per file (``# pyright: strict``) where the dependencies are fully

@@ -1,0 +1,19 @@
+# Motor cut on the first leg; the classical contingency glides to a surveyed field (golden 2).
+schema_version: 1
+id: m1-motorcut-classical
+description: Motor cut at 60 s; classical contingency v0 (baseline B2) selects a zone and lands.
+site: cambridge_west
+airframe: aerosonde_bm
+seed: 1002
+duration_s: 300
+initial: {pos_ne_m: [0, 0], alt_agl_m: 120, heading_deg: 310, airspeed_mps: 25}
+mission:
+  alt_agl_m: 120
+  waypoints_ne_m: [[500, -600], [500, 400, 140], [-900, 400], [-900, -600]]
+  on_complete: loop
+environment:
+  wind: {from_deg: 250, speed_mps: 6}
+  turbulence: {model: dryden_low_alt, intensity: light}
+faults:
+  - {type: motor_cut, trigger: {at_time_s: 60}}
+stack: {autopilot: stock, contingency: classical_v0, estimator: navigator}

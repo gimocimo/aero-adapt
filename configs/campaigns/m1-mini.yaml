@@ -1,0 +1,10 @@
+# V12 mini-campaign (spec §12): 50 motor cuts around the Coton loop, random onset and wind.
+id: m1-mini
+template: m1-motorcut-classical
+duration_s: 400
+n: 50
+seed: 7
+vary:
+  fault_onset_s: [20, 200]   # anywhere on the loop
+  wind_speed_mps: [0, 8]
+  wind_from_deg: [0, 360]

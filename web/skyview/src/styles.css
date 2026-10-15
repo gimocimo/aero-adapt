@@ -128,3 +128,285 @@ dd {
 .blue {
   color: #5b8cff;
 }
+
+/* ---------------------------------------------------------------- replay player */
+.controls,
+.eventlog,
+.timeline,
+.hud,
+.error {
+  position: fixed;
+  background: var(--panel-bg);
+  color: var(--panel-fg);
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.controls {
+  top: 12px;
+  left: 12px;
+  width: min(300px, calc(100vw - 24px));
+  padding: 12px 14px;
+}
+
+.controls h1 {
+  margin: 0 0 2px;
+  font-size: 15px;
+}
+
+.controls .row {
+  grid-template-columns: 60px 1fr;
+}
+
+.controls .row select {
+  grid-column: 2;
+}
+
+.layers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 10px;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 3px;
+  vertical-align: -1px;
+}
+
+.eventlog {
+  top: 12px;
+  right: 12px;
+  width: min(300px, calc(100vw - 24px));
+  max-height: 40vh;
+  overflow: auto;
+  padding: 10px 12px;
+}
+
+.eventlog h2 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.eventlog ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.eventlog li {
+  padding: 2px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.eventlog li:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.eventlog li.future {
+  color: var(--muted);
+  opacity: 0.55;
+}
+
+.eventlog .ev-time {
+  display: inline-block;
+  min-width: 52px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.eventlog li.past.ev-fault_onset,
+.eventlog li.past.ev-touchdown {
+  color: #ffb84c;
+}
+
+.timeline {
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  width: min(900px, calc(100vw - 24px));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  box-sizing: border-box;
+}
+
+.timeline .play {
+  width: 36px;
+  height: 30px;
+  border: 1px solid #3a4652;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--panel-fg);
+  cursor: pointer;
+}
+
+.timeline .clock {
+  font-variant-numeric: tabular-nums;
+  min-width: 110px;
+}
+
+.scrub {
+  position: relative;
+  flex: 1;
+}
+
+.scrub input {
+  width: 100%;
+}
+
+.scrub .tick {
+  position: absolute;
+  top: -8px;
+  width: 4px;
+  height: 8px;
+  padding: 0;
+  margin-left: -2px;
+  border: 0;
+  border-radius: 1px;
+  background: var(--muted);
+  cursor: pointer;
+}
+
+.scrub .tick-fault_onset {
+  background: #ff5c5c;
+}
+.scrub .tick-failure_detected,
+.scrub .tick-zone_selected {
+  background: #ffc93c;
+}
+.scrub .tick-touchdown,
+.scrub .tick-terminated {
+  background: #7dff7a;
+}
+
+.hud {
+  left: 12px;
+  bottom: 66px;
+  padding: 6px 8px 8px;
+  background: rgba(10, 14, 20, 0.62);
+}
+
+.hud svg {
+  display: block;
+}
+
+.hud-tape {
+  fill: rgba(0, 0, 0, 0.45);
+  stroke: #56636f;
+}
+.hud-tick {
+  stroke: #cfd8e1;
+}
+.hud-readout {
+  fill: #0b0e12;
+  stroke: #e8edf2;
+}
+.hud-big {
+  fill: #ffffff;
+  font: 600 15px ui-monospace, monospace;
+}
+.hud-small {
+  fill: #cfd8e1;
+  font: 11px ui-monospace, monospace;
+}
+.hud-truth {
+  fill: #7dff7a;
+  font: 600 12px ui-monospace, monospace;
+}
+.hud-sky {
+  fill: #2f6fa8;
+}
+.hud-ground {
+  fill: #7a5833;
+}
+.hud-horizon {
+  stroke: #fff;
+  stroke-width: 2;
+}
+.hud-ladder {
+  stroke: #fff;
+  stroke-width: 1.2;
+}
+.hud-director {
+  stroke: #e070ff;
+  stroke-width: 2.5;
+}
+.hud-ring {
+  fill: none;
+  stroke: #cfd8e1;
+  stroke-width: 1.5;
+}
+.hud-aircraft {
+  fill: none;
+  stroke: #ffd84c;
+  stroke-width: 3;
+}
+
+.hud-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+  max-width: 440px;
+}
+
+.badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #24303c;
+  font-size: 12px;
+  font-weight: 600;
+}
+.badge-warn {
+  background: #8a6413;
+}
+.badge-alert {
+  background: #9c2c2c;
+}
+.badge-fault {
+  background: #6d1f1f;
+}
+
+.touchdown-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin-top: 6px;
+  padding: 6px;
+  border-radius: 8px;
+  background: #1c3a24;
+}
+
+.error {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 16px;
+  max-width: 520px;
+}
+
+@media (max-width: 900px) {
+  .eventlog {
+    display: none;
+  }
+  .hud {
+    transform: scale(0.7);
+    transform-origin: bottom left;
+  }
+}

@@ -1,0 +1,479 @@
+{
+  "duration_s": 30.000591999999997,
+  "enums": {
+    "fault_bits": {
+      "motor_cut": 2,
+      "pitot": 1,
+      "servo_jam_aileron": 4,
+      "servo_jam_elevator": 8,
+      "servo_jam_rudder": 16
+    },
+    "mode": [
+      "AUTO",
+      "RTL",
+      "GUIDED"
+    ],
+    "phase": [
+      "NOMINAL",
+      "CIRCLE",
+      "FINAL",
+      "FLARE",
+      "STRAIGHT_IN",
+      "DOWNWIND",
+      "BASE"
+    ]
+  },
+  "mission": {
+    "on_complete": "loop",
+    "waypoints_ne_alt_m": [
+      [
+        500.0,
+        -600.0,
+        120.0
+      ],
+      [
+        500.0,
+        400.0,
+        140.0
+      ],
+      [
+        -900.0,
+        400.0,
+        120.0
+      ],
+      [
+        -900.0,
+        -600.0,
+        120.0
+      ]
+    ]
+  },
+  "n_frames": 3000,
+  "provenance": {
+    "airframe": {
+      "id": "aerosonde_bm",
+      "sha256": "b02a2e7bd35c753e8e2bd5a28caff6d9f87f4e199110aef289bd4d2b3af868df"
+    },
+    "git": {
+      "commit": "d2437dc6892e498528dbc8cdad961331265bada3",
+      "dirty": true
+    },
+    "stack": {
+      "config": {
+        "airframe": "aerosonde_bm",
+        "attitude": {
+          "pitch": {
+            "ff": 1.8,
+            "i": 0.5,
+            "imax": 0.4,
+            "p": 0.8,
+            "rate_max_dps": 45.0,
+            "tconst_s": 0.25
+          },
+          "roll": {
+            "ff": 0.4,
+            "i": 0.3,
+            "imax": 0.2,
+            "p": 0.1,
+            "rate_max_dps": 75.0,
+            "tconst_s": 0.35
+          },
+          "scaler_max": 2.0,
+          "scaler_min": 0.5,
+          "servo_trim": {
+            "aileron": 0.0137,
+            "elevator_a": -0.2563,
+            "elevator_b": 0.5167,
+            "rudder": 0.0022
+          },
+          "yaw": {
+            "damp": 0.3,
+            "ff": 0.3,
+            "imax": 0.2,
+            "slip_i": 0.02
+          }
+        },
+        "contingency": {
+          "circle_radius_m": 100.0,
+          "enabled": true,
+          "energy_slack_mps": 2.0,
+          "energy_tau_s": 0.5,
+          "energy_threshold_m": 4.0,
+          "esc_persist_s": 0.5,
+          "esc_telemetry": true,
+          "final_length_m": 250.0,
+          "flare_alt_m": 3.0,
+          "flare_pitch_gain": 0.08,
+          "flare_sink_mps": 0.5,
+          "glide_speed_min_mps": 18.5,
+          "h_margin_m": 10.0,
+          "h_pattern_m": 30.0,
+          "headwind_speed_gain": 0.5,
+          "land_roll_limit_deg": 8.0,
+          "rpm_fraction": 0.5,
+          "rpm_min_throttle": 0.3
+        },
+        "id": "aerosonde_bm_stock",
+        "l1": {
+          "damping": 0.75,
+          "loiter_radius_m": 150.0,
+          "period_s": 15.0,
+          "roll_limit_deg": 45.0,
+          "wp_radius_m": 60.0
+        },
+        "navigator": {
+          "accel_gate_g": 0.3,
+          "airspeed_fail_mps": 5.0,
+          "airspeed_fail_s": 5.0,
+          "airspeed_recover_s": 10.0,
+          "att_ki": 0.003,
+          "att_kp": 0.3,
+          "baro_gain": 0.1,
+          "baro_vel_gain": 0.05,
+          "gnss_latency_s": 0.12,
+          "gnss_pos_gain": 0.25,
+          "gnss_pos_to_vel_gain": 0.05,
+          "gnss_vel_gain": 0.4,
+          "mag_kp": 0.3,
+          "wind_tau_s": 20.0
+        },
+        "schema_version": 1,
+        "tecs": {
+          "airspeed_cruise_mps": 25.0,
+          "airspeed_max_mps": 35.0,
+          "airspeed_min_mps": 18.0,
+          "climb_max_mps": 5.0,
+          "integ_gain": 0.4,
+          "pitch_max_deg": 20.0,
+          "pitch_min_deg": -15.0,
+          "pitch_trim_b_deg": 5.6,
+          "pitch_trim_deg": 3.11,
+          "ptch_damp": 0.6,
+          "rll2thr": 10.0,
+          "sink_max_mps": 5.0,
+          "sink_min_mps": 2.0,
+          "spd_weight": 1.0,
+          "thr_cruise": 0.682,
+          "thr_damp": 0.5,
+          "thr_slope": 0.0261,
+          "time_const_s": 3.0,
+          "vert_acc_mps2": 7.0
+        }
+      },
+      "id": "aerosonde_bm_stock",
+      "sha256": "dcf0e73091080ee56966466c72af8b8978bdf8d294287f7038f0c91cf24caccc"
+    }
+  },
+  "rates": {
+    "control_hz": 100.0,
+    "physics_hz": 200.0,
+    "viz_hz": 50.0
+  },
+  "scenario": {
+    "airframe": "aerosonde_bm",
+    "description": "Motor cut at 60 s; classical contingency v0 (baseline B2) selects a zone and lands.",
+    "duration_s": 30.0,
+    "environment": {
+      "qnh_hpa": null,
+      "temp_offset_k": null,
+      "turbulence": {
+        "intensity": "light",
+        "model": "dryden_low_alt"
+      },
+      "wind": {
+        "from_deg": 250.0,
+        "shear_alpha": 0.0,
+        "speed_mps": 6.0
+      }
+    },
+    "faults": [],
+    "id": "smoke",
+    "initial": {
+      "airspeed_mps": 25.0,
+      "alt_agl_m": 120.0,
+      "heading_deg": 310.0,
+      "pos_ne_m": [
+        0.0,
+        0.0
+      ],
+      "soc": 1.0
+    },
+    "mission": {
+      "alt_agl_m": 120.0,
+      "home_ne_m": null,
+      "on_complete": "loop",
+      "speed_mps": 25.0,
+      "type": "waypoints",
+      "waypoints_ne_m": [
+        [
+          500.0,
+          -600.0
+        ],
+        [
+          500.0,
+          400.0,
+          140.0
+        ],
+        [
+          -900.0,
+          400.0
+        ],
+        [
+          -900.0,
+          -600.0
+        ]
+      ]
+    },
+    "schema_version": 1,
+    "seed": 1002,
+    "site": "cambridge_west",
+    "stack": {
+      "autopilot": "stock",
+      "contingency": "classical_v0",
+      "estimator": "navigator",
+      "motor_detector": null,
+      "params": null
+    }
+  },
+  "schema_version": 1,
+  "seed": 1002,
+  "site": {
+    "id": "cambridge_west",
+    "name": "Cambridge west fringe \u2014 Coton Countryside fields",
+    "origin": {
+      "h_ellipsoid_m": 63.9,
+      "lat_deg": 52.2075,
+      "lon_deg": 0.0747
+    },
+    "safe_zones": [
+      {
+        "approach_from_deg": [],
+        "id": "A",
+        "polygon_ne_m": [
+          [
+            44.0,
+            -154.8
+          ],
+          [
+            -18.4,
+            91.9
+          ],
+          [
+            -392.0,
+            55.6
+          ],
+          [
+            -267.9,
+            -243.5
+          ]
+        ],
+        "quality": 0.9,
+        "surface": "arable (winter crop), 12 ha; the origin field. M11 along the east edge"
+      },
+      {
+        "approach_from_deg": [],
+        "id": "B",
+        "polygon_ne_m": [
+          [
+            72.1,
+            -485.6
+          ],
+          [
+            -1.5,
+            -257.5
+          ],
+          [
+            -201.2,
+            -296.9
+          ],
+          [
+            -84.5,
+            -463.4
+          ]
+        ],
+        "quality": 0.8,
+        "surface": "arable, 4.9 ha; curved western edge (polygon is the inscribed quadrilateral)"
+      },
+      {
+        "approach_from_deg": [],
+        "id": "C",
+        "polygon_ne_m": [
+          [
+            -352.8,
+            -237.4
+          ],
+          [
+            -454.5,
+            29.6
+          ],
+          [
+            -737.4,
+            3.2
+          ],
+          [
+            -627.9,
+            -213.5
+          ]
+        ],
+        "quality": 0.8,
+        "surface": "arable, 8.5 ha; south of A across a hedge"
+      },
+      {
+        "approach_from_deg": [],
+        "id": "F",
+        "polygon_ne_m": [
+          [
+            -298.8,
+            -568.6
+          ],
+          [
+            -298.8,
+            -475.3
+          ],
+          [
+            -612.9,
+            -356.8
+          ],
+          [
+            -608.3,
+            -552.7
+          ]
+        ],
+        "quality": 0.7,
+        "surface": "grass/arable strip, 6 ha; narrow (about 95-190 m wide)"
+      }
+    ]
+  },
+  "units": {
+    "actual.aileron": "rad",
+    "actual.elevator": "rad",
+    "actual.rudder": "rad",
+    "actual.throttle": "1",
+    "cmd.aileron": "1",
+    "cmd.elevator": "1",
+    "cmd.rudder": "1",
+    "cmd.throttle": "1",
+    "cont.failed": "bool",
+    "cont.phase": "enum",
+    "cont.reach_mask": "bits",
+    "cont.speed_to_fly": "m/s",
+    "cont.zone": "1",
+    "demands.alt_target": "m",
+    "demands.alt_tecs": "m",
+    "demands.lat_acc": "m/s^2",
+    "demands.pitch": "rad",
+    "demands.roll": "rad",
+    "demands.speed_target": "m/s",
+    "demands.speed_tecs": "m/s",
+    "demands.xtrack": "m",
+    "done": "bool",
+    "est.airspeed": "m/s",
+    "est.airspeed_healthy": "bool",
+    "est.ias": "m/s",
+    "est.pitch": "rad",
+    "est.pos_d": "m",
+    "est.pos_e": "m",
+    "est.pos_n": "m",
+    "est.roll": "rad",
+    "est.vel_d": "m/s",
+    "est.vel_e": "m/s",
+    "est.vel_n": "m/s",
+    "est.wind_e": "m/s",
+    "est.wind_n": "m/s",
+    "est.yaw": "rad",
+    "labels.fault_bits": "bits",
+    "mode": "enum",
+    "sensors.accel_x": "m/s^2",
+    "sensors.accel_y": "m/s^2",
+    "sensors.accel_z": "m/s^2",
+    "sensors.airspeed_dp_pa": "Pa",
+    "sensors.baro_pa": "Pa",
+    "sensors.battery_v": "V",
+    "sensors.esc_rpm": "rpm",
+    "sensors.gnss_pos_d": "m",
+    "sensors.gnss_pos_e": "m",
+    "sensors.gnss_pos_n": "m",
+    "sensors.gnss_vel_d": "m/s",
+    "sensors.gnss_vel_e": "m/s",
+    "sensors.gnss_vel_n": "m/s",
+    "sensors.gyro_x": "rad/s",
+    "sensors.gyro_y": "rad/s",
+    "sensors.gyro_z": "rad/s",
+    "sensors.mag_x": "G",
+    "sensors.mag_y": "G",
+    "sensors.mag_z": "G",
+    "sensors.tas": "m/s",
+    "termination": "enum",
+    "time_us": "us",
+    "truth.alpha": "rad",
+    "truth.alt_agl": "m",
+    "truth.battery_v": "V",
+    "truth.beta": "rad",
+    "truth.climb_rate": "m/s",
+    "truth.groundspeed": "m/s",
+    "truth.omega_x": "rad/s",
+    "truth.omega_y": "rad/s",
+    "truth.omega_z": "rad/s",
+    "truth.pitch": "rad",
+    "truth.pos_d": "m",
+    "truth.pos_e": "m",
+    "truth.pos_n": "m",
+    "truth.prop_rpm": "rpm",
+    "truth.qw": "1",
+    "truth.qx": "1",
+    "truth.qy": "1",
+    "truth.qz": "1",
+    "truth.roll": "rad",
+    "truth.soc": "1",
+    "truth.tas": "m/s",
+    "truth.thrust": "N",
+    "truth.vel_d": "m/s",
+    "truth.vel_e": "m/s",
+    "truth.vel_n": "m/s",
+    "truth.wind_d": "m/s",
+    "truth.wind_e": "m/s",
+    "truth.wind_n": "m/s",
+    "truth.yaw": "rad",
+    "wp_idx": "1"
+  },
+  "viz_columns": [
+    "t",
+    "truth.pos_n",
+    "truth.pos_e",
+    "truth.pos_d",
+    "truth.qw",
+    "truth.qx",
+    "truth.qy",
+    "truth.qz",
+    "truth.roll",
+    "truth.pitch",
+    "truth.yaw",
+    "truth.alt_agl",
+    "truth.climb_rate",
+    "truth.groundspeed",
+    "truth.tas",
+    "truth.alpha",
+    "truth.beta",
+    "truth.wind_n",
+    "truth.wind_e",
+    "actual.aileron",
+    "actual.elevator",
+    "actual.rudder",
+    "actual.throttle",
+    "sensors.tas",
+    "est.ias",
+    "est.airspeed",
+    "est.airspeed_healthy",
+    "demands.roll",
+    "demands.pitch",
+    "demands.alt_target",
+    "demands.speed_target",
+    "mode",
+    "wp_idx",
+    "cont.failed",
+    "cont.phase",
+    "cont.zone",
+    "cont.reach_mask",
+    "labels.fault_bits"
+  ]
+}

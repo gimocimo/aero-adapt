@@ -44,7 +44,7 @@ function fmtCheck(h: number | null, ground: number | null): string {
   return `${h.toFixed(2)} m (${d >= 0 ? "+" : ""}${d.toFixed(1)} vs ground)`;
 }
 
-export default function App() {
+export default function Calibration() {
   const container = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
   const aircraftRef = useRef<Entity | null>(null);

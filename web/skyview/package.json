@@ -3,21 +3,25 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "AeroAdapt browser viewer (CesiumJS). Week 1: frames calibration and UK site survey spike.",
+  "description": "AeroAdapt Skyview: replay viewer (CesiumJS + Google Photorealistic 3D Tiles) with HUD, overlays and timeline; ?calibrate opens the frames calibration checklist.",
   "license": "Apache-2.0",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "e2e": "playwright test"
   },
   "dependencies": {
+    "apache-arrow": "^21.2.0",
     "cesium": "^1.146.0",
     "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react-dom": "^19.3.0",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",

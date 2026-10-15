@@ -19,6 +19,7 @@ runs/
 replays/
 *.parquet
 *.arrow
+!web/skyview/public/fixtures/**/*.arrow
 validation/out/
 
 # Third-party code fetched for tests (never vendored)

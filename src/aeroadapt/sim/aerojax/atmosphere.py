@@ -5,10 +5,11 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-import jax
 import jax.numpy as jnp
 from jax import Array
 from jax.typing import ArrayLike
+
+from aeroadapt.sim.aerojax import noise
 
 # ISA constants
 T0 = 288.15  # K
@@ -102,7 +103,7 @@ def dryden_step(
     """Advance the turbulence filters by ``dt`` and return the body-axis gust (u, v, w)."""
     sigma_uv, sigma_w, l_uv, l_w = dryden_scales(turb.w20_mps, h_agl)
     v_ref = jnp.maximum(va, 1.0)  # frozen-turbulence speed; guard against V → 0
-    n = jax.random.normal(key, (3,), dtype=state.v.dtype)
+    n = noise.normal(key, (3,), state.v.dtype)
 
     a = jnp.exp(-v_ref * dt / l_uv)  # exact AR(1) discretisation of the u channel
     u = a * state.u + sigma_uv * jnp.sqrt(1 - a**2) * n[0]
@@ -118,7 +119,7 @@ def dryden_stationary(
     rather than spinning up from calm."""
     sigma_uv, _, l_uv, l_w = dryden_scales(turb.w20_mps, h_agl)
     v_ref = jnp.maximum(va, 1.0)
-    n = jax.random.normal(key, (5,), dtype=dtype)
+    n = noise.normal(key, (5,), dtype)
     tau_v, tau_w = l_uv / v_ref, l_w / v_ref
     return DrydenState(
         u=sigma_uv * n[0],

@@ -18,6 +18,7 @@ from aeroadapt.airframes.params import SensorParams
 from aeroadapt.core import quaternion
 from aeroadapt.core.messages import FreshFlags, SensorArrays
 from aeroadapt.faultlab.slots import PitotFault
+from aeroadapt.sim.aerojax import noise
 
 GNSS_HISTORY = 32  # control steps of truth history (320 ms at 100 Hz) for GNSS latency
 
@@ -101,8 +102,8 @@ def sample(
 ) -> tuple[SensorState, SensorArrays]:
     ks = jax.random.split(key, 12)
     dtype = truth.pos_ned.dtype
-    n3 = lambda i: jax.random.normal(ks[i], (3,), dtype)  # noqa: E731
-    n1 = lambda i: jax.random.normal(ks[i], (), dtype)  # noqa: E731
+    n3 = lambda i: noise.normal(ks[i], (3,), dtype)  # noqa: E731
+    n1 = lambda i: noise.normal(ks[i], (), dtype)  # noqa: E731
     sq = jnp.sqrt(dt_c)
     fresh = _fresh(sp, truth.k, control_hz)
 
@@ -132,7 +133,7 @@ def sample(
 
     mag = quaternion.ned_to_body(truth.quat, truth.mag_ned) + sp.mag_noise * n3(9)
     esc_rpm = truth.prop_omega * 60.0 / (2 * jnp.pi) * (1 + sp.esc_rpm_noise_frac * n1(10))
-    bnoise = jax.random.normal(ks[11], (2,), dtype)
+    bnoise = noise.normal(ks[11], (2,), dtype)
 
     new = SensorArrays(
         gyro=gyro,
@@ -217,10 +218,10 @@ def init_sensors(
         fresh=FreshFlags(imu=no, baro=no, airspeed=no, gnss=no, mag=no, battery=no, esc=no),
     )
     s0 = SensorState(
-        gyro_bias=sp.gyro_bias_init * jax.random.normal(k1, (3,), dtype),
-        accel_bias=sp.accel_bias_init * jax.random.normal(k2, (3,), dtype),
+        gyro_bias=sp.gyro_bias_init * noise.normal(k1, (3,), dtype),
+        accel_bias=sp.accel_bias_init * noise.normal(k2, (3,), dtype),
         baro_drift=jnp.zeros((), dtype),
-        gnss_err=sigma * jax.random.normal(k3, (3,), dtype),
+        gnss_err=sigma * noise.normal(k3, (3,), dtype),
         gnss_hist=jnp.broadcast_to(
             jnp.concatenate([truth.pos_ned, truth.vel_ned]), (GNSS_HISTORY, 6)
         ),

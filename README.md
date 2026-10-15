@@ -4,13 +4,20 @@
 
 AeroAdapt is built simulation-first. It is validated rigorously and compared against strong classical baselines. The aim is to move from simulation to a real aircraft once the simulated system is proven.
 
-> **Status:** Milestone M1 (vertical slice), week 3 done.
+> **Status:** Milestone M1 (vertical slice) complete: a fixed-wing UAV flies a mission over the real Coton fields west of Cambridge in the browser, and when its motor fails, a classical contingency glides it to a surveyed field.
 >
-> - **Simulator:** actuators, battery, ISA and turbulence, sensors, fault injection, trim and validation are in place.
-> - **Flight stack:** a DCM-class navigator and an ArduPlane-equivalent autopilot (L1, TECS, attitude loops, AUTO/RTL/GUIDED modes) meet every V11 acceptance criterion, in calm air and in light turbulence.
-> - **Motor failure:** the classical contingency detects a motor cut in 0.7 s. It glides a circuit to a pre-surveyed field and lands in it on the hand-made test cases.
+> - **Simulator:** a JAX 6-DoF fixed-wing simulator with actuators, battery, turbulence, sensors and fault injection. It matches an independent NumPy implementation to machine precision.
+> - **Flight stack:** a DCM-class navigator and an ArduPlane-equivalent autopilot. They meet every V11 acceptance criterion in calm air and light turbulence.
+> - **Motor-failure contingency** (50 random motor cuts):
+>   - **91%** of the cases judged reachable land inside the selected field;
+>   - zero crashes;
+>   - ESC detection in 0.73 s median.
+> - **Recordings and replay:** reproducible replay bundles, played back in **Skyview**, a CesiumJS player over Google Photorealistic 3D Tiles. It shows a HUD with indicated vs true airspeed, live safe-zone reachability, and a ghost aircraft for stock-vs-contingency comparisons.
+> - **Evidence:** [validation report](docs/validation/m1_report.md) · [M1 write-up](docs/demo/m1.md)
 >
-> Next: scenarios, the runner, the recorder, the Skyview replay and the statistical V12 campaign.
+> Next: M2 (JSBSim backend, live server, the airframe fleet).
+
+![Skyview: the classical contingency flaring over field A after a motor cut](docs/media/skyview_final.jpg)
 
 ## Plan and design documents
 
@@ -32,12 +39,18 @@ make check      # lint, type check, import contracts, fast test tier
 make validate   # full validation tier (slow)
 ```
 
-Run the Cesium spike viewer:
+Fly a scenario and replay it in Skyview:
 
 ```bash
-cp web/skyview/.env.example web/skyview/.env.local   # then add your Cesium ion token
-make web-dev
+uv run aeroadapt run m1-motorcut-classical          # → runs/m1-motorcut-classical (replay bundle)
+uv run aeroadapt run m1-motorcut-stock
+uv run aeroadapt export-viz runs/m1-motorcut-classical
+uv run aeroadapt export-viz runs/m1-motorcut-stock
+cp web/skyview/.env.example web/skyview/.env.local   # optional: add a Cesium ion token for 3D tiles
+make web-dev   # open http://localhost:5173/?replay=m1-motorcut-classical&ghost=m1-motorcut-stock
 ```
+
+Other commands: `aeroadapt campaign m1-mini` (the 50-cut V12 mini-campaign), `make report` (validation report), `make demo` (demo video from seeds), `aeroadapt bench`.
 
 ## Repository layout
 
@@ -47,13 +60,16 @@ make web-dev
 | `src/aeroadapt/airframes` | Airframe schema and loader |
 | `src/aeroadapt/sim/aerojax` | JAX 6-DoF fixed-wing simulator, written as a pure functional core (ADR-002): actuators, battery, atmosphere and turbulence, sensors, trim |
 | `src/aeroadapt/faultlab` | Fault specifications, fixed-shape fault slots and ground-truth labels (ADR-003) |
-| `src/aeroadapt/scenarios` | Site definitions (and, from week 4, scenarios) |
+| `src/aeroadapt/scenarios` | Sites, scenario schema and resolver, runner, campaigns, V12 evaluation, golden flights |
+| `src/aeroadapt/telemetry` | Recording schema, events and replay bundles (ADR-005) |
 | `src/aeroadapt/stack` | Flight stack: navigator, L1, TECS, attitude loops, modes and mission, classical motor-failure contingency, and the `FlightStack` host shell. It runs on sensor data only and must not import the simulator or a vehicle backend (ADR-006). |
 | `src/aeroadapt/vehicle` | The `Vehicle` interface (ADR-004) and the `AerojaxVehicle` adapter, with privileged truth access (ADR-006) |
 | `src/aeroadapt/harness` | Closed loop (simulator + stack) in one `lax.scan`, vmap-able. V11 acceptance tests. |
+| `src/aeroadapt/cli.py` | `aeroadapt run / campaign / validate / report / bench / export-viz` |
+| `validation/` | Validation report builder (outside the package: it uses the reference implementation) |
 | `reference/bm_numpy` | Independent NumPy reference implementation, used only for N-version validation |
-| `configs/` | Airframe, site and scenario definitions |
-| `web/skyview` | Browser viewer (CesiumJS) |
+| `configs/` | Airframes, sites, stack parameters, scenarios, campaigns |
+| `web/skyview` | Skyview replay player (CesiumJS, React, Arrow) |
 
 ## Validation philosophy
 

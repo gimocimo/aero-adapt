@@ -1031,3 +1031,108 @@ The tightest margin is the altitude deviation during the airspeed step in turbul
 - The contingency is validated on hand-made cases only. The 50-scenario V12 campaign will measure the in-zone rate statistically. Two failure modes need watching: long headwind finals, and cuts at the reachability boundary.
 - The estimated wind's crosswind component reads about 0.8 m/s low in steady flight. It is within spec but worth checking against the yaw estimate.
 - The ISA geoid value is still approximate (site config: 46 m ± 1 m).
+
+### Week 4 (15 Oct 2026)
+
+**Delivered**
+
+- **Scenarios** (`scenarios/schema.py`, `resolve.py`): the §10.1 YAML schema plus a resolver into the
+  harness inputs. Five canonical scenarios: nominal; motor cut with the classical contingency and the
+  same flight and seed flown stock; pitot drain-blocked; aileron jam.
+- **Runner and recorder** (`scenarios/runner.py`, `telemetry/`, ADR-005): replay bundles with
+  `manifest.json`, `frames.parquet` (100 Hz, ~110 columns), `events.jsonl` and `viz.arrow` (50 Hz,
+  float32), all generated from one column schema. Events are derived after the run.
+- **Campaigns** (`scenarios/campaign.py`): seeded variations of a template, flown under one `vmap`. A
+  50 × 400 s campaign takes about 50 s. Outcomes come from the final states plus a 1 Hz trajectory, and
+  every failure is listed with its cause.
+- **V12 evaluation** (`scenarios/v12.py`), **V6/V7/V13** tests, and **golden flights** with tolerances
+  in the fast tier (`tests/regression`, regenerated with `tools/update_goldens.py`).
+- **`aeroadapt` CLI**: `run`, `campaign`, `validate`, `report`, `bench`, `export-viz`.
+- **Validation report** (`validation/report.py` → `docs/validation/m1_report.md` + figures). The
+  nightly workflow rebuilds it as a CI artefact.
+- **Precision-independent noise** (`sim/aerojax/noise.py`): every draw is made in float32 and cast.
+- **Skyview v0** (`web/skyview`): the replay player.
+  - Google 3D Tiles with a grid fallback.
+  - Interpolated aircraft (linear position, quaternion slerp) and a ghost aircraft.
+  - A trail coloured by mode and contingency phase, the mission path, and safe zones draped on the
+    tiles and coloured by the live reachability table.
+  - A wind arrow and a touchdown marker.
+  - An SVG HUD with **indicated (sensor) and true (truth) airspeed together**, attitude with a flight
+    director, altitude and speed bugs, faults and phases.
+  - An event log, a timeline with event ticks, 0.25–8× playback, four cameras and layer toggles.
+  - The week-1 calibration checklist moves to `?calibrate`.
+  - vitest covers interpolation, slerp and the Arrow loader. A Playwright smoke test (tiles off, on a
+    committed 30 s fixture) runs in CI.
+- **Demo tooling** (`web/skyview/scripts/capture-frames.mjs`): deterministic frame-by-frame capture
+  (each frame waits for the tiles), encoded with ffmpeg.
+- **ADR-005** (telemetry and replay format) is accepted and implemented. ADR-001 to ADR-006 are now
+  all merged.
+
+**Results** (full numbers in `docs/validation/m1_report.md`)
+
+| Item | Result |
+|---|---|
+| V6 · RK4 convergence | slope 4.02; pitch error at the 5 ms step 1.9e-9 rad |
+| V7 · float32 vs float64, 60 s closed loop | 5 mm and 0.005° (after making noise precision-independent; before, the realisations differed and the runs diverged by 30 m) |
+| V8 · Dryden σ, 64 seeds × 10 min | within 2% |
+| V12 · ESC detector, 100 cuts | median 0.73 s, max 0.79 s; **0 false alarms in 10 h** |
+| V12 · energy-residual backup, 100 cuts | median 2.7 s, max 9.5 s, 73% within 4 s; 3 false alarms in 10 h **(miss, below)** |
+| V12 · mini-campaign, 50 cuts | 50 detected; 45 judged reachable; **41 in zone = 91%** (criterion ≥ 80%); **0 crashes** |
+| V13 · determinism | byte-identical bundles from the same seed |
+| Skyview | 10-minute replay = 4.6 MB Arrow (2.4 MB gzipped), parsed in 8.5 ms; render cost 11.5 ms per frame with 3D tiles on an M-series laptop; 50 Hz telemetry |
+
+Every mini-campaign failure is listed with its cause: three landed short of the field (106–169 m short
+of the aim point) and one landed long (217 m past it). All were controlled or hard touchdowns.
+
+The stock-vs-classical contrast on one seed (`m1-motorcut-*`):
+
+- **Classical contingency:** detects in 0.7 s, flies downwind, base and final, and touches down
+  controlled inside field A.
+- **Stock stack:** glides along its mission and crashes 900 m away at a 6.4 m/s sink rate.
+
+Pitot drain-blocked in a climb:
+
+- The sensor airspeed rises from 25 to 31.5 m/s while the true airspeed falls to 14.4 m/s.
+- The stock TECS cuts the throttle and pitches up.
+- The mismatch check catches it only after 8 s, close to stall.
+
+**Deviations from this spec**
+
+1. **The energy-residual detector misses V12.** The original rule (deficit > 1 m/s for 2 s) gave
+   21 false alarms in 10 h. A CUSUM test against TECS's throttle model is better but still has a 10 s
+   tail and 3 false alarms in 10 h. Gust energy exchange (~1.4 m/s RMS in light turbulence, worst in
+   climbing turns) is comparable to the deficit of a cut at low throttle. It is tuned for zero false
+   alarms first. ESC telemetry (primary) meets V12 fully. Learned diagnosis (M4) is the planned fix.
+2. **V12 operational definitions.**
+   - Latency is measured on 75 s flights, with cuts at 25–60 s (after navigator convergence) in random
+     wind.
+   - The 10 hours of false-alarm flight are 60 ten-minute flights of the mission loop.
+   - The energy detector is armed 20 s after start-up, when the estimate has settled.
+3. **Campaigns run as `vmap` batches, not parallel processes.** One compilation, about 1 flight per
+   second per batch. Members store outcomes and 1 Hz trajectories, not full bundles.
+4. **The report builder lives at `validation/report.py`, outside the package.** It imports the NumPy
+   reference, which production code may not. `aeroadapt report` runs it as a module.
+5. **Stock aileron jam.** Even a 0.5° aileron jam leads to loss of control, because the stock yaw loop
+   zeroes the sideslip that would give corrective roll. The golden flight records the crash (3° jam,
+   impact at 63 s). This is realistic stock behaviour and motivates M3/M4.
+6. **Should items.**
+   - Done: the ghost aircraft.
+   - Moved to M2: the live server and fault panel.
+   - Moved to M2 week 1, the planned slip: V14 (JSBSim).
+   - Not done (Could): the control-surface animation of the glTF.
+7. **Skyview frame rate is measured as render cost per frame, not live fps.** The development
+   browser pane throttles `requestAnimationFrame` when hidden. The demo uses deterministic frame
+   capture instead of screen recording.
+
+**Definition of Done (§1)**
+
+| # | Status |
+|---|---|
+| D1 · CI green (fast tier + web + Playwright); nightly full tier | ✅ on push (nightly also uploads the report) |
+| D2 · validation report | ✅ `docs/validation/m1_report.md` |
+| D3 · V11 in calm air and light turbulence | ✅ 29/29 |
+| D4 · three faults (four variants) from scenario YAML; labels in every recording | ✅ |
+| D5 · V12 + mini-campaign table and map | ⚠️ in-zone 91% ✅, ESC latency and false alarms ✅; energy-residual backup ❌ (deviation 1) |
+| D6 · Skyview replays with HUD (IAS vs TAS), event log, timeline; CI fallback | ✅ |
+| D7 · demo video | ✅ (`runs/demo/m1_demo.mp4`, regenerated with `make demo`) |
+| D8 · ADR-001 to ADR-006 | ✅ |

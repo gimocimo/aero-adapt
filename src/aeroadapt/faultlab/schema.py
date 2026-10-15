@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class _Strict(BaseModel):
@@ -18,6 +18,15 @@ class _Strict(BaseModel):
 
 class TimeTrigger(_Strict):
     at_time_s: float = Field(ge=0)
+    # Sensor faults only: the fault clears at this time (interference stops, a GNSS fix
+    # returns). Physical damage does not clear.
+    until_s: float | None = None
+
+    @model_validator(mode="after")
+    def _ordered(self) -> TimeTrigger:
+        if self.until_s is not None and self.until_s <= self.at_time_s:
+            raise ValueError("until_s must be after at_time_s")
+        return self
 
 
 class PitotBlockage(_Strict):

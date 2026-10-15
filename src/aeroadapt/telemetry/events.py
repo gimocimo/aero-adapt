@@ -59,6 +59,8 @@ def extract_events(cols: dict[str, np.ndarray], site: Site) -> list[Event]:
             events.append(_ev(cols, int(k), "fault_onset", fault=name))
         if on[0]:
             events.append(_ev(cols, 0, "fault_onset", fault=name))
+        for k in np.flatnonzero(on[:-1] & ~on[1:]) + 1:  # sensor faults with a clear time
+            events.append(_ev(cols, int(k), "fault_cleared", fault=name))
 
     failed = cols["cont.failed"]
     for k in np.flatnonzero(failed[1:] > failed[:-1]) + 1:

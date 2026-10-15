@@ -1,10 +1,14 @@
 """Live server (M2 spec §9): one ``LiveSession`` per WebSocket connection, paced to wall-clock
 time × a speed factor, streaming the replay viz columns and events as msgpack.
 
-Server → client: ``hello`` (manifest), ``frames`` (columns of new rows), ``events``,
-``status`` (time, speed, paused, done, last error).
-Client → server: ``inject_fault`` (a fault spec without trigger), ``set_speed``, ``pause``,
-``resume``, ``reset``.
+Server → client: ``hello`` (manifest, the scenario and airframe catalogue, the current
+airframe's glTF), ``frames`` (columns of new rows), ``events``, ``status`` (time, speed,
+paused, done, last error, the session's faults).
+Client → server: ``inject_fault{spec}`` (a fault spec without trigger), ``clear_fault{index}``,
+``set_speed{x}``, ``pause``, ``resume``, ``reset{scenario, airframe}``.
+
+Airframes: the scenario's own, and the sample fleet (``configs/fleets/sample``) with the
+stack configurations V20 tuned for them (``stack_cfgs.jsonl``).
 
 It binds to localhost only. Every session is recorded under ``runs/live/<scenario>-<n>``.
 """
@@ -14,8 +18,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import itertools
+import json
 import time
 import traceback
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -24,12 +30,58 @@ import numpy as np
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
+from aeroadapt.airframes import Airframe
+from aeroadapt.airframes.fleet import load_fleet
 from aeroadapt.live.session import CHUNK_S, LiveSession
-from aeroadapt.scenarios.schema import load_scenario
+from aeroadapt.scenarios.schema import SCENARIO_DIR, load_scenario
+from aeroadapt.stack.config import StackCfg
 
-RUNS = Path(__file__).resolve().parents[3] / "runs" / "live"
+REPO = Path(__file__).resolve().parents[3]
+RUNS = REPO / "runs" / "live"
+SAMPLE_FLEET = REPO / "configs" / "fleets" / "sample"
 SPEEDS = (0.25, 0.5, 1.0, 2.0, 4.0)
 _session_ids = itertools.count(1)
+
+
+@dataclass
+class Catalogue:
+    """What a client may fly: scenarios, and fleet airframes with their tuned stacks."""
+
+    scenarios: list[str]
+    airframes: dict[str, Airframe] = field(default_factory=dict)
+    stacks: dict[str, StackCfg] = field(default_factory=dict)
+    models: dict[str, bytes] = field(default_factory=dict)
+
+    @classmethod
+    def load(cls, fleet: Path = SAMPLE_FLEET) -> Catalogue:
+        cat = cls(sorted(p.stem for p in SCENARIO_DIR.glob("*.yaml")))
+        cfgs = fleet / "stack_cfgs.jsonl"
+        if not cfgs.exists():
+            return cat
+        stacks = {}
+        for line in cfgs.read_text().splitlines():
+            row = json.loads(line)
+            stacks[row["airframe"]] = StackCfg.model_validate(row["stack"])
+        for af in load_fleet(fleet):
+            if af.id in stacks:
+                cat.airframes[af.id] = af
+                cat.stacks[af.id] = stacks[af.id]
+                glb = fleet / "gltf" / f"{af.id}.glb"
+                if glb.exists():
+                    cat.models[af.id] = glb.read_bytes()
+        return cat
+
+    def listing(self) -> list[dict[str, Any]]:
+        return [
+            {"id": k, "v_cruise_mps": self.stacks[k].tecs.airspeed_cruise_mps}
+            for k in self.airframes
+        ]
+
+    def session(self, scenario_id: str, airframe_id: str | None) -> LiveSession:
+        sc = load_scenario(scenario_id)
+        if airframe_id is None:
+            return LiveSession(sc)
+        return LiveSession(sc, self.airframes[airframe_id], self.stacks[airframe_id])
 
 
 def _pack(msg: dict[str, Any]) -> bytes:
@@ -47,9 +99,18 @@ def _frames(viz: dict[str, np.ndarray]) -> dict[str, Any]:
 class Connection:
     """Simulation work runs in a worker thread, so the event loop keeps answering pings."""
 
-    def __init__(self, ws: ServerConnection, scenario_id: str, session: LiveSession) -> None:
+    def __init__(
+        self,
+        ws: ServerConnection,
+        catalogue: Catalogue,
+        scenario_id: str,
+        airframe_id: str | None,
+        session: LiveSession,
+    ) -> None:
         self.ws = ws
+        self.catalogue = catalogue
         self.scenario_id = scenario_id
+        self.airframe_id = airframe_id
         self.speed = 1.0
         self.paused = False
         self.error: str | None = None
@@ -61,10 +122,20 @@ class Connection:
     async def status(self) -> None:
         s = self.session
         await self.send({"type": "status", "time_s": s.time_s, "speed": self.speed,
-                         "paused": self.paused, "done": s.done, "error": self.error})  # fmt: skip
+                         "paused": self.paused, "done": s.done, "error": self.error,
+                         "faults": s.fault_list()})  # fmt: skip
 
     async def hello(self) -> None:
-        await self.send({"type": "hello", "manifest": self.session.manifest()})
+        cat = self.catalogue
+        await self.send({
+            "type": "hello",
+            "manifest": self.session.manifest(),
+            "scenario": self.scenario_id,
+            "scenarios": cat.scenarios,
+            "airframe": self.airframe_id,
+            "airframes": cat.listing(),
+            "model": cat.models.get(self.airframe_id or ""),
+        })  # fmt: skip
 
     async def receive(self) -> None:
         async for raw in self.ws:
@@ -73,6 +144,8 @@ class Connection:
             self.error = None
             if cmd == "inject_fault":
                 self.error = self.session.inject(msg.get("spec", {}))
+            elif cmd == "clear_fault":
+                self.error = self.session.clear(int(msg.get("index", -1)))
             elif cmd == "set_speed" and float(msg.get("x", 1.0)) in SPEEDS:
                 self.speed = float(msg["x"])
             elif cmd == "pause":
@@ -80,10 +153,19 @@ class Connection:
             elif cmd == "resume":
                 self.paused = False
             elif cmd == "reset":
-                self.record()
-                self.scenario_id = str(msg.get("scenario", self.scenario_id))
-                self.session = await _new_session(self.scenario_id)
-                await self.hello()
+                scenario = str(msg.get("scenario") or self.scenario_id)
+                airframe = msg.get("airframe", self.airframe_id) or None
+                if scenario not in self.catalogue.scenarios:
+                    self.error = f"unknown scenario {scenario}"
+                elif airframe is not None and airframe not in self.catalogue.airframes:
+                    self.error = f"unknown airframe {airframe}"
+                else:
+                    self.record()
+                    self.scenario_id, self.airframe_id = scenario, airframe
+                    self.session = await asyncio.to_thread(
+                        self.catalogue.session, scenario, airframe
+                    )
+                    await self.hello()
             await self.status()
 
     async def run(self) -> None:
@@ -111,12 +193,9 @@ class Connection:
         return self.session.record(out)
 
 
-async def _new_session(scenario_id: str) -> LiveSession:
-    return await asyncio.to_thread(LiveSession, load_scenario(scenario_id))
-
-
-async def _handler(ws: ServerConnection, scenario_id: str) -> None:
-    conn = Connection(ws, scenario_id, await _new_session(scenario_id))
+async def _handler(ws: ServerConnection, catalogue: Catalogue, scenario_id: str) -> None:
+    session = await asyncio.to_thread(catalogue.session, scenario_id, None)
+    conn = Connection(ws, catalogue, scenario_id, None, session)
     await conn.hello()
     await conn.status()
     tasks = [asyncio.create_task(conn.receive()), asyncio.create_task(conn.run())]
@@ -138,15 +217,23 @@ async def _handler(ws: ServerConnection, scenario_id: str) -> None:
             print(f"session recorded → {out}", flush=True)
 
 
-def _warm_up(scenario_id: str) -> None:
-    """Compile the closed loop once, before the first browser connects."""
-    LiveSession(load_scenario(scenario_id)).step()
+def _warm_up(catalogue: Catalogue, scenario_id: str) -> None:
+    """Compile the closed loop before the first browser connects: once for the scenario's
+    airframe and once for tabulated (fleet) aerodynamics."""
+    catalogue.session(scenario_id, None).step()
+    for af in itertools.islice(catalogue.airframes, 1):
+        catalogue.session(scenario_id, af).step()
 
 
 async def run_server(scenario_id: str, host: str = "127.0.0.1", port: int = 8765) -> None:
-    print("compiling the closed loop…", flush=True)
-    await asyncio.to_thread(_warm_up, scenario_id)
-    async with serve(lambda ws: _handler(ws, scenario_id), host, port, max_size=None) as server:
+    catalogue = Catalogue.load()
+    print(f"compiling the closed loop ({len(catalogue.airframes)} fleet airframes)…", flush=True)
+    await asyncio.to_thread(_warm_up, catalogue, scenario_id)
+
+    async def handler(ws: ServerConnection) -> None:
+        await _handler(ws, catalogue, scenario_id)
+
+    async with serve(handler, host, port, max_size=None) as server:
         print(
             f"live server on ws://{host}:{port} (scenario {scenario_id}); Ctrl-C to stop",
             flush=True,

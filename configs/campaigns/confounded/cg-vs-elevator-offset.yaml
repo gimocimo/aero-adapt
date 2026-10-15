@@ -1,0 +1,17 @@
+# Confounded pair 4 (doc 03 §3.2): both change pitch trim.
+id: cg-vs-elevator-offset
+description: >-
+  The centre of gravity moving 3 cm aft (a shifted payload) against an elevator rigging
+  offset of similar pitching moment. The offset is in the airframe from the start (a rigging
+  error, not a fault), so it shows as a trim difference from the baseline throughout.
+template: m1-nominal
+onset_s: 15
+horizon_s: 10
+seeds: 8
+seed: 400
+symptom: elevator_shift
+min_symptom: 0.01  # normalised elevator command
+a:
+  faults: [{type: airframe_fault, kind: cg_shift, magnitude: 0.03}]
+b:
+  airframe: {actuators: {surfaces: {elevator: {trim_deg: -5.1}}}}  # the CG shift's trim change

@@ -430,16 +430,24 @@ dd {
   margin: 0 0 6px;
   font-size: 13px;
 }
-.faultgroup h3 {
+.faultgroup summary {
   margin: 8px 0 4px;
   font-size: 11px;
   font-weight: 600;
   color: #9aa6b8;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  cursor: pointer;
 }
-.faultgroup button {
-  margin: 0 4px 4px 0;
+.faultrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+}
+.faultrow button,
+.activefaults button {
+  flex: 0 0 auto;
   padding: 4px 8px;
   border: 1px solid #c2483a;
   border-radius: 6px;
@@ -448,12 +456,76 @@ dd {
   font: inherit;
   cursor: pointer;
 }
-.faultgroup button:hover:not(:disabled) {
+.faultrow button:hover:not(:disabled),
+.activefaults button:hover {
   background: rgba(194, 72, 58, 0.45);
 }
-.faultgroup button:disabled {
+.faultrow button:disabled {
   opacity: 0.4;
   cursor: default;
+}
+.faultrow label {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+.faultrow input {
+  width: 52px;
+  padding: 2px 4px;
+  border: 1px solid #3a4558;
+  border-radius: 4px;
+  background: #151b26;
+  color: inherit;
+  font: inherit;
+}
+.faultrow .unit {
+  color: #9aa6b8;
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.faultrow select,
+.pickers select {
+  padding: 2px 4px;
+  border: 1px solid #3a4558;
+  border-radius: 4px;
+  background: #151b26;
+  color: inherit;
+  font: inherit;
+}
+.pickers {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.pickers label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #9aa6b8;
+}
+.pickers select {
+  max-width: 190px;
+}
+.activefaults {
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+.activefaults li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: #ffd27a;
+}
+.activefaults button {
+  padding: 2px 6px;
 }
 .faulterror {
   margin: 6px 0 0;

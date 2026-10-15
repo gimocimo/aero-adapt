@@ -4,7 +4,8 @@ in short chunks so that faults can be injected while it flies.
 Each chunk yields exactly the replay columns (``telemetry.schema.COLUMNS``), so Skyview has
 one code path for replays and live sessions, and a session is recorded as an ordinary replay
 bundle. Injected faults are appended to the scenario's fault list with their onset at the
-next control step and recorded in the manifest (``live_commands``).
+next control step; a cleared sensor fault gets an ``until_s`` at the next control step. Both
+are recorded in the manifest (``live_commands``), from which the session re-flies offline.
 """
 
 from __future__ import annotations
@@ -15,11 +16,12 @@ from typing import Any
 
 import jax
 import numpy as np
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
 from aeroadapt.airframes import Airframe
 from aeroadapt.faultlab import build_fault_config
-from aeroadapt.faultlab.schema import FaultSpec
+from aeroadapt.faultlab.schema import FaultSpec, SensorFault, TimeTrigger
+from aeroadapt.faultlab.slots import N_SENSOR_SLOTS
 from aeroadapt.harness.closed_loop import closed_loop_carry, setup_loop
 from aeroadapt.scenarios.resolve import ResolvedScenario, resolve
 from aeroadapt.scenarios.runner import build_manifest
@@ -33,6 +35,14 @@ CHUNK_S = 0.1
 _FAULT = TypeAdapter(FaultSpec)
 
 
+def _message(e: ValueError) -> str:
+    if isinstance(e, ValidationError):
+        err = e.errors()[0]
+        where = ".".join(str(x) for x in err["loc"][1:])  # drop the union tag
+        return f"{where}: {err['msg']}" if where else err["msg"]
+    return str(e).splitlines()[0]
+
+
 class LiveSession:
     def __init__(
         self,
@@ -42,12 +52,15 @@ class LiveSession:
     ) -> None:
         r = resolve(scenario)
         if airframe is not None:
+            # A fleet airframe flies the scenario with its own (tuned) configuration, from
+            # trim at its own cruise speed.
             cfg = stack_cfg or r.stack_cfg
             r = replace(
                 r,
                 airframe=airframe,
                 stack_cfg=cfg,
                 stack=build_stack_params(cfg, airframe, r.site, r.config.dt_control),
+                initial=replace(r.initial, airspeed_mps=cfg.tecs.airspeed_cruise_mps),
             )
         self.resolved: ResolvedScenario = r
         sc = r.scenario
@@ -61,6 +74,8 @@ class LiveSession:
         self._viz_every = max(round(r.config.control_hz / VIZ_RATE_HZ), 1)
         self._rows = 0
         self.specs: list[Any] = list(sc.faults)
+        # Indices into ``specs`` of the sensor faults, in slot order (slots are stable).
+        self._sensor_slots = [i for i, f in enumerate(self.specs) if isinstance(f, SensorFault)]
         self.commands: list[dict[str, Any]] = []
         self.chunks: list[dict[str, np.ndarray]] = []
         self._last_event_us = -1
@@ -115,24 +130,81 @@ class LiveSession:
         return events
 
     # ------------------------------------------------------------------ commands
+    def _next_step(self) -> float:
+        return round(self.time_s + self.resolved.config.dt_control, 6)
+
+    def _apply(self, specs: list[Any], slots: list[int]) -> None:
+        """Rebuild the fault configuration: every fault except sensor faults that have left
+        their slot (they had cleared, and that part of the flight is flown)."""
+        others = [f for f in specs if not isinstance(f, SensorFault)]
+        config = build_fault_config([*others, *(specs[i] for i in slots)])
+        self.specs, self._sensor_slots = specs, slots
+        self._faults = jax.device_put(config)
+
+    def _slots_with(self, fault: SensorFault, index: int) -> list[int]:
+        """Sensor slots after adding a fault: a free slot, or one whose fault has cleared by
+        the new onset."""
+        slots = list(self._sensor_slots)
+        if len(slots) < N_SENSOR_SLOTS:
+            return [*slots, index]
+        for j, i in enumerate(slots):
+            until = self.specs[i].trigger.until_s
+            if until is not None and until <= fault.trigger.at_time_s:
+                slots[j] = index
+                return slots
+        raise ValueError(f"at most {N_SENSOR_SLOTS} sensor faults at once: clear one first")
+
     def inject(self, spec: dict[str, Any]) -> str | None:
         """Add a fault starting at the next control step; returns an error message, if any."""
-        onset = round(self.time_s + self.resolved.config.dt_control, 6)
+        onset = self._next_step()
         try:
             fault = _FAULT.validate_python({**spec, "trigger": {"at_time_s": onset}})
-            config = build_fault_config([*self.specs, fault])
+            slots = self._sensor_slots
+            if isinstance(fault, SensorFault):
+                slots = self._slots_with(fault, len(self.specs))
+            self._apply([*self.specs, fault], slots)
         except ValueError as e:
-            return str(e).splitlines()[0]
-        self.specs.append(fault)
-        self._faults = jax.device_put(config)
+            return _message(e)
         self.commands.append({"time_s": onset, "inject_fault": fault.model_dump(mode="json")})
         return None
+
+    def clear(self, index: int) -> str | None:
+        """Clear an active sensor fault (by its index in ``specs``) at the next control step."""
+        if not 0 <= index < len(self.specs):
+            return f"no fault {index}"
+        f = self.specs[index]
+        if not isinstance(f, SensorFault):
+            return f"{f.type} does not clear: physical damage persists"
+        if f.trigger.until_s is not None:
+            return "already cleared"
+        # A fault cleared before it starts lasts one control step.
+        dt = self.resolved.config.dt_control
+        until = max(self._next_step(), round(f.trigger.at_time_s + dt, 6))
+        trigger = TimeTrigger(at_time_s=f.trigger.at_time_s, until_s=until)
+        specs = list(self.specs)
+        specs[index] = f.model_copy(update={"trigger": trigger})
+        self._apply(specs, self._sensor_slots)
+        self.commands.append({"time_s": until, "clear_fault": index})
+        return None
+
+    def fault_list(self) -> list[dict[str, Any]]:
+        """Every fault of the session, for the client (``index`` is what ``clear`` takes)."""
+        return [
+            {
+                "index": i,
+                "spec": f.model_dump(mode="json"),
+                "clearable": isinstance(f, SensorFault) and f.trigger.until_s is None,
+            }
+            for i, f in enumerate(self.specs)
+        ]
 
     # ------------------------------------------------------------------ recording
     def manifest(self) -> dict[str, Any]:
         cols = self.all_columns() if self.chunks else {"time_us": np.zeros(1, np.int64)}
         m = build_manifest(self.resolved, cols)
         m["scenario"]["faults"] = [f.model_dump(mode="json") for f in self.specs]
+        m["scenario"]["airframe"] = self.resolved.airframe.id
+        m["scenario"]["initial"]["airspeed_mps"] = self.resolved.initial.airspeed_mps
         m["live_commands"] = self.commands
         return m
 
@@ -146,18 +218,29 @@ class LiveSession:
         )
 
 
-def replay_commands(scenario: Scenario, commands: list[dict[str, Any]]) -> LiveSession:
+def replay_commands(
+    scenario: Scenario,
+    commands: list[dict[str, Any]],
+    airframe: Airframe | None = None,
+    stack_cfg: StackCfg | None = None,
+) -> LiveSession:
     """Re-fly a live session offline from its command log (``manifest["live_commands"]``):
-    same chunking, same keys, faults injected at the same steps, so the result is identical."""
-    session = LiveSession(scenario)
+    same chunking, same keys, faults injected and cleared at the same steps, so the result is
+    identical."""
+    session = LiveSession(scenario, airframe, stack_cfg)
     pending = sorted(commands, key=lambda c: c["time_s"])
     dt = session.resolved.config.dt_control
     end = max((c["time_s"] for c in pending), default=0.0)
     while pending or session.time_s < end:
         while pending and pending[0]["time_s"] <= session.time_s + dt + 1e-6:
-            spec = dict(pending.pop(0)["inject_fault"])
-            spec.pop("trigger", None)
-            if (error := session.inject(spec)) is not None:
+            c = pending.pop(0)
+            if "clear_fault" in c:
+                error = session.clear(int(c["clear_fault"]))
+            else:
+                spec = dict(c["inject_fault"])
+                spec.pop("trigger", None)
+                error = session.inject(spec)
+            if error is not None:
                 raise ValueError(error)
         session.step()
     return session

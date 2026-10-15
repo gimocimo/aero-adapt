@@ -1,0 +1,16 @@
+# Confounded pair 3 (doc 03 §3.2): both reduce climb performance; the autopilot needs more
+# throttle for the same flight.
+id: battery-sag-vs-prop-damage
+description: >-
+  Abnormal battery sag (internal resistance x6) against a damaged propeller (thrust -20 %).
+template: m1-nominal
+onset_s: 15
+horizon_s: 15
+seeds: 8
+seed: 300
+symptom: throttle_rise
+min_symptom: 0.02  # throttle fraction
+a:
+  faults: [{type: energy_fault, kind: abnormal_sag, magnitude: 6}]
+b:
+  faults: [{type: propulsion_fault, kind: prop_damage, magnitude: 0.2}]

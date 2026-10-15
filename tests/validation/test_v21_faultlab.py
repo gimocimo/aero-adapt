@@ -28,6 +28,7 @@ from aeroadapt.faultlab.slots import (
     SENSOR_KINDS,
 )
 from aeroadapt.harness.closed_loop import LoopLog, closed_loop, setup_loop
+from aeroadapt.harness.confounded import load_pair, pair_ids, run_pair
 from aeroadapt.scenarios import load_site
 from aeroadapt.sim.aerojax import make_env
 from aeroadapt.stack.types import make_mission
@@ -220,3 +221,50 @@ def test_weather_events_from_a_scenario() -> None:
     np.testing.assert_allclose(w([5000.0, 5000.0, -25.0], 0.0), [2.0, 0.0, 0.0], atol=1e-9)
     assert w([100.0, 0.0, -200.0], 0.0)[2] == pytest.approx(-3.0)  # updraft (NED: negative)
     assert w([100.0 + 90.0, 0.0, -200.0], 0.0)[2] > 0.0  # the sink ring
+
+
+def test_sensor_faults_clear(aerosonde: Airframe) -> None:
+    """A sensor fault with ``until_s`` stops at that time (labels and effect); physical damage
+    cannot clear."""
+    site = load_site("cambridge_west")
+    env = make_env(
+        alt_origin_msl_m=site.ground_msl_m, magnetic_ned_gauss=site.magnetic.field_ned_gauss
+    )
+    specs = [
+        {"type": "sensor_fault", "kind": "airspeed_stuck",
+         "trigger": {"at_time_s": 2.0, "until_s": 6.0}},
+        {"type": "sensor_fault", "kind": "gyro_bias", "magnitude": 0.05, "axis": 2,
+         "trigger": {"at_time_s": 3.0, "until_s": 5.0}},
+    ]  # fmt: skip
+    faults = build_fault_config([_SPEC.validate_python(s) for s in specs])
+    su = setup_loop(aerosonde, site, env, InitialCondition(), faults=faults, seed=3)
+    log = closed_loop(su.vp, su.env, su.faults, su.sp, make_mission([(3000.0, 0.0, 120.0)]),
+                      su.sim0, su.stack0, su.z0, jax.random.PRNGKey(5), n_steps=800,
+                      config=su.config)[2]  # fmt: skip
+    log = jax.tree.map(np.asarray, log)
+    t = log.t
+    active = (log.labels.sensor_kind > 0).sum(axis=1)
+    expected = ((t >= 2.0) & (t < 6.0)).astype(int) + ((t >= 3.0) & (t < 5.0))
+    np.testing.assert_array_equal(active, expected)
+    dp = log.sensors.airspeed_dp_pa
+    assert np.ptp(dp[(t >= 2.1) & (t < 6.0)]) == 0.0 and np.ptp(dp[t >= 6.0]) > 1.0
+    with pytest.raises(ValueError, match="only sensor faults clear"):
+        build_fault_config(
+            [
+                _SPEC.validate_python(
+                    {"type": "motor_cut", "trigger": {"at_time_s": 1, "until_s": 2}}
+                )
+            ]
+        )
+
+
+@pytest.mark.full
+@pytest.mark.parametrize("pair", pair_ids())
+def test_v21c_confounded_pairs(pair: str) -> None:
+    """Each confounded pair (doc 03 §3.2) is ambiguous to the M1 monitors over its horizon:
+    the monitors respond alike, both arms show the shared symptom at a similar size, and the
+    ground truth differs."""
+    r = run_pair(load_pair(pair))
+    assert all(r.flags_agree), r.flag_times
+    assert r.symptoms_alike, (np.median(r.symptom_a), np.median(r.symptom_b))
+    assert r.truth_differs

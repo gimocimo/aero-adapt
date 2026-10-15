@@ -1,0 +1,18 @@
+# Confounded pair 1 (doc 03 §3.2): both show falling indicated airspeed.
+id: pitot-vs-airspeed-loss
+description: >-
+  A pitot blockage with the drain open (the trapped pressure leaks away) against a real loss
+  of airspeed from a sharp tailwind gust, on the first leg of the M1 loop (track 310°). A slow
+  gust is no confound: the aircraft accelerates with it and the airspeed barely moves. The
+  symptom is the largest indicated-airspeed deficit against the baseline.
+template: m1-nominal
+onset_s: 15
+horizon_s: 4
+seeds: 8
+seed: 100
+symptom: ias_drop
+min_symptom: 1.0   # m/s
+a:
+  faults: [{type: pitot_blockage, variant: drain_open, tau_s: 25}]
+b:
+  environment: {events: {gust: {at_time_s: 15, duration_s: 3, speed_mps: 7, from_deg: 130}}}

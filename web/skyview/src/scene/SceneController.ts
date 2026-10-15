@@ -137,6 +137,11 @@ export class SceneController {
     return { replay, positions, category: Uint8Array.from(category) };
   }
 
+  /** The aircraft's model: a fleet airframe's glTF (an object URL), or the default. */
+  setModel(uri: string | null): void {
+    this.aircraft.model!.uri = new ConstantProperty(uri ?? MODEL_URI);
+  }
+
   setReplays(main: Replay | null, ghost: Replay | null): void {
     // The same live session, grown: extend the trail data, keep the site objects.
     if (main && this.main && this.main.replay !== main && this.main.replay.id === main.id) {

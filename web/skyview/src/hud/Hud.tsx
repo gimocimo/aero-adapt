@@ -1,4 +1,5 @@
 import type { Sample } from "../replay/interp";
+import { faultName } from "../replay/names";
 import type { Replay } from "../replay/types";
 
 const DEG = 180 / Math.PI;
@@ -141,8 +142,11 @@ export function Hud({ s, replay }: { s: Sample; replay: Replay }) {
   const faults = Object.entries(fault_bits)
     .filter(([, bit]) => (s.faultBits & bit) !== 0)
     .map(([name]) => {
-      const ev = replay.events.find((e) => e.type === "fault_onset" && e.payload.fault === name);
-      return `${name.replaceAll("_", " ")} @ ${ev ? (ev.time_us * 1e-6).toFixed(1) : "?"} s`;
+      // The latest onset: a cleared sensor fault may be injected again.
+      const ev = replay.events
+        .filter((e) => e.type === "fault_onset" && e.payload.fault === name && e.time_us * 1e-6 <= s.time)
+        .at(-1);
+      return `${faultName(name)} @ ${ev ? (ev.time_us * 1e-6).toFixed(1) : "?"} s`;
     });
   const td = replay.events.find((e) => e.type === "touchdown");
   const ended = td && s.time >= td.time_us * 1e-6;

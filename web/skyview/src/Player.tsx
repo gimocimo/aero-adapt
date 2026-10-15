@@ -9,7 +9,7 @@ import "cesium/Build/Cesium/Widgets/widgets.css";
 import { useEffect, useRef, useState } from "react";
 import { loadGoogleTiles } from "./googleTiles";
 import { Hud } from "./hud/Hud";
-import { LiveClient } from "./live/client";
+import { LiveClient, OFFLINE } from "./live/client";
 import { FaultPanel, LiveBar } from "./live/FaultPanel";
 import { Controls, EventLog, Timeline } from "./panels/Panels";
 import { sample } from "./replay/interp";
@@ -113,6 +113,7 @@ export default function Player() {
     raf = requestAnimationFrame(loop);
     const unsubGhost = useStore.subscribe((s, prev) => {
       if (s.ghost !== prev.ghost) controller.setReplays(s.replay, s.ghost);
+      if (s.live?.modelUrl !== prev.live?.modelUrl) controller.setModel(s.live?.modelUrl ?? null);
     });
     return () => {
       cancelled = true;
@@ -140,10 +141,7 @@ export default function Player() {
       },
       onStatus: (s) => store.setLive(s),
     });
-    store.setLive(
-      { connected: false, timeS: 0, speed: 1, paused: false, done: false, error: null },
-      (msg) => client.send(msg),
-    );
+    store.setLive(OFFLINE, (msg) => client.send(msg));
     if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__live = client;
     return () => client.close();
   }, []);

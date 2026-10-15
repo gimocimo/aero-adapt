@@ -29,15 +29,13 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from aeroadapt.airframes import Airframe
-from aeroadapt.airframes.params import AeroTables
+from aeroadapt.airframes.fleet import TABLE_FIELDS
 from aeroadapt.generator.build import GENERATOR_VERSION, Candidate, build
 from aeroadapt.generator.design import CLASSES, ConfigClass, Design, sample_design
 from aeroadapt.generator.mass import Rejected
 
 REPO = Path(__file__).resolve().parents[3]
 FLEET_DIR = REPO / "runs" / "fleets"
-TABLE_FIELDS = AeroTables._fields
 
 
 @dataclass(frozen=True)
@@ -188,8 +186,9 @@ def rewrite_manifest(path: Path) -> None:
     (path / "manifest.json").write_text(json.dumps(m, indent=2, sort_keys=True) + "\n")
 
 
-def subset_fleet(src: Path, ids: Sequence[str], dst: Path) -> None:
-    """A smaller bundle with the given accepted airframes (e.g. the committed sample fleet)."""
+def subset_fleet(src: Path, ids: Sequence[str], dst: Path, stack_cfgs: Path | None = None) -> None:
+    """A smaller bundle with the given accepted airframes (e.g. the committed sample fleet),
+    optionally with their tuned stack configurations (a V20 run's ``stack_cfgs.jsonl``)."""
     keep = set(ids)
     (dst / "gltf").mkdir(parents=True, exist_ok=True)
     designs = pq.read_table(src / "designs.parquet").to_pylist()
@@ -209,6 +208,10 @@ def subset_fleet(src: Path, ids: Sequence[str], dst: Path) -> None:
     np.savez_compressed(dst / "tables.npz", ids=data["ids"][mask], tables=data["tables"][mask])
     for i in ids:
         shutil.copy(src / "gltf" / f"{i}.glb", dst / "gltf" / f"{i}.glb")
+    if stack_cfgs is not None:
+        lines = stack_cfgs.read_text().splitlines()
+        rows = [ln for ln in lines if json.loads(ln)["airframe"] in keep]
+        (dst / "stack_cfgs.jsonl").write_text("".join(f"{r}\n" for r in rows))
     m = json.loads((src / "manifest.json").read_text())
     m.update(
         fleet_id=dst.name,
@@ -217,17 +220,3 @@ def subset_fleet(src: Path, ids: Sequence[str], dst: Path) -> None:
         note="A subset of an accepted fleet; counts and reasons describe the parent fleet.",
     )
     (dst / "manifest.json").write_text(json.dumps(m, indent=2, sort_keys=True) + "\n")
-
-
-def load_fleet(path: Path) -> list[Airframe]:
-    """Accepted airframes of a fleet bundle, with their tables restored."""
-    data = np.load(path / "tables.npz")
-    by_id = dict(zip(data["ids"].tolist(), data["tables"], strict=True))
-    out = []
-    for af_json in pq.read_table(path / "airframes.parquet").column("airframe").to_pylist():
-        raw = json.loads(af_json)
-        t = by_id[raw["id"]].astype(np.float64)
-        raw["aero"]["model"] = "tabulated"
-        raw["aero"]["tables"] = {k: t[i].tolist() for i, k in enumerate(TABLE_FIELDS)}
-        out.append(Airframe.model_validate(raw))
-    return out

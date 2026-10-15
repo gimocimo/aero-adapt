@@ -15,10 +15,11 @@ pytest.importorskip("aerosandbox")
 import trimesh
 
 from aeroadapt.airframes import ALPHA_GRID_N, to_params
+from aeroadapt.airframes.fleet import load_fleet
 from aeroadapt.generator.build import Candidate, build
 from aeroadapt.generator.design import CLASSES, sample_design
 from aeroadapt.generator.filters import check
-from aeroadapt.generator.fleet import build_fleet, load_fleet
+from aeroadapt.generator.fleet import build_fleet
 from aeroadapt.generator.gltf import airframe_glb
 
 

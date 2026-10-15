@@ -25,7 +25,7 @@ jobs:
       - run: uv run pytest -m "not full" -q
 
   web:
-    name: web (types · unit tests · build)
+    name: web (types · unit tests · build · e2e)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -42,4 +42,10 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npx playwright install --with-deps chromium
+      # The live-mode test flies against the Python live server.
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          enable-cache: true
+      - run: uv sync --locked --extra live
+        working-directory: .
       - run: npm run e2e

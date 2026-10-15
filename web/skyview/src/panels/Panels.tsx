@@ -1,9 +1,11 @@
 import { CATEGORIES } from "../scene/categories";
 import { type CameraMode, type Layers, SPEEDS, useStore } from "../state/store";
+import { faultName } from "../replay/names";
 import type { Replay, ReplayEvent } from "../replay/types";
 
 const IMPORTANT = new Set([
   "fault_onset",
+  "fault_cleared",
   "failure_detected",
   "zone_selected",
   "contingency_phase",
@@ -17,7 +19,9 @@ export function describe(e: ReplayEvent): string {
   const p = e.payload;
   switch (e.type) {
     case "fault_onset":
-      return `Fault: ${String(p.fault).replaceAll("_", " ")}`;
+      return `Fault: ${faultName(String(p.fault))}`;
+    case "fault_cleared":
+      return `Fault cleared: ${faultName(String(p.fault))}`;
     case "failure_detected":
       return "Motor failure detected";
     case "zone_selected":

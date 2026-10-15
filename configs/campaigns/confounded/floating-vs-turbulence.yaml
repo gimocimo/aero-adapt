@@ -1,0 +1,17 @@
+# Confounded pair 5 (doc 03 §3.2): both produce irregular attitude disturbances.
+id: floating-vs-turbulence
+description: >-
+  A disconnected (floating) rudder against moderate turbulence (the baseline flies in light
+  turbulence). A floating aileron is no confound: it disturbs roll about 4.6 times as much as
+  moderate turbulence and twice as much as severe.
+template: m1-nominal
+onset_s: 15
+horizon_s: 10
+seeds: 8
+seed: 500
+symptom: roll_rate_rms
+min_symptom: 0.005  # rad/s
+a:
+  faults: [{type: actuator_fault, kind: floating, channel: rudder}]
+b:
+  environment: {turbulence: {intensity: moderate}}

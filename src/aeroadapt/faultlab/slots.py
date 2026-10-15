@@ -73,6 +73,7 @@ class SensorFaultSlots(NamedTuple):
     ramp_s: np.ndarray  # (S,)
     magnitude: np.ndarray  # (S,)
     axis: np.ndarray  # (S,) int32
+    end_s: np.ndarray  # (S,) the fault clears here (inf: it never does)
 
 
 class ActuatorFaultSlots(NamedTuple):
@@ -130,7 +131,12 @@ def no_faults() -> FaultConfig:
         servo_jam=ServoJamFault(np.zeros(3, bool), np.zeros(3), np.zeros(3), np.zeros(3, bool)),
         motor_cut=MotorCutFault(f, z),
         sensors=SensorFaultSlots(
-            np.zeros(s, np.int32), np.zeros(s), np.zeros(s), np.zeros(s), np.zeros(s, np.int32)
+            np.zeros(s, np.int32),
+            np.zeros(s),
+            np.zeros(s),
+            np.zeros(s),
+            np.zeros(s, np.int32),
+            np.full(s, np.inf),
         ),
         actuators=ActuatorFaultSlots(
             np.zeros(a, np.int32), np.zeros(a), np.zeros(a, np.int32), np.zeros(a)
@@ -156,6 +162,8 @@ def build_fault_config(specs: Sequence[FaultSpec]) -> FaultConfig:
     n_sens = n_act = 0
     for spec in specs:
         t0 = np.array(spec.trigger.at_time_s)
+        if spec.trigger.until_s is not None and not isinstance(spec, SensorFault):
+            raise ValueError(f"only sensor faults clear ({spec.type} does not)")
         if isinstance(spec, PitotBlockage):
             if bool(pitot.active):
                 raise ValueError("only one pitot_blockage per scenario")
@@ -181,11 +189,9 @@ def build_fault_config(specs: Sequence[FaultSpec]) -> FaultConfig:
         elif isinstance(spec, SensorFault):
             if n_sens == N_SENSOR_SLOTS:
                 raise ValueError(f"at most {N_SENSOR_SLOTS} sensor faults per scenario")
-            for arr, v in zip(
-                sens,
-                (SENSOR_KINDS.index(spec.kind), t0, spec.ramp_s, spec.magnitude, spec.axis),
-                strict=True,
-            ):
+            until = spec.trigger.until_s if spec.trigger.until_s is not None else np.inf
+            values = (SENSOR_KINDS.index(spec.kind), t0, spec.ramp_s, spec.magnitude, spec.axis)
+            for arr, v in zip(sens, (*values, until), strict=True):
                 arr[n_sens] = v
             n_sens += 1
         elif isinstance(spec, ActuatorFault):
@@ -223,9 +229,12 @@ def build_fault_config(specs: Sequence[FaultSpec]) -> FaultConfig:
     )
 
 
-def active_kind(kind: ArrayLike, onset_s: ArrayLike, t: ArrayLike) -> Array:
-    """The slot's kind index once ``t`` reaches its onset, else 0."""
-    return jnp.where(jnp.asarray(t) >= onset_s, kind, 0)
+def active_kind(
+    kind: ArrayLike, onset_s: ArrayLike, t: ArrayLike, end_s: ArrayLike = np.inf
+) -> Array:
+    """The slot's kind index from its onset until it clears, else 0."""
+    t = jnp.asarray(t)
+    return jnp.where((t >= onset_s) & (t < end_s), kind, 0)
 
 
 def ramp(onset_s: ArrayLike, ramp_s: ArrayLike, t: ArrayLike) -> Array:
@@ -241,7 +250,7 @@ def fault_labels(cfg: FaultConfig, t: Array) -> FaultLabels:
         pitot=jnp.logical_and(cfg.pitot.active, t >= cfg.pitot.onset_s),
         servo_jam=jnp.logical_and(cfg.servo_jam.active, t >= cfg.servo_jam.onset_s),
         motor_cut=jnp.logical_and(cfg.motor_cut.active, t >= cfg.motor_cut.onset_s),
-        sensor_kind=active_kind(cfg.sensors.kind, cfg.sensors.onset_s, t),
+        sensor_kind=active_kind(cfg.sensors.kind, cfg.sensors.onset_s, t, cfg.sensors.end_s),
         actuator_kind=active_kind(cfg.actuators.kind, cfg.actuators.onset_s, t),
         propulsion_kind=active_kind(cfg.propulsion.kind, cfg.propulsion.onset_s, t),
         energy_kind=active_kind(cfg.energy.kind, cfg.energy.onset_s, t),

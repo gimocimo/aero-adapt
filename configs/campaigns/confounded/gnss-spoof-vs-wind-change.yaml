@@ -1,0 +1,17 @@
+# Confounded pair 2 (doc 03 §3.2): both appear as ground-track drift; telling them apart needs
+# an airspeed-and-heading dead-reckoning cross-check or a probe turn.
+id: gnss-spoof-vs-wind-change
+description: >-
+  Slow GNSS spoofing (position and velocity walk east together) against a wind change
+  towards the east (a slow 1-cos gust from the west).
+template: m1-nominal
+onset_s: 15
+horizon_s: 20
+seeds: 8
+seed: 200
+symptom: wind_shift
+min_symptom: 0.3   # m/s of estimated wind
+a:
+  faults: [{type: sensor_fault, kind: gnss_spoof, magnitude: 0.1, axis: 1}]
+b:
+  environment: {events: {gust: {at_time_s: 15, duration_s: 60, speed_mps: 3, from_deg: 270}}}

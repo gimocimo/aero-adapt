@@ -68,7 +68,9 @@ class SensorState(NamedTuple):
     pitot_latched: Array  # () bool
     pitot_pt: Array  # () Pa, trapped/leaking total pressure under a pitot fault
     held: SensorArrays
-    fault_latched: Array  # (N_SENSOR_SLOTS,) bool: a stuck value has been captured
+    # (N_SENSOR_SLOTS,) onset time of the stuck fault whose value is captured (-1: none), so
+    # a later fault in the same slot captures its own value.
+    fault_latched: Array
     fault_hold: Array  # (N_SENSOR_SLOTS,) the captured value (stuck airspeed: Pa)
 
 
@@ -229,7 +231,7 @@ def _apply_sensor_faults(
     pos, vel, fresh = z.gnss_pos_ned, z.gnss_vel_ned, z.fresh
     latched, hold = s.fault_latched, s.fault_hold
     for i in range(N_SENSOR_SLOTS):
-        kind = active_kind(sf.kind[i], sf.onset_s[i], t)
+        kind = active_kind(sf.kind[i], sf.onset_s[i], t, sf.end_s[i])
         r = ramp(sf.onset_s[i], sf.ramp_s[i], t)
         m = sf.magnitude[i]
         dt_on = jnp.maximum(t - sf.onset_s[i], 0.0)
@@ -245,9 +247,9 @@ def _apply_sensor_faults(
         )
         biased = 0.5 * RHO_INDICATED * jnp.maximum(v_ind + bias, 0.0) ** 2
         dp = jnp.where(is_("airspeed_bias") | is_("airspeed_drift"), biased, dp)
-        newly = is_("airspeed_stuck") & ~latched[i]
+        newly = is_("airspeed_stuck") & (latched[i] != sf.onset_s[i])
         hold = hold.at[i].set(jnp.where(newly, dp, hold[i]))
-        latched = latched.at[i].set(latched[i] | is_("airspeed_stuck"))
+        latched = latched.at[i].set(jnp.where(is_("airspeed_stuck"), sf.onset_s[i], -1.0))
         dp = jnp.where(is_("airspeed_stuck"), hold[i], dp)
         # Inertial and magnetic.
         gyro = gyro + jnp.where(is_("gyro_bias") & e, m * r, 0.0)
@@ -324,7 +326,7 @@ def init_sensors(
         pitot_latched=jnp.zeros((), bool),
         pitot_pt=truth.static_pa,
         held=blank,
-        fault_latched=jnp.zeros(N_SENSOR_SLOTS, bool),
+        fault_latched=jnp.full(N_SENSOR_SLOTS, -1.0, dtype),
         fault_hold=jnp.zeros(N_SENSOR_SLOTS, dtype),
     )
     return sample(sp, pf, s0, truth, dt_c, control_hz, k4, sf, prop)

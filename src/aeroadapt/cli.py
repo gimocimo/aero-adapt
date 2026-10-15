@@ -8,6 +8,7 @@ aeroadapt bench                                throughput benchmark (V15)
 aeroadapt export-viz <bundle> [--to DIR]       copy a bundle's browser files for Skyview
 aeroadapt fleet <id> --n N [--start K]         generate a fleet bundle (runs/fleets/<id>)
 aeroadapt fleet-accept <fleet> [--n N]         V20: configure, tune and accept a fleet
+aeroadapt fleet-sample <fleet> <v20>           the committed sample: V20-accepted, tuned
 aeroadapt serve [--scenario ID] [--port P]     live server for Skyview (?live=ws://localhost:P)
 """
 
@@ -111,7 +112,7 @@ def _fleet(args: argparse.Namespace) -> int:
 
 
 def _fleet_accept(args: argparse.Namespace) -> int:
-    from aeroadapt.generator.fleet import load_fleet
+    from aeroadapt.airframes.fleet import load_fleet
     from aeroadapt.harness.fleet_v20 import run_fleet_v20, write_fleet_v20
     from aeroadapt.scenarios import load_site
 
@@ -125,6 +126,27 @@ def _fleet_accept(args: argparse.Namespace) -> int:
             "seconds": round(time.perf_counter() - t0)}  # fmt: skip
     out = write_fleet_v20(Path(args.out or f"runs/v20/{fleet_dir.name}"), run, meta)
     print(f"V20: {run.pass_rate:.1%} of {len(run.results)} airframes passed → {out}")
+    return 0
+
+
+def _fleet_sample(args: argparse.Namespace) -> int:
+    import pyarrow.parquet as pq
+
+    from aeroadapt.generator.fleet import subset_fleet
+    from aeroadapt.harness.fleet_v20 import airframe_class
+
+    v20 = Path(args.v20)
+    picked: dict[str, list[str]] = {}
+    for r in pq.read_table(v20 / "results.parquet").to_pylist():
+        group = picked.setdefault(airframe_class(r["airframe"]), [])
+        if r["passed"] and len(group) < args.per_class:
+            group.append(r["airframe"])
+    ids = [i for group in picked.values() for i in group]
+    dst = Path(args.out)
+    if dst.exists():
+        shutil.rmtree(dst)
+    subset_fleet(Path(args.fleet), ids, dst, stack_cfgs=v20 / "stack_cfgs.jsonl")
+    print(f"{len(ids)} V20-accepted airframes with their tuned stacks → {dst}")
     return 0
 
 
@@ -179,6 +201,12 @@ def main(argv: list[str] | None = None) -> int:
     fa.add_argument("--seed", type=int, default=0)
     fa.add_argument("--out", help="output directory (default: runs/v20/<fleet>)")
     fa.set_defaults(func=_fleet_accept)
+    fs = sub.add_parser("fleet-sample", help="the sample fleet: V20-accepted airframes, tuned")
+    fs.add_argument("fleet", help="fleet bundle directory")
+    fs.add_argument("v20", help="the fleet's V20 run directory (fleet-accept output)")
+    fs.add_argument("--per-class", type=int, default=2)
+    fs.add_argument("--out", default="configs/fleets/sample")
+    fs.set_defaults(func=_fleet_sample)
     sv = sub.add_parser("serve", help="live server: fly a scenario and inject faults from Skyview")
     sv.add_argument("--scenario", default="m1-nominal")
     sv.add_argument("--port", type=int, default=8765)

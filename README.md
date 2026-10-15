@@ -7,13 +7,13 @@ AeroAdapt is built simulation-first. It is validated rigorously and compared aga
 > **Status:** Milestone M1 (vertical slice) complete: a fixed-wing UAV flies a mission over the real Coton fields west of Cambridge in the browser, and when its motor fails, a classical contingency glides it to a surveyed field.
 >
 > - **Simulator:** a JAX 6-DoF fixed-wing simulator with actuators, battery, turbulence, sensors and fault injection. It matches an independent NumPy implementation to machine precision.
-> - **Flight stack:** a DCM-class navigator and an ArduPlane-equivalent autopilot. They meet every V11 acceptance criterion in calm air and light turbulence.
+> - **Flight stack:** a DCM-class navigator and an ArduPlane-style autopilot (our reimplementation of ArduPlane's cruise-flight control laws). They meet every V11 acceptance criterion in calm air and light turbulence.
 > - **Motor-failure contingency** (50 random motor cuts):
 >   - **91%** of the cases judged reachable land inside the selected field;
 >   - zero crashes;
 >   - ESC detection in 0.73 s median.
 > - **Recordings and replay:** reproducible replay bundles, played back in **Skyview**, a CesiumJS player over Google Photorealistic 3D Tiles. It shows a HUD with indicated vs true airspeed, live safe-zone reachability, and a ghost aircraft for stock-vs-contingency comparisons.
-> - **Evidence:** [validation report](docs/validation/m1_report.md) · [M1 write-up](docs/demo/m1.md)
+> - **Evidence:** [validation report](docs/validation/m1_report.md) · [M1 write-up](docs/demo/m1.md), including its [fidelity and limits](docs/demo/m1.md#fidelity-and-limits): a textbook aircraft model, flat simulated ground (the 3D map is visual only), and no comparison with real ArduPlane yet.
 >
 > Next: M2 (JSBSim backend, live server, the airframe fleet).
 
@@ -77,7 +77,7 @@ Every model is backed by evidence. The simulator is checked three ways:
 
 - **Against an independent reference implementation**, which must agree to machine precision.
 - **Against physical invariants and analytic approximations.**
-- **Against an independent simulator** (JSBSim).
+- **Against an independent simulator** (JSBSim, planned for M2).
 
 See the [M1 spec, §12](docs/04_m1_technical_spec.md).
 

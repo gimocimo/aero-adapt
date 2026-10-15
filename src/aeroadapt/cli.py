@@ -6,6 +6,7 @@ aeroadapt validate [--tier fast|full]          the V1–V15 test tiers (pytest)
 aeroadapt report [--out DIR]                   docs/validation/m2_report.md + figures
 aeroadapt bench                                throughput benchmark (V15)
 aeroadapt export-viz <bundle> [--to DIR]       copy a bundle's browser files for Skyview
+aeroadapt fleet <id> --n N [--start K]         generate a fleet bundle (runs/fleets/<id>)
 """
 
 from __future__ import annotations
@@ -91,6 +92,21 @@ def _export_viz(args: argparse.Namespace) -> int:
     return 0
 
 
+def _fleet(args: argparse.Namespace) -> int:
+    from aeroadapt.generator.fleet import build_fleet
+
+    t0 = time.perf_counter()
+    out = build_fleet(
+        args.id, args.n, start=args.start, workers=args.workers, gltf=not args.no_gltf
+    )
+    manifest = json.loads((out / "manifest.json").read_text())
+    print(
+        f"{manifest['accepted']} accepted of {manifest['designs_tried']} designs in "
+        f"{time.perf_counter() - t0:.0f} s → {out}"
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="aeroadapt", description=__doc__.splitlines()[0] if __doc__ else ""
@@ -107,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
     v = sub.add_parser("validate", help="run the validation test tiers")
     v.add_argument("--tier", choices=("fast", "full"), default="fast")
     v.set_defaults(func=_validate)
-    rep = sub.add_parser("report", help="build the M1 validation report")
+    rep = sub.add_parser("report", help="build the validation report")
     rep.add_argument("--out")
     rep.add_argument("--quick", action="store_true")
     rep.set_defaults(func=_report)
@@ -117,6 +133,13 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("bundle")
     e.add_argument("--to")
     e.set_defaults(func=_export_viz)
+    f = sub.add_parser("fleet", help="generate a procedural airframe fleet (M2 spec §4)")
+    f.add_argument("id")
+    f.add_argument("--n", type=int, required=True, help="accepted airframes wanted")
+    f.add_argument("--start", type=int, default=0, help="first per-class seed")
+    f.add_argument("--workers", type=int, default=None)
+    f.add_argument("--no-gltf", action="store_true")
+    f.set_defaults(func=_fleet)
     args = p.parse_args(argv)
     return int(args.func(args))
 

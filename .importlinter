@@ -54,3 +54,19 @@ source_modules =
 forbidden_modules =
     aeroadapt.stack
     aeroadapt.harness
+
+# M2 spec §2: the airframe generator runs offline (AeroSandbox). Nothing that flies imports it;
+# generated airframes reach the simulator only as data (fleet bundles).
+[importlinter:contract:generator-is-offline]
+name = Simulator, stack, vehicles and scenarios must not import the generator
+type = forbidden
+source_modules =
+    aeroadapt.sim
+    aeroadapt.stack
+    aeroadapt.vehicle
+    aeroadapt.faultlab
+    aeroadapt.harness
+    aeroadapt.scenarios
+    aeroadapt.telemetry
+forbidden_modules =
+    aeroadapt.generator

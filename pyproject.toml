@@ -22,6 +22,11 @@ aeroadapt = "aeroadapt.cli:main"
 jsbsim = [
     "jsbsim>=1.2",
 ]
+generator = [
+    "aerosandbox>=4.2",
+    "neuralfoil>=0.3",
+    "trimesh>=4.4",
+]
 
 [dependency-groups]
 dev = [

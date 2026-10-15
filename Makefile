@@ -1,7 +1,7 @@
-.PHONY: setup lint format typecheck imports test validate check gltf goldens web-dev web-build web-test report demo
+.PHONY: setup lint format typecheck imports test validate check gltf goldens web-dev web-build web-test report demo fleet
 
 setup:
-	uv sync
+	uv sync --all-extras
 	cd web/skyview && npm ci
 
 lint:
@@ -31,6 +31,10 @@ check: lint typecheck imports test
 ## Validation report (docs/validation/m2_report.md + figures; m1_report.md is the frozen M1 artefact)
 report:
 	uv run python -m validation.report
+
+## The M2 airframe fleet (runs/fleets/m2-fleet): 10,000 accepted airframes, ~20 min on 10 cores
+fleet:
+	uv run aeroadapt fleet m2-fleet --n 10000
 
 ## Demo video (runs/demo/m1_demo.mp4), regenerated from seeds
 demo:

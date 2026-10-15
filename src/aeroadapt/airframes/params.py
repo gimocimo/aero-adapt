@@ -12,9 +12,7 @@ from typing import NamedTuple
 
 import numpy as np
 
-from aeroadapt.airframes.schema import Airframe, SurfaceActuator
-
-ALPHA_GRID_N = 721  # aero v2: uniform 0.5° grid over [-180°, 180°] (M2 spec §3.1)
+from aeroadapt.airframes.schema import ALPHA_GRID_N, Airframe, SurfaceActuator
 
 
 def alpha_grid() -> np.ndarray:
@@ -227,6 +225,11 @@ def to_params(af: Airframe) -> AirframeParams:
     )
     if af.aero.model == "bm_tabulated":
         params = params._replace(tables=bm_tables(params))
+    elif af.aero.tables is not None:
+        t = af.aero.tables
+        params = params._replace(
+            tables=AeroTables(*(np.asarray(getattr(t, k)) for k in AeroTables._fields))
+        )
     return params
 
 

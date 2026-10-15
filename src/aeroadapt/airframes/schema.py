@@ -92,20 +92,50 @@ class Stall(_Strict):
     alpha0_rad: float = Field(gt=0, description="Stall blending angle of attack")
 
 
+ALPHA_GRID_N = 721  # aero v2: uniform 0.5° grid over [-180°, 180°] (M2 spec §3.1)
+
+
+class Tables(_Strict):
+    """Aero v2 tables on the uniform α grid (``ALPHA_GRID_N`` points from -180° to 180°)."""
+
+    C_L: list[float]
+    C_D: list[float]
+    C_m: list[float]
+    eta_ctrl: list[float]
+    eta_damp: list[float]
+
+    @model_validator(mode="after")
+    def _on_the_grid(self) -> Tables:
+        for name in ("C_L", "C_D", "C_m", "eta_ctrl", "eta_damp"):
+            values = getattr(self, name)
+            if len(values) != ALPHA_GRID_N or not all(math.isfinite(v) for v in values):
+                raise ValueError(f"table {name} needs {ALPHA_GRID_N} finite values")
+        return self
+
+
 class Aero(_Strict):
     """``model`` selects the static-coefficient source (M2 spec §3).
 
     ``bm_analytic`` evaluates the Beard & McLain formulas (aero v1). ``bm_tabulated`` samples the
     same formulas onto the aero v2 grid, so a B&M airframe can fly in a batch of tabulated ones.
+    ``tabulated`` takes ``tables`` (e.g. from the airframe generator); the linear coefficients
+    are then the attached-flow fits, kept for documentation and the stack's glide polar.
     """
 
-    model: Literal["bm_analytic", "bm_tabulated"] = "bm_analytic"
+    model: Literal["bm_analytic", "bm_tabulated", "tabulated"] = "bm_analytic"
+    tables: Tables | None = None
     ground_effect: bool = Field(
         default=False, description="Induced-drag reduction near the ground (McCormick)"
     )
     longitudinal: Longitudinal
     lateral: Lateral
     stall: Stall
+
+    @model_validator(mode="after")
+    def _tables_match_model(self) -> Aero:
+        if (self.model == "tabulated") != (self.tables is not None):
+            raise ValueError("tables are required for, and only for, model 'tabulated'")
+        return self
 
 
 class Motor(_Strict):

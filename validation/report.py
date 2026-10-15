@@ -71,6 +71,7 @@ from aeroadapt.stack.config import build_stack_params, load_stack_cfg  # noqa: E
 from reference.bm_numpy import model as ref  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
+FLEET = REPO / "runs" / "fleets" / "m2-fleet"
 VA = 25.0
 DEG = 180 / math.pi
 
@@ -671,6 +672,96 @@ def v16_v17_tables(r: Report) -> None:
     )
 
 
+# --------------------------------------------------------------------------- V18 / V19
+def v18_references(r: Report) -> None:
+    from aeroadapt.generator.references import COMPARED, v18
+
+    r.h(2, "V18 · Generator aerodynamics vs published values")
+    r.p(
+        "Two real airframes are rebuilt from their published geometry and run through the "
+        "generator's aerodynamics (AeroSandbox AeroBuildup with tripped NeuralFoil polars). "
+        "Criteria: C_Lα within 15 %, statically stable, C_ℓp within 25 %; the other "
+        "derivatives are recorded. Buildup and vortex-lattice estimates typically differ from "
+        "wind-tunnel or flight-identified values by 20–30 % on secondary derivatives."
+    )
+    for c in v18():
+        rows = []
+        for name, pub, gen in c.rows:
+            rel = (gen - pub) / abs(pub)
+            gate = COMPARED.get(name)
+            verdict = (
+                mark(abs(rel) <= gate)
+                if gate is not None
+                else ("✅" if name == "C_m_alpha" and gen < 0 else "recorded")
+            )
+            rows.append((name, f"{pub:.4f}", f"{gen:.4f}", f"{rel:+.0%}", verdict))
+        r.h(3, c.airframe)
+        r.table(["Derivative", "Published", "Generator", "Difference", ""], rows)
+    r.p(
+        "**Reading the misses.** The Aerosonde's published C_ℓp (−0.51) is below strip theory "
+        "for its own rectangular AR-15 wing (≈ −0.9) and below a vortex-lattice estimate "
+        "(−0.71): the textbook values are not identified from the aircraft, and the book gives "
+        "no tail geometry, so only the wing-dominated derivatives are meaningful there. The "
+        "X8's control-power differences come from elevon sizes that are not published (ours "
+        "follow thin-airfoil theory for the surfaces as sized), and the buildup method "
+        "under-predicts a flying wing's directional derivatives (C_nβ, C_n,r, C_Yβ). The flying "
+        "wing class is held out of the training fleet; when the X8 flies, it uses its "
+        "published coefficients."
+    )
+
+
+def v19_fleet(r: Report) -> None:
+    import json
+
+    import pyarrow.parquet as pq
+
+    r.h(2, "V19 · The generated fleet")
+    if not (FLEET / "manifest.json").exists():
+        r.p(
+            f"*Skipped: no fleet bundle at `{FLEET.relative_to(REPO)}` (`aeroadapt fleet m2-fleet --n 10000`).*"
+        )
+        return
+    m = json.loads((FLEET / "manifest.json").read_text())
+    rows = pq.read_table(FLEET / "designs.parquet").to_pylist()
+    acc = [x for x in rows if x["accepted"]]
+    r.p(
+        f"`{FLEET.relative_to(REPO)}`: **{m['accepted']:,} accepted airframes** from "
+        f"{m['designs_tried']:,} designs ({m['accepted'] / m['designs_tried']:.0%} yield), "
+        "every one re-checked in aerojax (trim at three speeds, modes, static margin, roll "
+        "authority, thrust-to-weight, stall speed and wing loading)."
+    )
+    r.table(
+        ["Class", "Tried", "Accepted", "Yield"],
+        [
+            (c, v["tried"], v["accepted"], f"{v['accepted'] / max(v['tried'], 1):.0%}")
+            for c, v in m["per_class"].items()
+        ],
+    )
+    r.table(["Rejection reason", "Designs"], list(m["rejection_reasons"].items())[:12])
+    keys = [
+        ("span_m", "span (m)"), ("mass_kg", "mass (kg)"), ("wing_loading", "wing loading (N/m²)"),
+        ("v_stall", "stall speed (m/s)"), ("v_cruise", "cruise speed (m/s)"),
+        ("static_margin_aerojax", "static margin"), ("roll_rate_dps", "roll rate (°/s)"),
+        ("thrust_to_weight", "thrust / weight"),
+    ]  # fmt: skip
+    r.table(
+        ["Quantity", "Min", "Median", "Max"],
+        [
+            (label, f"{np.min(v):.3g}", f"{np.median(v):.3g}", f"{np.max(v):.3g}")
+            for k, label in keys
+            for v in [np.array([x[k] for x in acc], dtype=float)]
+        ],
+    )
+    fig, axes = plt.subplots(2, 4, figsize=(13, 5.5))
+    classes = list(m["per_class"])
+    for ax, (k, label) in zip(axes.ravel(), keys, strict=True):
+        data = [np.array([x[k] for x in acc if x["cls"] == c], dtype=float) for c in classes]
+        ax.hist(data, bins=30, stacked=True, label=classes)
+        ax.set(xlabel=label)
+    axes[0, 0].legend(fontsize=7)
+    r.figure(fig, "v19_fleet", "V19: distributions over the accepted fleet, stacked by class")
+
+
 # --------------------------------------------------------------------------- V15
 def v15_throughput(r: Report) -> None:
     out = subprocess.run(
@@ -711,6 +802,8 @@ def build_report(out: Path, quick: bool = False) -> Path:
         lambda: v12_contingency(r, quick),
         lambda: v14_jsbsim(r),
         lambda: v16_v17_tables(r),
+        lambda: v18_references(r),
+        lambda: v19_fleet(r),
         lambda: v15_throughput(r),
     ]
     for section in sections:

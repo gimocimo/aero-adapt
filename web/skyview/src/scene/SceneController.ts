@@ -123,13 +123,14 @@ export class SceneController {
     this.viewer.scene.primitives.remove(this.trail);
   }
 
-  private prepare(replay: Replay): Prepared {
+  private prepare(replay: Replay, from?: Prepared): Prepared {
     const frame = this.frame!;
     const c = replay.cols;
     const { mode: modes, phase: phases } = replay.manifest.enums;
-    const positions: Cartesian3[] = [];
-    const category: number[] = [];
-    for (let i = 0; i < replay.n; i += TRAIL_STRIDE) {
+    // A live replay only grows: extend the previous preparation instead of redoing it.
+    const positions: Cartesian3[] = from ? from.positions : [];
+    const category: number[] = from ? Array.from(from.category) : [];
+    for (let i = positions.length * TRAIL_STRIDE; i < replay.n; i += TRAIL_STRIDE) {
       positions.push(frame.toCartesian(c["truth.pos_n"]![i]!, c["truth.pos_e"]![i]!, c["truth.alt_agl"]![i]!));
       category.push(categoryOf(phases[c["cont.phase"]![i]!] ?? "", modes[c.mode![i]!] ?? ""));
     }
@@ -137,6 +138,12 @@ export class SceneController {
   }
 
   setReplays(main: Replay | null, ghost: Replay | null): void {
+    // The same live session, grown: extend the trail data, keep the site objects.
+    if (main && this.main && this.main.replay !== main && this.main.replay.id === main.id) {
+      this.main = this.prepare(main, this.main);
+      this.trailBuiltAt = -1;
+      return;
+    }
     // Site-dependent objects are rebuilt when the main replay changes.
     if (main && (!this.main || this.main.replay !== main)) {
       this.frame = new SiteFrame(main.manifest.site.origin);

@@ -126,6 +126,7 @@ export function Controls({ replay }: { replay: Replay }) {
   const camera = useStore((s) => s.camera);
   const layers = useStore((s) => s.layers);
   const status = useStore((s) => s.status);
+  const live = useStore((s) => s.live);
   const { setCamera, toggleLayer } = useStore.getState();
   const m = replay.manifest;
   const select = (key: "replay" | "ghost", value: string) => {
@@ -138,6 +139,12 @@ export function Controls({ replay }: { replay: Replay }) {
     <div className="controls">
       <h1>Skyview</h1>
       <p className="status">{status}</p>
+      {live ? (
+        <p className="note">
+          <b>Live session</b> · {replay.manifest.scenario.id} · {live.connected ? "connected" : "disconnected"}
+        </p>
+      ) : (
+        <>
       <label className="row">
         <span>Replay</span>
         <select value={replay.id} onChange={(e) => select("replay", e.target.value)} aria-label="replay">
@@ -157,6 +164,8 @@ export function Controls({ replay }: { replay: Replay }) {
             ))}
         </select>
       </label>
+        </>
+      )}
       <p className="note">{m.scenario.description}</p>
       <p className="note">
         {m.site.name} · wind {m.scenario.environment.wind.speed_mps.toFixed(0)} m/s from{" "}

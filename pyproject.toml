@@ -27,6 +27,10 @@ generator = [
     "neuralfoil>=0.3",
     "trimesh>=4.4",
 ]
+live = [
+    "msgpack>=1.0",
+    "websockets>=13",
+]
 
 [dependency-groups]
 dev = [

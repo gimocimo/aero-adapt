@@ -10,6 +10,7 @@ from typing import Any
 
 import jax
 import numpy as np
+from pydantic import BaseModel
 
 from aeroadapt.airframes import AIRFRAME_DIR
 from aeroadapt.harness.closed_loop import LoopLog, setup_loop
@@ -43,6 +44,14 @@ class RunResult:
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _config_sha(path: Path, model: BaseModel) -> str:
+    """The config file's hash, or the model's JSON hash when it has no file (generated
+    airframes, auto-configured stacks)."""
+    if path.exists():
+        return _sha256(path)
+    return hashlib.sha256(model.model_dump_json().encode()).hexdigest()
 
 
 def git_info() -> dict[str, Any]:
@@ -87,11 +96,13 @@ def build_manifest(r: ResolvedScenario, cols: dict[str, np.ndarray]) -> dict[str
         "provenance": {
             "airframe": {
                 "id": r.airframe.id,
-                "sha256": _sha256(AIRFRAME_DIR / f"{r.airframe.id}.yaml"),
+                "sha256": _config_sha(AIRFRAME_DIR / f"{r.airframe.id}.yaml", r.airframe),
             },
             "stack": {
                 "id": r.stack_cfg.id,
-                "sha256": _sha256(STACK_DIR / f"{sc.stack.params or sc.airframe}.yaml"),
+                "sha256": _config_sha(
+                    STACK_DIR / f"{sc.stack.params or sc.airframe}.yaml", r.stack_cfg
+                ),
                 "config": r.stack_cfg.model_dump(mode="json"),
             },
             "git": git_info(),

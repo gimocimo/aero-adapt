@@ -410,3 +410,75 @@ dd {
     transform-origin: bottom left;
   }
 }
+
+/* Live mode (M2 spec §9) */
+.faultpanel {
+  position: absolute;
+  right: 12px;
+  top: 300px;
+  width: 300px;
+  max-height: calc(100vh - 380px);
+  overflow-y: auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(12, 16, 24, 0.82);
+  color: #e8ecf2;
+  font: 12px system-ui, sans-serif;
+  z-index: 3;
+}
+.faultpanel h2 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+.faultgroup h3 {
+  margin: 8px 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #9aa6b8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.faultgroup button {
+  margin: 0 4px 4px 0;
+  padding: 4px 8px;
+  border: 1px solid #c2483a;
+  border-radius: 6px;
+  background: rgba(194, 72, 58, 0.18);
+  color: #ffd9d4;
+  font: inherit;
+  cursor: pointer;
+}
+.faultgroup button:hover:not(:disabled) {
+  background: rgba(194, 72, 58, 0.45);
+}
+.faultgroup button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.faulterror {
+  margin: 6px 0 0;
+  color: #ffb3a8;
+}
+.timeline.live button {
+  margin-left: 4px;
+}
+.timeline.live button.on {
+  background: #2f6fde;
+}
+.livedot {
+  color: #6b7280;
+  margin-right: 6px;
+}
+.livedot.on {
+  color: #ff4d4d;
+}
+@media (max-width: 720px) {
+  .faultpanel {
+    top: auto;
+    bottom: 64px;
+    right: 8px;
+    left: 8px;
+    width: auto;
+    max-height: 30vh;
+  }
+}

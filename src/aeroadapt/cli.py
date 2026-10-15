@@ -7,11 +7,14 @@ aeroadapt report [--out DIR]                   docs/validation/m2_report.md + fi
 aeroadapt bench                                throughput benchmark (V15)
 aeroadapt export-viz <bundle> [--to DIR]       copy a bundle's browser files for Skyview
 aeroadapt fleet <id> --n N [--start K]         generate a fleet bundle (runs/fleets/<id>)
+aeroadapt fleet-accept <fleet> [--n N]         V20: configure, tune and accept a fleet
+aeroadapt serve [--scenario ID] [--port P]     live server for Skyview (?live=ws://localhost:P)
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import shutil
 import subprocess
@@ -107,6 +110,34 @@ def _fleet(args: argparse.Namespace) -> int:
     return 0
 
 
+def _fleet_accept(args: argparse.Namespace) -> int:
+    from aeroadapt.generator.fleet import load_fleet
+    from aeroadapt.harness.fleet_v20 import run_fleet_v20, write_fleet_v20
+    from aeroadapt.scenarios import load_site
+
+    fleet_dir = Path(args.fleet)
+    if not fleet_dir.exists():
+        fleet_dir = Path("runs/fleets") / args.fleet
+    airframes = load_fleet(fleet_dir)[: args.n]
+    t0 = time.perf_counter()
+    run = run_fleet_v20(airframes, load_site(args.site), batch=args.batch, seed=args.seed)
+    meta = {"fleet": fleet_dir.name, "site": args.site, "seed": args.seed,
+            "seconds": round(time.perf_counter() - t0)}  # fmt: skip
+    out = write_fleet_v20(Path(args.out or f"runs/v20/{fleet_dir.name}"), run, meta)
+    print(f"V20: {run.pass_rate:.1%} of {len(run.results)} airframes passed → {out}")
+    return 0
+
+
+def _serve(args: argparse.Namespace) -> int:
+    import asyncio
+
+    from aeroadapt.live.server import run_server
+
+    with contextlib.suppress(KeyboardInterrupt):
+        asyncio.run(run_server(args.scenario, port=args.port))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="aeroadapt", description=__doc__.splitlines()[0] if __doc__ else ""
@@ -140,6 +171,18 @@ def main(argv: list[str] | None = None) -> int:
     f.add_argument("--workers", type=int, default=None)
     f.add_argument("--no-gltf", action="store_true")
     f.set_defaults(func=_fleet)
+    fa = sub.add_parser("fleet-accept", help="V20: auto-configure and accept a fleet (§6)")
+    fa.add_argument("fleet", help="fleet bundle directory or id (runs/fleets/<id>)")
+    fa.add_argument("--n", type=int, default=None, help="first N airframes (default: all)")
+    fa.add_argument("--batch", type=int, default=200)
+    fa.add_argument("--site", default="cambridge_west")
+    fa.add_argument("--seed", type=int, default=0)
+    fa.add_argument("--out", help="output directory (default: runs/v20/<fleet>)")
+    fa.set_defaults(func=_fleet_accept)
+    sv = sub.add_parser("serve", help="live server: fly a scenario and inject faults from Skyview")
+    sv.add_argument("--scenario", default="m1-nominal")
+    sv.add_argument("--port", type=int, default=8765)
+    sv.set_defaults(func=_serve)
     args = p.parse_args(argv)
     return int(args.func(args))
 

@@ -221,7 +221,10 @@ def run_v20(
             square = jax.tree.map(lambda x, i=i: x[i], boxes)
             xt = leg_xtrack(one, square, np.zeros(2))[mask]
             rms = float(np.sqrt(np.mean(xt**2))) if xt.size else float("inf")
-            results[i].add(f"L1 cross-track RMS ({tag})", rms, 5.0 if turbulent else 2.0)
+            # The autopilot can only track as well as its position fix: the limits scale with
+            # the airframe's GNSS accuracy (σ = 1 m for the V11 reference).
+            gnss = max(1.0, float(vps[i].sensors.gnss_sigma_h))
+            results[i].add(f"L1 cross-track RMS ({tag})", rms, (5.0 if turbulent else 2.0) * gnss)
             sat = np.any(np.abs(one.cmd[:, :3]) >= 0.98, axis=1)
             results[i].add(f"servo saturation ({tag})", 100 * float(np.mean(sat)), 5.0)
             results[i].add(f"no ground contact ({tag})", float(one.done.any()), 0.0)

@@ -108,6 +108,32 @@ def closed_loop(
     log_every: int = 1,
 ) -> tuple[SimState, StackState, LoopLog]:
     """``n_steps`` control steps (a multiple of ``log_every``); logs every ``log_every``-th."""
+    sim, st, _, log = closed_loop_carry(
+        vp, env, faults, sp, mission, sim0, stack0, z0, key,
+        n_steps=n_steps, guided=guided, config=config, log_every=log_every,
+    )  # fmt: skip
+    return sim, st, log
+
+
+@partial(jax.jit, static_argnames=("n_steps", "guided", "config", "log_every"))
+def closed_loop_carry(
+    vp: VehicleParams,
+    env: EnvParams,
+    faults: FaultConfig,
+    sp: StackParams,
+    mission: Mission,
+    sim0: SimState,
+    stack0: StackState,
+    z0: SensorArrays,
+    key: Array,
+    *,
+    n_steps: int,
+    guided: GuidedFn | None = None,
+    config: SimConfig = SimConfig(),  # noqa: B008
+    log_every: int = 1,
+) -> tuple[SimState, StackState, SensorArrays, LoopLog]:
+    """As :func:`closed_loop`, also returning the last sensor sample, so a flight can be
+    continued chunk by chunk (live mode)."""
     if n_steps % log_every:
         raise ValueError("n_steps must be a multiple of log_every")
 
@@ -168,15 +194,15 @@ def closed_loop(
     keys = jax.random.split(key, n_steps)
     carry0: Carry = (sim0, stack0, z0)
     if log_every == 1:
-        (sim, st, _), log = jax.lax.scan(step, carry0, keys)
-        return sim, st, log
+        (sim, st, z), log = jax.lax.scan(step, carry0, keys)
+        return sim, st, z, log
 
     def chunk(carry: Carry, ks: Array) -> tuple[Carry, LoopLog]:
         carry, logs = jax.lax.scan(step, carry, ks)
         return carry, jax.tree.map(lambda x: x[-1], logs)
 
-    (sim, st, _), log = jax.lax.scan(chunk, carry0, keys.reshape(-1, log_every, *keys.shape[1:]))
-    return sim, st, log
+    (sim, st, z), log = jax.lax.scan(chunk, carry0, keys.reshape(-1, log_every, *keys.shape[1:]))
+    return sim, st, z, log
 
 
 @dataclass(frozen=True)

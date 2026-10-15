@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { LiveStatus } from "../live/client";
 import type { Replay } from "../replay/types";
 
 export type CameraMode = "chase" | "orbit" | "top" | "free";
@@ -22,6 +23,9 @@ interface State {
   camera: CameraMode;
   layers: Layers;
   status: string;
+  /** Live session (null when replaying a bundle). */
+  live: LiveStatus | null;
+  liveSend: ((msg: Record<string, unknown>) => void) | null;
   setReplays: (ids: string[]) => void;
   setReplay: (r: Replay | null) => void;
   setGhost: (r: Replay | null) => void;
@@ -32,7 +36,13 @@ interface State {
   setCamera: (c: CameraMode) => void;
   toggleLayer: (k: keyof Layers) => void;
   setStatus: (s: string) => void;
+  setLive: (live: LiveStatus | null, send?: ((msg: Record<string, unknown>) => void) | null) => void;
+  /** Swap in a grown live replay without moving the playhead. */
+  setLiveReplay: (r: Replay) => void;
 }
+
+/** Live playback trails the newest sample slightly, so interpolation always has data. */
+export const LIVE_DELAY_S = 0.1;
 
 export const useStore = create<State>((set, get) => ({
   replays: [],
@@ -44,6 +54,8 @@ export const useStore = create<State>((set, get) => ({
   camera: "chase",
   layers: { trail: true, mission: true, zones: true, wind: true, ghost: true },
   status: "",
+  live: null,
+  liveSend: null,
   setReplays: (replays) => set({ replays }),
   setReplay: (replay) => set({ replay, time: replay?.t[0] ?? 0, playing: false }),
   setGhost: (ghost) => set({ ghost }),
@@ -52,7 +64,11 @@ export const useStore = create<State>((set, get) => ({
     set({ time: r ? Math.min(Math.max(t, 0), r.duration) : 0 });
   },
   advance: (dtWall) => {
-    const { replay, playing, speed, time } = get();
+    const { replay, playing, speed, time, live } = get();
+    if (live && replay) {
+      set({ time: Math.max(replay.duration - LIVE_DELAY_S, 0) });
+      return;
+    }
     if (!replay || !playing) return;
     const next = time + dtWall * speed;
     if (next >= replay.duration) set({ time: replay.duration, playing: false });
@@ -68,4 +84,6 @@ export const useStore = create<State>((set, get) => ({
   setCamera: (camera) => set({ camera }),
   toggleLayer: (k) => set({ layers: { ...get().layers, [k]: !get().layers[k] } }),
   setStatus: (status) => set({ status }),
+  setLive: (live, send) => set({ live, liveSend: send === undefined ? get().liveSend : send }),
+  setLiveReplay: (replay) => set({ replay }),
 }));

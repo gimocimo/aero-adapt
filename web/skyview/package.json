@@ -14,6 +14,7 @@
     "e2e": "playwright test"
   },
   "dependencies": {
+    "@msgpack/msgpack": "^3.1.3",
     "apache-arrow": "^21.2.0",
     "cesium": "^1.146.0",
     "react": "^19.3.0",

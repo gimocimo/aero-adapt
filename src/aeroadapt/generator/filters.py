@@ -8,9 +8,10 @@ over the fleet with ``vmap`` (one compilation for any number of airframes):
   within 80 % of travel and α below the stall at the slow point;
 - modes at cruise: short period ζ ≥ 0.25, Dutch roll ζ ≥ 0.05, roll subsidence stable,
   phugoid not faster than a 0.02 1/s divergence, spiral time to double ≥ 10 s;
-- static margin 3-25 % from the tables; C_nβ > 0 and C_ℓβ < 0 (static directional and lateral
-  stability); steady roll rate ≥ 60°/s at cruise with full aileron;
-  static thrust-to-weight ≥ 0.4; stall speed 5-20 m/s; wing loading 20-150 N/m².
+- static margin 3-25 % from the tables; C_nβ ≥ 0.03/rad (the low end of Raymer's typical
+  range: directionally weaker designs sideslip badly under any autopilot) and C_ℓβ < 0;
+  steady roll rate ≥ 60°/s at cruise with full aileron; static thrust-to-weight ≥ 0.4;
+  stall speed 5-20 m/s; wing loading 20-150 N/m².
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ from aeroadapt.sim.aerojax.propulsion import propeller
 from aeroadapt.sim.aerojax.trim import LAT, LON, _euler_model, trim_level
 
 RHO0, G0 = 1.225, 9.806_65
+CNB_MIN = 0.03  # 1/rad: the low end of Raymer's typical range (0.0005-0.0015 per degree)
 
 
 @dataclass(frozen=True)
@@ -158,7 +160,7 @@ def check(airframes: Sequence[Airframe], meta: Sequence[dict]) -> FilterResult:
             fail(i, "spiral divergence")
         if not 0.03 <= sm[i] <= 0.25:
             fail(i, "static margin")
-        if not cnb[i] > 0.0:
+        if not cnb[i] >= CNB_MIN:
             fail(i, "directional stability (C_n,beta)")
         if not clb[i] < 0.0:
             fail(i, "dihedral effect (C_l,beta)")

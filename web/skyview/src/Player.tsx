@@ -9,6 +9,8 @@ import "cesium/Build/Cesium/Widgets/widgets.css";
 import { useEffect, useRef, useState } from "react";
 import { loadGoogleTiles } from "./googleTiles";
 import { Hud } from "./hud/Hud";
+import { LiveClient } from "./live/client";
+import { FaultPanel, LiveBar } from "./live/FaultPanel";
 import { Controls, EventLog, Timeline } from "./panels/Panels";
 import { sample } from "./replay/interp";
 import { listReplays, loadReplay } from "./replay/load";
@@ -19,7 +21,12 @@ const TOKEN = import.meta.env.VITE_CESIUM_ION_TOKEN?.trim();
 
 function params() {
   const q = new URLSearchParams(window.location.search);
-  return { replay: q.get("replay"), ghost: q.get("ghost"), tiles: q.get("tiles") !== "0" };
+  return {
+    replay: q.get("replay"),
+    ghost: q.get("ghost"),
+    live: q.get("live"),
+    tiles: q.get("tiles") !== "0",
+  };
 }
 
 /** "/replays/<id>" for ids from the index; a path containing "/" is used as given. */
@@ -37,6 +44,7 @@ function HudContainer() {
 export default function Player() {
   const container = useRef<HTMLDivElement>(null);
   const replay = useStore((s) => s.replay);
+  const live = useStore((s) => s.live);
   const [error, setError] = useState<string | null>(null);
 
   // Viewer, scene controller and the animation loop.
@@ -115,8 +123,34 @@ export default function Player() {
     };
   }, []);
 
+  // Live mode (?live=ws://localhost:8765): a growing replay streamed by `aeroadapt serve`.
+  useEffect(() => {
+    const url = params().live;
+    if (!url) return;
+    const store = useStore.getState();
+    const client = new LiveClient(url, {
+      // A new session: show it once its first rows arrive (an empty replay cannot be sampled).
+      onBuffer: () => store.setReplay(null),
+      onData: (b) => {
+        if (b.length === 0) return;
+        const shown = useStore.getState().replay;
+        const snap = b.snapshot();
+        if (shown?.id === snap.id) store.setLiveReplay(snap);
+        else store.setReplay(snap);
+      },
+      onStatus: (s) => store.setLive(s),
+    });
+    store.setLive(
+      { connected: false, timeS: 0, speed: 1, paused: false, done: false, error: null },
+      (msg) => client.send(msg),
+    );
+    if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__live = client;
+    return () => client.close();
+  }, []);
+
   // Replays: the index, then the requested replay (and ghost).
   useEffect(() => {
+    if (params().live) return;
     const store = useStore.getState();
     let cancelled = false;
     (async () => {
@@ -172,7 +206,8 @@ export default function Player() {
           <Controls replay={replay} />
           <EventLog replay={replay} />
           <HudContainer />
-          <Timeline replay={replay} />
+          {live ? <LiveBar /> : <Timeline replay={replay} />}
+          <FaultPanel />
         </>
       )}
     </>

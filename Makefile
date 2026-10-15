@@ -1,4 +1,4 @@
-.PHONY: setup lint format typecheck imports test validate check gltf goldens web-dev web-build web-test
+.PHONY: setup lint format typecheck imports test validate check gltf goldens web-dev web-build web-test report demo
 
 setup:
 	uv sync
@@ -28,6 +28,14 @@ validate:
 
 check: lint typecheck imports test
 
+## Validation report (docs/validation/m1_report.md + figures)
+report:
+	uv run python -m validation.report
+
+## Demo video (runs/demo/m1_demo.mp4), regenerated from seeds
+demo:
+	uv run --with imageio-ffmpeg python tools/make_demo.py
+
 ## Calibration glTF model and cross-language frame goldens for the viewer
 gltf:
 	uv run python tools/make_gltf.py
@@ -42,4 +50,4 @@ web-build:
 	cd web/skyview && npm run build
 
 web-test:
-	cd web/skyview && npm run typecheck && npm test
+	cd web/skyview && npm run typecheck && npm test && npm run e2e

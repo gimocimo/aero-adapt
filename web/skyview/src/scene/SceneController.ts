@@ -66,19 +66,32 @@ export class SceneController {
 
   constructor(private readonly viewer: Viewer) {
     const ents = viewer.entities;
+    // A dark silhouette and a warm tint keep the (white) model readable over bright roofs
+    // and fields; the ghost is translucent with a light outline.
     this.aircraft = ents.add({
       show: false,
-      model: { uri: MODEL_URI, minimumPixelSize: 56, maximumScale: 25 },
+      model: {
+        uri: MODEL_URI,
+        minimumPixelSize: 64,
+        maximumScale: 25,
+        color: Color.fromCssColorString("#ffb24c"),
+        colorBlendMode: ColorBlendMode.MIX,
+        colorBlendAmount: 0.45,
+        silhouetteColor: Color.BLACK.withAlpha(0.85),
+        silhouetteSize: 2,
+      },
     });
     this.ghostAircraft = ents.add({
       show: false,
       model: {
         uri: MODEL_URI,
-        minimumPixelSize: 56,
+        minimumPixelSize: 64,
         maximumScale: 25,
-        color: Color.WHITE.withAlpha(0.45),
+        color: Color.WHITE.withAlpha(0.5),
         colorBlendMode: ColorBlendMode.MIX,
         colorBlendAmount: 0.7,
+        silhouetteColor: Color.WHITE.withAlpha(0.9),
+        silhouetteSize: 1.5,
       },
     });
     this.wind = ents.add({
@@ -312,7 +325,7 @@ export class SceneController {
       while (d > Math.PI) d -= 2 * Math.PI;
       while (d < -Math.PI) d += 2 * Math.PI;
       this.smoothHeading += 0.06 * d;
-      cam.lookAt(pos, new HeadingPitchRange(this.smoothHeading, -14 * DEG, 70));
+      cam.lookAt(pos, new HeadingPitchRange(this.smoothHeading, -10 * DEG, 28));
     } else if (mode === "orbit") {
       cam.lookAt(pos, new HeadingPitchRange(0.15 * time, -22 * DEG, 180));
     } else {

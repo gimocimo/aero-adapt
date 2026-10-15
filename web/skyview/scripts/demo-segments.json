@@ -1,0 +1,10 @@
+[
+  {"replay": "m1-motorcut-classical", "ghost": "m1-motorcut-stock", "t0": 52, "t1": 72, "fps": 30, "speed": 1, "camera": "chase",
+   "caption": "Motor cut at 60 s · classical contingency (solid) vs stock ArduPlane-style autopilot (ghost)"},
+  {"replay": "m1-motorcut-classical", "ghost": "m1-motorcut-stock", "t0": 72, "t1": 150, "fps": 30, "speed": 6, "camera": "top",
+   "caption": "Contingency flies a glider's circuit to field A · the stock autopilot glides on along its mission (6×)"},
+  {"replay": "m1-motorcut-classical", "ghost": "m1-motorcut-stock", "t0": 148, "t1": 156, "fps": 30, "speed": 1, "camera": "chase",
+   "caption": "Flare and controlled touchdown inside the selected field"},
+  {"replay": "m1-pitot-drain-blocked", "t0": 37, "t1": 58, "fps": 30, "speed": 1, "camera": "chase",
+   "caption": "Pitot and drain blocked in a climb: indicated airspeed rises while true airspeed collapses (HUD, left)"}
+]

@@ -74,6 +74,7 @@ export default function Player() {
         .then((tileset) => {
           if (cancelled) return tileset.destroy();
           viewer.scene.primitives.add(tileset);
+          if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__tileset = tileset;
           store.setStatus("Google Photorealistic 3D Tiles via Cesium ion");
         })
         .catch((e: unknown) => store.setStatus(`3D tiles failed: ${String(e)}`));

@@ -62,7 +62,7 @@ def vehicle(aerosonde: Airframe) -> VehicleParams:
 def cambridge_env() -> EnvParams:
     site = load_site("cambridge_west")
     return make_env(
-        alt_origin_msl_m=site.origin.h_ellipsoid_m - 46.0,  # approx. UK geoid; ISA only
+        alt_origin_msl_m=site.ground_msl_m,
         magnetic_ned_gauss=site.magnetic.field_ned_gauss,
     )
 

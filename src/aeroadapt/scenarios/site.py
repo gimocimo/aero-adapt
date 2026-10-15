@@ -74,6 +74,17 @@ class SafeZone(_Strict):
     quality: float = Field(ge=0, le=1)
     approach_from_deg: list[float] = Field(default_factory=list)
 
+    def contains(self, north_m: float, east_m: float) -> bool:
+        """Point-in-polygon (even-odd ray casting) in the local NE plane."""
+        inside = False
+        pts = self.polygon_ne_m
+        for (n1, e1), (n2, e2) in zip(pts, pts[1:] + pts[:1], strict=True):
+            if (n1 > north_m) != (n2 > north_m):
+                e_cross = e1 + (north_m - n1) * (e2 - e1) / (n2 - n1)
+                if east_m < e_cross:
+                    inside = not inside
+        return inside
+
 
 class Site(_Strict):
     schema_version: int = Field(ge=1, le=1)
@@ -81,12 +92,19 @@ class Site(_Strict):
     name: str
     description: str
     origin: Origin
+    geoid_undulation_m: float = Field(
+        ge=-110, le=90, description="Ellipsoid → MSL separation (ISA and baro reference only)"
+    )
     ground_model: Literal["flat"]
     ground_survey: GroundSurvey
     isa: Isa
     magnetic: Magnetic
     airspace_notes: str
     safe_zones: list[SafeZone] = Field(default_factory=list, max_length=MAX_SAFE_ZONES)
+
+    @property
+    def ground_msl_m(self) -> float:
+        return self.origin.h_ellipsoid_m - self.geoid_undulation_m
 
 
 def load_site(name_or_path: str | Path) -> Site:

@@ -84,6 +84,8 @@ export default function App() {
       baseLayer: TOKEN ? false : new ImageryLayer(new GridImageryProvider({})),
     });
     viewerRef.current = viewer;
+    // Dev-only hook for surveying from the browser console (safe zones, ground heights).
+    if (import.meta.env.DEV) (window as unknown as { __skyview?: Viewer }).__skyview = viewer;
     aircraftRef.current = viewer.entities.add({
       show: false, // hidden until the ground height is known
       model: { uri: "/models/calibration_uav.glb", minimumPixelSize: 48, maximumScale: 20 },

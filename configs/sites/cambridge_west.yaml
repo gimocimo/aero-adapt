@@ -10,7 +10,8 @@ description: >-
 origin:
   lat_deg: 52.2075
   lon_deg: 0.0747
-  h_ellipsoid_m: 63.9   # WGS84 ellipsoidal ground height at the origin (geoid ≈ +46 m here)
+  h_ellipsoid_m: 63.9   # WGS84 ellipsoidal ground height at the origin
+geoid_undulation_m: 46.0  # approx. (±1 m) EGM/OSGM separation here; used only for ISA/baro reference
 
 ground_model: flat      # M5 replaces this with a DEM
 ground_survey:
@@ -47,4 +48,25 @@ airspace_notes: >-
   extend 5 km beyond the thresholds). Bourn airfield lies about 8 km west. Simulation only:
   verify on the CAA's official drone airspace map before any real-world use.
 
-safe_zones: []          # pre-surveyed ditch zones: defined in M1 week 3 (classical contingency)
+# Pre-surveyed ditch zones (classical contingency, spec §9.3). Corners picked on the Google 3D
+# Tiles surface in a top-down view (Skyview dev hook, 2026-10-15), converted to local NE metres
+# and inset 15 m from the hedges and tree lines. All four lie on the flat ground around the
+# origin: interior heights 62-66 m vs the 63.9 m site ground. Fields further west (rising to
+# ~97 m) and east of the M11 (~58-61 m) need the M5 terrain model before they can be used.
+safe_zones:
+  - id: A
+    surface: arable (winter crop), 12 ha; the origin field. M11 along the east edge
+    quality: 0.9
+    polygon_ne_m: [[44.0, -154.8], [-18.4, 91.9], [-392.0, 55.6], [-267.9, -243.5]]
+  - id: B
+    surface: arable, 4.9 ha; curved western edge (polygon is the inscribed quadrilateral)
+    quality: 0.8
+    polygon_ne_m: [[72.1, -485.6], [-1.5, -257.5], [-201.2, -296.9], [-84.5, -463.4]]
+  - id: C
+    surface: arable, 8.5 ha; south of A across a hedge
+    quality: 0.8
+    polygon_ne_m: [[-352.8, -237.4], [-454.5, 29.6], [-737.4, 3.2], [-627.9, -213.5]]
+  - id: F
+    surface: grass/arable strip, 6 ha; narrow (about 95-190 m wide)
+    quality: 0.7
+    polygon_ne_m: [[-298.8, -568.6], [-298.8, -475.3], [-612.9, -356.8], [-608.3, -552.7]]

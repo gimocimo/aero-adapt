@@ -48,3 +48,13 @@ def test_rejects_too_many_safe_zones() -> None:
     data["safe_zones"] = [dict(zone, id=f"z{i}") for i in range(17)]
     with pytest.raises(ValidationError):
         Site.model_validate(data)
+
+
+def test_safe_zone_contains() -> None:
+    zones = load_site("cambridge_west").safe_zones
+    assert len(zones) >= 4
+    a = zones[0]
+    assert a.contains(-150.0, -60.0)  # field interior
+    assert not a.contains(200.0, 0.0)  # north of the field
+    centroids = [np.mean(np.asarray(z.polygon_ne_m), axis=0) for z in zones]
+    assert all(z.contains(*c) for z, c in zip(zones, centroids, strict=True))

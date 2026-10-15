@@ -179,5 +179,7 @@ def test_pacing_jitter_at_real_time(server_port: int) -> None:
 
     gaps = np.diff(asyncio.run(arrivals()))
     jitter = np.abs(gaps - CHUNK_S)
-    assert np.percentile(jitter, 99) <= 0.020, np.percentile(jitter, [50, 99])
+    p50, p99 = np.percentile(jitter, [50, 99]) * 1e3
+    print(f"pacing jitter at 1x: p50 {p50:.1f} ms, p99 {p99:.1f} ms over {len(gaps)} frames")
+    assert p99 <= 20.0
     assert abs(gaps.mean() - CHUNK_S) < 0.002  # no drift: the schedule is absolute

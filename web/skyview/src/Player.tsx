@@ -125,10 +125,17 @@ export default function Player() {
   }, []);
 
   // Live mode (?live=ws://localhost:8765): a growing replay streamed by `aeroadapt serve`.
+  // `&ghost=<bundle>` flies a recorded replay of the same scenario alongside, for comparison.
   useEffect(() => {
     const url = params().live;
     if (!url) return;
     const store = useStore.getState();
+    const ghostId = params().ghost;
+    if (ghostId) {
+      loadReplay(bundleUrl(ghostId))
+        .then((g) => store.setGhost(g))
+        .catch((e: unknown) => setError(String(e)));
+    }
     const client = new LiveClient(url, {
       // A new session: show it once its first rows arrive (an empty replay cannot be sampled).
       onBuffer: () => store.setReplay(null),

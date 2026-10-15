@@ -1,20 +1,28 @@
 """Simulation-based tuning of the stock stack (an offline analogue of ArduPlane AUTOTUNE).
 
 Starting from the model-based configuration (``autoconfig``), each airframe flies a tuning
-manoeuvre per axis with a small grid of parameter variants, all batched in one ``vmap``, and
-keeps the variant with the lowest cost:
+manoeuvre per axis with a small grid of parameter variants, all batched in one ``vmap``. Each
+variant is scored against the axis's requirements, measured on the tuning manoeuvre, and the
+variant with the largest worst-case margin is kept (the worst ratio of value to limit; a
+small tracking-error term breaks ties). This is requirements-driven tuning, as flight-control
+engineers tune to handling-qualities limits; a weighted sum of costs instead trades one
+requirement against another unseen.
 
-- roll: a ±20° bank doublet, scored on following a first-order reference (τ = 0.3 s) plus
-  overshoot; variants scale the feed-forward and the rate P/I and set the time constant;
-- yaw: a slow ±20° bank doublet (6 s each way), scored mostly on steady-bank sideslip;
-  variants scale the coordination feed-forward and damper and set the sideslip integrator;
-- pitch: a ±4° doublet around trim at fixed throttle, as for roll (τ = 0.3 s);
-- TECS: a height doublet, scored on airspeed excursion and height tracking; variants set the
-  time constant and the speed weighting.
+- roll: a ±20° bank doublet, then wings level. Rise time, overshoot, the error at the end of
+  each half, and any oscillation left while holding level (as AUTOTUNE backs gains off when
+  it detects oscillation: with servo deadband and lag, high gains limit-cycle). Variants
+  scale the feed-forward and the rate P/I and set the time constant.
+- yaw: a slow ±20° bank doublet (6 s each way): steady-bank and peak sideslip. Variants
+  scale the coordination feed-forward and damper and set the sideslip integrator.
+- pitch: a ±4° doublet around trim at fixed throttle: rise time, overshoot, oscillation.
+- TECS: a height doublet: airspeed excursion and height overshoot. Variants set the time
+  constant, the speed weighting (2 = speed priority, ArduPilot's setting for gliders) and
+  the climb-rate limit.
 
-The axes are tuned in that order, each with the previous choices in place. The manoeuvres
-(doublets, model following) differ from the V20 acceptance tests (steps, L1 tracking,
-turbulence, altitude and speed steps), so V20 is not graded on what the tuner optimised.
+The limits are the V11 ones where V11 has one. The axes are tuned in that order, each with
+the previous choices in place. The manoeuvres (doublets at other amplitudes, calm air) differ
+from the V20 acceptance flights (steps, L1 tracking, turbulence, altitude and speed steps),
+so V20 verifies rather than repeats what the tuner saw.
 """
 
 from __future__ import annotations
@@ -31,8 +39,17 @@ import numpy as np
 from jax import Array
 
 from aeroadapt.airframes import Airframe, VehicleParams, to_vehicle_params
+from aeroadapt.harness.acceptance import band_rms, step_metrics
 from aeroadapt.harness.closed_loop import LoopLog
-from aeroadapt.harness.fleet_acceptance import ALT0, CONFIG, _fly, _initial, _stack, alt_step
+from aeroadapt.harness.fleet_acceptance import (
+    ALT0,
+    CONFIG,
+    _fly,
+    _initial,
+    _stack,
+    airframe_keys,
+    alt_step,
+)
 from aeroadapt.scenarios.site import Site
 from aeroadapt.sim.aerojax import EnvParams, make_env
 from aeroadapt.stack.autopilot import MODE_GUIDED
@@ -43,6 +60,17 @@ T0 = 15.0
 ROLL_AMP = math.radians(20.0)
 PITCH_AMP = math.radians(4.0)
 TAU_REF = 0.3
+HOLD_S = 8.0  # level flight after the doublet
+TIE_BREAK = 0.01  # cost per degree (or metre) of tracking RMS, below any requirement ratio
+# Requirements (V11 limits where V11 has one): rise time (s), overshoot (fraction), error at
+# the end of a doublet half (deg), residual 0.3-5 Hz oscillation (deg RMS).
+LIMITS = {
+    "roll": {"rise": 1.0, "overshoot": 0.10, "end_error": 1.0, "cycle": 0.25},
+    "pitch": {"rise": 0.8, "overshoot": 0.15, "cycle": 0.25},
+}
+BETA_LIMIT_DEG = 3.0
+TECS_SPEED_LIMIT = 0.08  # airspeed excursion / cruise speed
+TECS_OVERSHOOT_LIMIT = 0.15  # height overshoot / height step
 CHUNK_RUNS = 900  # closed loops per vmap (memory)
 
 
@@ -95,25 +123,46 @@ def _cost_attitude(
     j = 0 if axis == "roll" else 1
     amp = ROLL_AMP if axis == "roll" else PITCH_AMP
     y = log.euler[k][:, j] - (0.0 if axis == "roll" else float(sp.tecs.pitch_trim))
+    first = t < T0 + half  # the first half is a step from level to +amp
+    rise, ovs, _ = step_metrics(t[first], y[first], amp, t0=T0)
+    ends = ((t >= T0 + half - 0.5) & (t < T0 + half)) | (
+        (t >= T0 + 2 * half - 0.5) & (t < T0 + 2 * half)
+    )
+    err = np.degrees(y - _doublet(t, amp, half))
+    hold = t >= T0 + 2 * half + 2.0
+    value = {
+        "rise": rise,
+        "overshoot": ovs,
+        "end_error": float(np.abs(err[ends]).mean()),
+        "cycle": math.degrees(band_rms(y[hold], float(t[1] - t[0]))),
+    }
+    worst = max(value[q] / lim for q, lim in LIMITS[axis].items())
     w = t >= T0 - 1.0
-    err = np.degrees(y[w] - _reference(t, amp, half, TAU_REF)[w])
-    over = max(0.0, float(np.degrees(np.abs(y[w]).max() - amp)))
-    return float(np.sqrt(np.mean(err**2)) + 0.5 * over)
+    track = np.degrees(y[w] - _reference(t, amp, half, TAU_REF)[w])
+    return float(worst + TIE_BREAK * np.sqrt(np.mean(track**2)))
 
 
 def _cost_yaw(log: LoopLog, k: int, t: np.ndarray, half: float) -> float:
     b = np.degrees(np.abs(log.beta[k]))
-    first = (t >= T0 + half - 3.0) & (t < T0 + half)
-    second = (t >= T0 + 2 * half - 3.0) & (t < T0 + 2 * half)
-    return float(b[first | second].mean() + 0.2 * b[t >= T0 - 1.0].max())
+    steady = ((t >= T0 + half - 3.0) & (t < T0 + half)) | (
+        (t >= T0 + 2 * half - 3.0) & (t < T0 + 2 * half)
+    )
+    turning = ((t >= T0 + 2.0) & (t < T0 + half)) | ((t >= T0 + half + 2.0) & (t < T0 + 2 * half))
+    worst = max(float(b[steady].mean()), float(b[turning].max())) / BETA_LIMIT_DEG
+    return float(worst + TIE_BREAK * b[t >= T0 - 1.0].mean())
 
 
 def _cost_tecs(log: LoopLog, k: int, t: np.ndarray, sp: StackParams) -> float:
     v0 = float(sp.tecs.v_cruise)
     w = t >= T0
+    h = -log.pos_ned[k][:, 2]
+    dh_step = 0.5 * float(alt_step(v0))
+    up = (t >= T0) & (t < T0 + AXES["tecs"][0])
     dv = float(np.abs(log.va[k][w] - v0).max()) / v0
-    dh = float(np.sqrt(np.mean((-log.pos_ned[k][w, 2] - log.alt_target[k][w]) ** 2)))
-    return 100.0 * dv + 0.3 * dh
+    over = max(float(h[up].max()) - ALT0 - dh_step, 0.0) / dh_step
+    worst = max(dv / TECS_SPEED_LIMIT, over / TECS_OVERSHOOT_LIMIT)
+    track = float(np.sqrt(np.mean((h[w] - log.alt_target[k][w]) ** 2)))
+    return worst + TIE_BREAK * track
 
 
 # Parameters per tuning key: (StackParams paths, config paths, "scale" or "set").
@@ -128,15 +177,17 @@ _PATHS: dict[str, tuple[tuple[str, ...], tuple[str, ...], str]] = {
     "yaw_slip": (("att.yaw_slip_i",), ("attitude.yaw.slip_i",), "set"),
     "tecs_tc": (("tecs.time_const",), ("tecs.time_const_s",), "set"),
     "tecs_spd": (("tecs.spd_weight",), ("tecs.spd_weight",), "set"),
+    "tecs_climb": (("tecs.climb_max",), ("tecs.climb_max_mps",), "scale"),
 }
 # Axis → (seconds per doublet half, grid per key).
 AXES: dict[str, tuple[float, dict[str, tuple[float, ...]]]] = {
     "roll": (3.0, {"roll_ff": (0.8, 1.0, 1.25), "roll_pi": (0.5, 1.0, 1.6),
                    "roll_tau": (0.25, 0.3, 0.4)}),
-    "yaw": (6.0, {"yaw_ff": (0.6, 0.8, 1.0, 1.25), "yaw_slip": (0.02, 0.08, 0.2)}),
+    "yaw": (6.0, {"yaw_ff": (0.6, 0.8, 1.0, 1.25, 1.6), "yaw_slip": (0.02, 0.08, 0.2)}),
     "pitch": (3.0, {"pitch_ff": (0.8, 1.0, 1.25), "pitch_pi": (0.5, 1.0, 1.6),
                     "pitch_tau": (0.22, 0.3)}),
-    "tecs": (15.0, {"tecs_tc": (3.0, 5.0, 8.0), "tecs_spd": (1.0, 1.5)}),
+    "tecs": (15.0, {"tecs_tc": (3.0, 5.0, 8.0), "tecs_spd": (1.0, 1.5, 2.0),
+                    "tecs_climb": (0.6, 1.0)}),
 }  # fmt: skip
 
 
@@ -170,10 +221,12 @@ def _evaluate(
     z0: Any,
     idx: np.ndarray,
     axis: str,
+    keys: Array,
 ) -> np.ndarray:
-    """Cost of each run (airframe ``idx[r]`` flying with stack ``sps[r]``)."""
+    """Cost of each run (airframe ``idx[r]`` flying with stack ``sps[r]``). Every variant of an
+    airframe flies with the airframe's key: the variants are compared on the same noise."""
     half = AXES[axis][0]
-    n = round((T0 + 2 * half + 4.0) / CONFIG.dt_control)
+    n = round((T0 + 2 * half + HOLD_S) / CONFIG.dt_control)
     guided = Manoeuvre(axis, half)
     score: Callable[[LoopLog, int, np.ndarray, StackParams], float]
     if axis == "yaw":
@@ -190,7 +243,7 @@ def _evaluate(
         mission = _stack([make_mission([(5000.0, 0.0, ALT0)])] * len(ii))
         vp_b = _stack([vps[i] for i in ii])
         lg = _fly(vp_b, env, _stack(sps[sl]), mission, take(sim0), take(z0), MODE_GUIDED, n,
-                  guided, 5, 0)  # fmt: skip
+                  guided, 5, keys[ii])  # fmt: skip
         t = np.asarray(lg.t[0])
         for k in range(len(ii)):
             costs[s + k] = np.inf if bool(lg.done[k].any()) else score(lg, k, t, sps[s + k])
@@ -207,7 +260,9 @@ def autotune(airframes: Sequence[Airframe], cfgs: Sequence[StackCfg], site: Site
         alt_origin_msl_m=site.ground_msl_m, magnetic_ned_gauss=site.magnetic.field_ned_gauss
     )
     v0 = np.array([c.tecs.airspeed_cruise_mps for c in cfgs])
-    sim0, z0, _ = _initial(vps, env, v0, 0)
+    ids = [a.id for a in airframes]
+    sim0, z0, _ = _initial(vps, env, v0, airframe_keys(ids, 0, 0))
+    fly_keys = airframe_keys(ids, 0, 1)
     n = len(airframes)
     chosen: list[dict[str, float]] = [{} for _ in range(n)]
     for axis, (_, grid) in AXES.items():
@@ -218,7 +273,8 @@ def autotune(airframes: Sequence[Airframe], cfgs: Sequence[StackCfg], site: Site
             for c in combos:
                 runs.append(_apply(sps[i], c))
                 idx.append(i)
-        costs = _evaluate(vps, runs, env, sim0, z0, np.array(idx), axis).reshape(n, len(combos))
+        costs = _evaluate(vps, runs, env, sim0, z0, np.array(idx), axis, fly_keys)
+        costs = costs.reshape(n, len(combos))
         for i in range(n):
             if np.isfinite(costs[i]).any():
                 best = combos[int(np.argmin(costs[i]))]

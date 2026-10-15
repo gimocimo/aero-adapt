@@ -622,3 +622,186 @@ Never cut aero v2 parity (V16/V17), V14, V20, the bench or live fault injection.
 | D4 Rascal (Should) | ⏳ week 7 |
 | D5 Generator: 10k airframes, glTF, yield, V18 | ✅ 10,000 accepted. V18: C_Lα and stability pass; C_ℓp misses (deviation 4) |
 | D6–D11 | ⏳ weeks 7–8 |
+
+### Week 7 (16 Oct 2026)
+
+**Built**
+
+- **Stack auto-configuration** (`harness/autoconfig.py`, design-time code in the harness).
+  It is the analogue of a manufacturer's parameter file:
+  - speeds from the polar and batched trims at ten speeds;
+  - trim schedules in the M1 forms;
+  - roll and pitch feed-forward from steady-rate physics;
+  - yaw coordination from C_n,r / C_n,δr;
+  - rate feedback scaled by √(servo lag / the Aerosonde's);
+  - TECS limits from excess thrust and the glide polar;
+  - L1 and contingency geometry from the speeds.
+
+  It reproduces the hand-tuned M1 Aerosonde within 1 % and passes all V11 checks with it.
+- **Auto-tuning** (`harness/autotune.py`): an offline analogue of ArduPlane AUTOTUNE.
+  - Each airframe flies a doublet per axis (roll, yaw, pitch, TECS) with a small grid of
+    parameter variants, all batched in one `vmap`.
+  - The variant with the largest worst-case requirement margin is kept: rise time, overshoot,
+    end-of-half error and residual oscillation; steady and peak sideslip; airspeed excursion
+    and height overshoot. The limits are V11's.
+  - The tuning manoeuvres (doublets at other amplitudes, calm air) differ from V20's flights
+    (steps, an L1 box, turbulence).
+- **V20 runner:**
+  - `harness/fleet_acceptance.py`: a batched V11-lite.
+  - `harness/fleet_v20.py` and `aeroadapt fleet-accept`: fixed-size batches; writes
+    `summary.json`, `results.parquet` (every check's value and limit) and `stack_cfgs.jsonl`
+    (the tuned configurations, for the bench).
+  - `aeroadapt fleet-sample`: the committed sample fleet is now the V20-accepted airframes
+    with the most margin, with their tuned stacks.
+  - Every random draw is keyed to the airframe's id (deviation 2).
+- **Generator:** a directional-stability filter, C_nβ ≥ 0.03/rad (the low end of Raymer's
+  range). The fleet was rebuilt: 10,000 accepted of 14,784 designs (68 %; it was 90 %).
+- **faultlab v1** (`faultlab/`, `sim/aerojax/`):
+  - 26 kinds in fixed-shape slots: two sensor, two actuator, and one each for propulsion,
+    energy and airframe. With the four M1 faults, that is 30 kinds.
+  - Per-slot kind labels at every step; 31 fault bits in the replay format.
+  - Weather events: 1−cos gusts, low-level shear, thermals with a sink ring.
+  - Sensor faults can now clear (`trigger.until_s`). Every empty slot is exactly neutral (the
+    M1 goldens are bit-identical).
+- **Confounded pairs** (`configs/campaigns/confounded/`, `harness/confounded.py`, V21c): the
+  five doc 03 §3.2 families as pair campaigns, each flown against a baseline with common
+  random numbers.
+- **Live mode:**
+  - `live/session.py`: the compiled closed loop stepped in 0.1 s chunks. Faults are injected
+    and cleared at the next control step. The command log re-flies offline.
+  - `live/server.py`, `aeroadapt serve`: WebSocket + msgpack on localhost, paced to
+    wall-clock time × 0.25–4.
+    - Commands: inject, clear, pause, resume, speed, and reset with any scenario and any
+      sample-fleet airframe (with its tuned stack and glTF).
+    - Every session is recorded as a replay bundle.
+  - Skyview `?live=` (`src/live/`):
+    - an incremental buffer feeding the same scene, HUD and event log as replays;
+    - a fault panel with one row per kind (30), magnitudes and surface/axis/side choices;
+    - an active-faults list with clear buttons;
+    - scenario and airframe pickers, and the airframe's model;
+    - `&ghost=<bundle>` flies a recorded replay alongside.
+  - A Playwright live test runs in CI.
+- **Reading fleets** moved to `airframes/fleet.py`, so the live server and the bench don't
+  need the generator extra.
+- **Report:** V20, V21 and V23 sections.
+
+**Results**
+
+- **V20** (1,000 airframes, `runs/v20/m2-fleet`): **806 of 1,000 pass (80.6 %): below the
+  90 % criterion ❌** (36 min on the laptop CPU, mostly tuning).
+  - By class: conventional 85 %, T-tail 87 %, twin-boom 90 %, V-tail 73 %, glider 44 %.
+  - The failures are marginal. 149 of the 194 failing airframes fail one check, by a median
+    of 10–15 % beyond its limit.
+  - By check (failures, and what each tracks):
+
+    | Check | Failures | Tracks |
+    |---|---|---|
+    | Limit cycles | 60 | servo deadband (2 % → 9 % from the lowest to the highest third) and lag; light airframes |
+    | Sideslip in the 30° turn | 60 | low C_nβ (9 % vs 2 %) and large span |
+    | Pitch overshoot | 41 | light, small airframes |
+    | Roll steady-state error | 39 | light airframes |
+    | Airspeed sag in the altitude step | 32 | almost only below 15 m/s and 3.6 kg (little excess power) |
+    | Others | ≤ 4 each | |
+
+  - The tuning iterations this week were compared on the 189 failing airframes plus 100
+    passing ones:
+    - the weighted cost with wider grids fixed 89 and broke 18;
+    - requirements-based selection fixed 101 and broke 11.
+
+    Both comparisons still had batch-dependent noise (deviation 2), so part of that churn
+    was noise.
+  - Per the spec (§6), failing airframes are excluded from the benchmark fleet, with the
+    reasons in `results.parquet`.
+  - **Next for D6 (week 8):**
+    - robust tuning: each variant scored on several noise seeds, keeping the worst;
+    - finer second-stage grids around the chosen variant;
+    - V-tail pitch–yaw coupling;
+    - deadband-aware rate gains.
+
+    The 5 m floor on the altitude step (slow airframes climb more than V² scaling asks) may
+    be reviewed only with an independent justification, and both numbers would then be
+    reported.
+- **V21:**
+  - (a, b): all 26 kinds show their effect, and nothing before onset (to machine precision).
+  - (c): all five pairs are ambiguous to the M1 monitors over their horizons, with symptom
+    ratios between 0.89 and 1.38 (8 seeds each):
+
+| Pair | Horizon | Shared symptom | Ratio a / b |
+|---|---|---|---|
+| Pitot blockage (drain open) ↔ sharp tailwind gust | 4 s | IAS deficit | 1.00 |
+| Slow GNSS spoofing ↔ wind change | 20 s | estimated-wind shift | 0.94 |
+| Battery sag ↔ propeller damage | 15 s | throttle rise | 1.38 |
+| CG 3 cm aft ↔ elevator rigging offset (5.1°) | 10 s | elevator trim shift | 1.00 |
+| Floating rudder ↔ moderate turbulence | 10 s | roll-rate RMS | 0.89 |
+
+- **V23:**
+  - Injection takes effect at the next control step (10 ms).
+  - A session's command log re-flies offline to a byte-identical bundle, including clears and
+    a reused slot.
+  - Pacing jitter at 1×: p50 1.0 ms, p99 5.6 ms (criterion p99 ≤ 20 ms).
+  - Live fault injection works end to end in the browser: a motor cut at 26.5 s, detection
+    0.7 s later, field A selected, then base and final.
+  - A sample-fleet twin-boom (`gen-twin_boom-00119`), picked in Skyview, flies the M1 loop
+    live with its tuned stack and its own model. With `&ghost=m1-nominal`, the recorded
+    nominal flight flies alongside.
+
+**Deviations**
+
+1. **The Rascal's first flight slips to week 8** (Should; third in the slip order). V20 and
+   live mode (both Musts) took the time.
+2. **V20 was not reproducible; now it is.** Each airframe's turbulence and sensor-noise key
+   came from its position in the batch, so the same airframe met different noise depending
+   on its batch neighbours.
+   - The committed tuner kept only 86 of 100 passing airframes when they were batched
+     differently. On one airframe, sideslip in the turn changed from 0.13° to 4.35°.
+   - Keys now come from the airframe's id. The tuner flies every variant of an airframe on
+     the same noise (common random numbers), and V20 is batch-invariant (a full-tier test
+     checks it).
+   - The first V20 number (81.1 %, `runs/v20/m2-fleet-week7-weighted-cost`) was one such draw.
+3. **Requirements-based tuning.** The first tuner minimised a weighted sum of costs. Adding
+   terms traded requirements against each other unseen: more rudder options cut average
+   sideslip but caused oscillation in sustained turns. The tuner now keeps the variant with
+   the largest worst-case margin.
+4. **Generator directional-stability filter.** C_nβ ≥ 0.03/rad, where the spec required
+   only C_nβ > 0.
+   - Airframes below this sideslipped badly under any tuning; it was the main V20 failure.
+   - Yield fell from 90 % to 68 %: gliders 25 %, conventional and T-tail 67 %, twin-boom
+     88 %, V-tail 91 %.
+   - Glider fin volumes (0.02–0.035) are realistic for sailplanes (Raymer: 0.02), so the
+     class was not altered to raise its yield.
+5. **V20 limits scaled.**
+   - The altitude step scales with V² (the same energy change relative to kinetic energy), at
+     least 5 m.
+   - L1 cross-track limits scale with the airframe's GNSS accuracy (σ up to 2 m).
+6. **faultlab.**
+   - Link loss is not implemented (the stack has no RC or telemetry failsafe yet): 30 kinds,
+     not 31 (Must: 24).
+   - Magnitude and onset labels live in the bundle's fault list, not in per-step columns.
+   - Thermals use a simplified (1 − x²)·e^(−x²) profile, not Allen (2006).
+   - Only sensor faults clear; physical damage persists. `clear_fault` takes the fault's
+     index in the session.
+7. **Confounded pairs, calibrated:**
+   - The "real airspeed loss" is a sharp gust (7 m/s over 3 s). A slow gust is no confound:
+     the aircraft accelerates with it and airspeed barely moves.
+   - The floating surface is the rudder. A floating aileron disturbs roll about 4.6 times
+     as much as moderate turbulence, and twice as much as severe.
+   - The elevator offset is a rigging error (actuator trim), not a fault kind.
+8. **The live server** steps the compiled aerojax closed loop (the same code as replays and
+   campaigns, so sessions re-fly exactly), not the host-stepped `FlightStack` and `Vehicle`.
+   JSBSim live sessions are not supported.
+
+**Definition of Done status (M2)**
+
+| # | Status |
+|---|---|
+| D1 CI green | ✅ (fast tier, web, Playwright including live mode) |
+| D2 Aero v2 | ✅ (week 5) |
+| D3 JSBSim + V14 | ✅ (week 5) |
+| D4 Rascal (Should) | ⏳ week 8 (deviation 1) |
+| D5 Generator | ✅ (week 6); rebuilt with the C_nβ filter |
+| D6 Auto-configuration ≥ 90 % (V20) | ❌ 80.6 % (failures characterised above); work continues in week 8 |
+| D7 faultlab ≥ 24 kinds, events, confounded pairs | ✅ 30 kinds, gusts, shear and thermals, five pairs (V21) |
+| D8 Bench v0 | ⏳ week 8 |
+| D9 Throughput | ⏳ week 8 |
+| D10 Live mode | ✅ V23 and the Playwright test |
+| D11 Demo and write-up | ⏳ week 8 |

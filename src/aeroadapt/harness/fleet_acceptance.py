@@ -10,6 +10,7 @@ values are for the Aerosonde at 25 m/s); times and percentages are the V11 limit
 from __future__ import annotations
 
 import math
+import zlib
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
@@ -100,6 +101,13 @@ class AirframeResult:
         self.checks[name] = (float(value), float(limit), ok and math.isfinite(value))
 
 
+def airframe_keys(ids: Sequence[str], seed: int, stream: int) -> Array:
+    """One PRNG key per airframe, from its id: an airframe meets the same turbulence and sensor
+    noise however a fleet is batched, so runs are reproducible and comparisons paired."""
+    base = jax.random.fold_in(jax.random.PRNGKey(seed), stream)
+    return jnp.stack([jax.random.fold_in(base, zlib.crc32(i.encode()) & 0x7FFFFFFF) for i in ids])
+
+
 def _stack(trees: Sequence) -> object:
     return jax.tree.map(lambda *x: jnp.stack([jnp.asarray(v) for v in x]), *trees)
 
@@ -110,7 +118,7 @@ def _trim_batch(p, rho, g, v_supply, va):
     return jax.vmap(lambda pi, vs, v: trim_level(pi, env, vs, v))(p, v_supply, va)
 
 
-def _initial(vps: Sequence[VehicleParams], env: EnvParams, v0: np.ndarray, seed: int):
+def _initial(vps: Sequence[VehicleParams], env: EnvParams, v0: np.ndarray, keys: Array):
     """Batched straight-and-level start at ALT0 heading north (trim at the site density)."""
     _, _, rho = isa(env.isa, env.isa.alt_origin_msl_m + ALT0)
     v_full = jnp.asarray([float(open_circuit_voltage(v.battery, jnp.asarray(1.0))) for v in vps])
@@ -128,7 +136,6 @@ def _initial(vps: Sequence[VehicleParams], env: EnvParams, v0: np.ndarray, seed:
             RigidBodyState(jnp.array([0.0, 0.0, -ALT0]), jnp.asarray(vel), q, jnp.zeros(3))
         )
         cmds.append(target_to_command(vp.airframe, vp.actuators, jnp.asarray(z[i, 3:7])))
-    keys = jax.random.split(jax.random.PRNGKey(seed), len(vps))
 
     def one(vp, rb, cmd, key):
         return init_state(vp, env, no_faults(), rb, cmd, key, 1.0, CONFIG)
@@ -138,11 +145,9 @@ def _initial(vps: Sequence[VehicleParams], env: EnvParams, v0: np.ndarray, seed:
 
 
 def _fly(
-    vp, env, sp, mission, sim0, z0, mode: int, n: int, guided, every: int, seed: int
+    vp, env, sp, mission, sim0, z0, mode: int, n: int, guided, every: int, keys: Array
 ) -> LoopLog:
     st0 = jax.vmap(lambda s, z: stack_init(s, z, mode))(sp, z0)
-    b = jax.tree.leaves(z0)[0].shape[0]
-    keys = jax.random.split(jax.random.PRNGKey(10_000 + seed), b)
 
     def one(vp, sp, mission, sim0, st0, z0, key):
         return closed_loop(
@@ -175,6 +180,8 @@ def run_v20(
         )
 
     vp_b, sp_b = _stack(vps), _stack(sps)
+    ids = [a.id for a in airframes]
+    init_keys, fly_keys = airframe_keys(ids, seed, 0), airframe_keys(ids, seed, 1)
     dummy = _stack([make_mission([(60.0 * v * 10, 0.0, ALT0)]) for v in v0])
     # L1 box: four legs of one minute each at cruise speed.
     boxes = _stack(
@@ -183,7 +190,7 @@ def run_v20(
     box_seconds = float(4 * 60.0 * 1.15 + 20.0)
     for turbulent in (False, True):
         env = env_for(turbulent)
-        sim0, z0, res = _initial(vps, env, v0, seed)
+        sim0, z0, res = _initial(vps, env, v0, init_keys)
         tag = "turb" if turbulent else "calm"
         for i in range(n):
             results[i].add(f"start trim residual ({tag})", float(res[i]), 1e-6)
@@ -205,7 +212,7 @@ def run_v20(
                 round(seconds / CONFIG.dt_control),
                 g,
                 every,
-                seed,
+                fly_keys,
             )
 
         if not turbulent:

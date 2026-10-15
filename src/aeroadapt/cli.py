@@ -136,12 +136,21 @@ def _fleet_sample(args: argparse.Namespace) -> int:
     from aeroadapt.harness.fleet_v20 import airframe_class
 
     v20 = Path(args.v20)
-    picked: dict[str, list[str]] = {}
+
+    def margin(r: dict) -> float:
+        """The tightest check, as the fraction of its (upper) limit still unused."""
+        return min(1 - v / lim for v, lim, _ in json.loads(r["checks"]).values() if lim > 0)
+
+    by_class: dict[str, list[tuple[float, str]]] = {}
     for r in pq.read_table(v20 / "results.parquet").to_pylist():
-        group = picked.setdefault(airframe_class(r["airframe"]), [])
-        if r["passed"] and len(group) < args.per_class:
-            group.append(r["airframe"])
-    ids = [i for group in picked.values() for i in group]
+        if r["passed"]:
+            by_class.setdefault(airframe_class(r["airframe"]), []).append(
+                (margin(r), r["airframe"])
+            )
+    # The airframes with the most margin: the sample re-passes V20 from scratch (full tier).
+    ids = [
+        i for c in sorted(by_class) for _, i in sorted(by_class[c], reverse=True)[: args.per_class]
+    ]
     dst = Path(args.out)
     if dst.exists():
         shutil.rmtree(dst)

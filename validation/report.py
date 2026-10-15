@@ -3,8 +3,9 @@
 It recomputes every piece of evidence, independently of the pytest tiers: parity against
 the NumPy reference (V3), invariants (V2), trims and modes (V4/V5), integrator convergence
 (V6), precision (V7), Dryden statistics (V8), autopilot acceptance (V11), the contingency
-(V12) and throughput (V15) from M1; and from M2 the JSBSim cross-check (V14) and the aero v2
-tables (V16, V17). ``docs/validation/m1_report.md`` is the frozen M1 artefact.
+(V12) and throughput (V15) from M1; and from M2 the JSBSim cross-check (V14), the aero v2
+tables (V16, V17), the generator (V18, V19), the fleet acceptance (V20), faultlab (V21) and
+live mode (V23). ``docs/validation/m1_report.md`` is the frozen M1 artefact.
 
 It lives outside the ``aeroadapt`` package because it imports the reference implementation,
 which production code must never import (import-linter contract).
@@ -72,6 +73,7 @@ from reference.bm_numpy import model as ref  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 FLEET = REPO / "runs" / "fleets" / "m2-fleet"
+V20_RUN = REPO / "runs" / "v20" / "m2-fleet"
 VA = 25.0
 DEG = 180 / math.pi
 
@@ -764,6 +766,151 @@ def v19_fleet(r: Report) -> None:
     r.figure(fig, "v19_fleet", "V19: distributions over the accepted fleet, stacked by class")
 
 
+# --------------------------------------------------------------------------- V20
+def v20_fleet(r: Report) -> None:
+    import json
+    from collections import Counter
+
+    import pyarrow.parquet as pq
+
+    r.h(2, "V20 · Auto-configured stock stack across the fleet")
+    if not (V20_RUN / "summary.json").exists():
+        r.p(
+            f"*Skipped: no V20 run at `{V20_RUN.relative_to(REPO)}` "
+            "(`aeroadapt fleet-accept m2-fleet --n 1000`).*"
+        )
+        return
+    s = json.loads((V20_RUN / "summary.json").read_text())
+    rows = pq.read_table(V20_RUN / "results.parquet").to_pylist()
+    ok = s["pass_rate"] >= s["target"]
+    r.p(
+        f"The first {s['airframes']:,} airframes of `{s['fleet']}`, each auto-configured "
+        "(`harness/autoconfig.py`) and auto-tuned (`harness/autotune.py`), then flown through a "
+        "batched V11-lite: roll, pitch, altitude and speed steps, limit cycles and an L1 box in "
+        "calm air; the L1 box and servo saturation in light turbulence. Dimensional limits "
+        "scale with cruise speed and GNSS accuracy (`harness/fleet_acceptance.py`).",
+        "",
+        f"**{s['passed']} of {s['airframes']} pass ({s['pass_rate']:.1%})** · criterion ≥ "
+        f"{s['target']:.0%} {mark(ok)} · {s['seconds'] / 60:.0f} min on this machine.",
+    )
+    r.table(
+        ["Class", "Airframes", "Pass rate"],
+        [(c, v["airframes"], f"{v['pass_rate']:.0%}") for c, v in s["pass_rate_by_class"].items()],
+    )
+    n_failed = Counter(len(x["failures"]) for x in rows if not x["passed"])
+    margins: dict[str, list[float]] = {}
+    for x in rows:
+        for name, (value, limit, passed) in json.loads(x["checks"]).items():
+            if not passed and limit:
+                margins.setdefault(name, []).append(value / limit)
+    r.table(
+        ["Failed check", "Airframes", "Median value / limit"],
+        [
+            (k, v, f"{np.median(margins[k]):.2f}" if k in margins else "")
+            for k, v in s["failures_by_check"].items()
+        ],
+    )
+    r.p(
+        f"Failing airframes fail {', '.join(f'{k} check{"s" if k > 1 else ""}: {v}' for k, v in sorted(n_failed.items()))}. "
+        "Per the spec (§6), airframes that fail V20 are excluded from the benchmark fleet, "
+        "with these reasons recorded in `results.parquet`."
+    )
+
+
+# --------------------------------------------------------------------------- V21
+def v21_faultlab(r: Report, quick: bool) -> None:
+    from aeroadapt.faultlab.slots import (
+        ACTUATOR_KINDS,
+        AIRFRAME_KINDS,
+        ENERGY_KINDS,
+        PROPULSION_KINDS,
+        SENSOR_KINDS,
+    )
+    from aeroadapt.harness.confounded import load_pair, pair_ids, run_pair
+
+    r.h(2, "V21 · faultlab v1")
+    families = {"sensor": SENSOR_KINDS, "actuator": ACTUATOR_KINDS,
+                "propulsion": PROPULSION_KINDS, "energy": ENERGY_KINDS,
+                "airframe": AIRFRAME_KINDS}  # fmt: skip
+    r.p(
+        f"**{sum(len(k) - 1 for k in families.values())} v1 kinds** plus the four M1 faults "
+        "(pitot blockage with the drain open or blocked, servo jam, motor cut), and weather "
+        "events (1−cos gusts, low-level shear, thermals). (a) and (b), every kind's effect "
+        "and its absence before onset, are gated in the fast tier "
+        "(`tests/validation/test_v21_faultlab.py`).",
+    )
+    r.table(["Family", "Kinds"], [(f, ", ".join(k[1:])) for f, k in families.items()])
+    r.p(
+        "**(c) Confounded pairs** (doc 03 §3.2): each fault is flown against its look-alike "
+        "and a baseline, with common random numbers. The criterion is that the M1 monitors "
+        "(airspeed health, motor-failure detection) respond alike within the horizon, that "
+        "both arms show the symptom within a factor of 2, and that the ground truth differs."
+    )
+    rows = []
+    for pid in pair_ids():
+        cfg = load_pair(pid)
+        if quick:
+            cfg = cfg.model_copy(update={"seeds": 3})
+        res = run_pair(cfg)
+        rows.append((
+            pid, f"{cfg.horizon_s:g} s", cfg.symptom.replace("_", " "),
+            f"{np.median(res.symptom_a):+.3g} / {np.median(res.symptom_b):+.3g}",
+            f"{res.symptom_ratio:.2f}", f"{sum(res.flags_agree)}/{len(res.flags_agree)}",
+            mark(res.passed),
+        ))  # fmt: skip
+    r.table(["Pair", "Horizon", "Symptom", "Median a / b", "Ratio", "Monitors alike", ""], rows)
+
+
+# --------------------------------------------------------------------------- V23
+def v23_live(r: Report) -> None:
+    import json
+
+    from aeroadapt.live.session import LiveSession, replay_commands
+    from aeroadapt.scenarios.schema import load_scenario
+    from aeroadapt.telemetry.recorder import FILES
+    from aeroadapt.telemetry.schema import FAULT_BITS
+
+    r.h(2, "V23 · Live mode")
+    s = LiveSession(load_scenario("m1-nominal"))
+    for _ in range(20):
+        s.step()
+    t_inject = s.time_s
+    s.inject({"type": "motor_cut"})
+    s.inject({"type": "sensor_fault", "kind": "gnss_dropout"})
+    for _ in range(10):
+        s.step()
+    s.clear(1)
+    for _ in range(10):
+        s.step()
+    cols = s.all_columns()
+    t = cols["time_us"] * 1e-6
+    on = (cols["labels.fault_bits"] & FAULT_BITS["motor_cut"]) > 0
+    latency = float(t[np.argmax(on)] - t_inject)
+    with tempfile.TemporaryDirectory() as tmp:
+        a = s.record(Path(tmp) / "live")
+        commands = json.loads((a / "manifest.json").read_text())["live_commands"]
+        b = replay_commands(load_scenario("m1-nominal"), commands)
+        while b.time_s < s.time_s - 1e-6:
+            b.step()
+        bd = b.record(Path(tmp) / "offline")
+        same = all((a / f).read_bytes() == (bd / f).read_bytes() for f in FILES)
+    r.p(
+        "`aeroadapt serve` steps the same compiled closed loop in 0.1 s chunks, paced to "
+        "wall-clock time; Skyview injects and clears faults while it flies.",
+    )
+    r.table(
+        ["Check", "Result", "Criterion", ""],
+        [
+            ("Injection latency (fault label after the command)", f"{latency * 1e3:.0f} ms",
+             "next control step (10 ms)", mark(abs(latency - 0.01) < 1e-6)),
+            ("Session bundle vs offline re-fly of its command log", "byte-identical" if same
+             else "different", "byte-identical", mark(same)),
+            ("Pacing jitter at 1x", "gated in the fast tier (`test_pacing_jitter_at_real_time`)",
+             "p99 ≤ 20 ms", ""),
+        ],
+    )  # fmt: skip
+
+
 # --------------------------------------------------------------------------- V15
 def v15_throughput(r: Report) -> None:
     out = subprocess.run(
@@ -806,6 +953,9 @@ def build_report(out: Path, quick: bool = False) -> Path:
         lambda: v16_v17_tables(r),
         lambda: v18_references(r),
         lambda: v19_fleet(r),
+        lambda: v20_fleet(r),
+        lambda: v21_faultlab(r, quick),
+        lambda: v23_live(r),
         lambda: v15_throughput(r),
     ]
     for section in sections:

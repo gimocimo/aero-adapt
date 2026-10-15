@@ -52,6 +52,7 @@ export async function loadReplay(base: string): Promise<Replay> {
 /** Replay ids listed by `aeroadapt export-viz` in /replays/index.json. */
 export async function listReplays(): Promise<string[]> {
   const res = await fetch("/replays/index.json");
-  if (!res.ok) return [];
+  // Before any export the file is missing, and the dev server answers with index.html (SPA fallback).
+  if (!res.ok || !res.headers.get("content-type")?.includes("json")) return [];
   return (await res.json()) as string[];
 }

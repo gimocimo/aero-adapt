@@ -510,6 +510,39 @@ dd {
 .pickers select {
   max-width: 190px;
 }
+.windctl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: #9aa6b8;
+}
+.windctl label {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.windctl input {
+  width: 46px;
+  padding: 2px 4px;
+  border: 1px solid #3a4558;
+  border-radius: 4px;
+  background: #151b26;
+  color: #e8ecf2;
+  font: inherit;
+}
+.windctl .unit {
+  font-size: 10px;
+}
+.windctl button {
+  padding: 3px 7px;
+  border: 1px solid #3a6fd8;
+  border-radius: 6px;
+  background: rgba(58, 111, 216, 0.2);
+  color: #d6e4ff;
+  font: inherit;
+  cursor: pointer;
+}
 .activefaults {
   margin: 0 0 8px;
   padding: 0;

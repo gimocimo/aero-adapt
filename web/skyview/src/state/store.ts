@@ -9,7 +9,6 @@ export interface Layers {
   trail: boolean;
   mission: boolean;
   zones: boolean;
-  wind: boolean;
   ghost: boolean;
 }
 
@@ -52,7 +51,7 @@ export const useStore = create<State>((set, get) => ({
   playing: false,
   speed: 1,
   camera: "chase",
-  layers: { trail: true, mission: true, zones: true, wind: true, ghost: true },
+  layers: { trail: true, mission: true, zones: true, ghost: true },
   status: "",
   live: null,
   liveSend: null,

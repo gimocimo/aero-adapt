@@ -1,58 +1,59 @@
 {
   "m1-motorcut-classical": {
-    "alt_error_rms_m": 2.3,
-    "detect_latency_s": 0.7,
-    "flight_time_s": 154.01,
+    "alt_error_rms_m": 0.922,
+    "detect_latency_s": 0.69,
+    "final_e_m": -107.66,
+    "final_n_m": 891.82,
+    "final_t_s": 95.35,
+    "in_zone": true,
     "max_airspeed_error_mps": 1.41,
-    "tas_mean_mps": 25.047,
+    "tas_mean_mps": 25.076,
     "terminated": true,
     "touchdown_class": "controlled",
-    "touchdown_e_m": -67.49,
-    "touchdown_n_m": -183.77,
     "waypoints_reached": 1,
-    "xtrack_rms_m": 42.497,
+    "xtrack_rms_m": 40.51,
     "zone": "A"
   },
   "m1-motorcut-stock": {
-    "alt_error_rms_m": 2.3,
-    "flight_time_s": 162.98,
-    "max_airspeed_error_mps": 1.04,
-    "tas_mean_mps": 25.047,
+    "alt_error_rms_m": 0.922,
+    "flight_time_s": 167.2,
+    "max_airspeed_error_mps": 1.26,
+    "tas_mean_mps": 25.076,
     "terminated": true,
     "touchdown_class": "crash",
-    "touchdown_e_m": 275.16,
-    "touchdown_n_m": -900.06,
+    "touchdown_e_m": 234.37,
+    "touchdown_n_m": -898.07,
     "waypoints_reached": 3,
-    "xtrack_rms_m": 42.497
+    "xtrack_rms_m": 40.51
   },
   "m1-nominal": {
-    "alt_error_rms_m": 1.788,
-    "flight_time_s": 299.98,
-    "tas_mean_mps": 25.045,
+    "alt_error_rms_m": 1.462,
+    "flight_time_s": 300.0,
+    "tas_mean_mps": 25.044,
     "terminated": false,
     "waypoints_reached": 6,
-    "xtrack_rms_m": 19.683
+    "xtrack_rms_m": 19.007
   },
   "m1-pitot-drain-blocked": {
-    "airspeed_unhealthy_at_s": 48.15,
-    "alt_error_rms_m": 4.081,
-    "flight_time_s": 239.95,
-    "max_airspeed_error_mps": 29.54,
-    "tas_mean_mps": 25.433,
+    "airspeed_unhealthy_at_s": 49.26,
+    "alt_error_rms_m": 2.421,
+    "flight_time_s": 240.0,
+    "max_airspeed_error_mps": 34.82,
+    "tas_mean_mps": 25.121,
     "terminated": false,
-    "waypoints_reached": 5,
-    "xtrack_rms_m": 62.36
+    "waypoints_reached": 4,
+    "xtrack_rms_m": 63.431
   },
   "m1-servo-jam": {
-    "alt_error_rms_m": 2.42,
-    "flight_time_s": 63.17,
-    "max_airspeed_error_mps": 1.4,
-    "tas_mean_mps": 25.018,
+    "alt_error_rms_m": 1.033,
+    "flight_time_s": 62.39,
+    "max_airspeed_error_mps": 2.0,
+    "tas_mean_mps": 25.031,
     "terminated": true,
     "touchdown_class": "crash",
-    "touchdown_e_m": -14.58,
-    "touchdown_n_m": 472.54,
+    "touchdown_e_m": -46.1,
+    "touchdown_n_m": 486.73,
     "waypoints_reached": 1,
-    "xtrack_rms_m": 58.931
+    "xtrack_rms_m": 56.985
   }
 }

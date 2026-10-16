@@ -133,16 +133,33 @@ def test_speed_scaler_raises_gains_when_slow(sp: StackParams) -> None:
 # --------------------------------------------------------------------------- mission
 def test_mission_switches_legs_loops_and_rtl(sp: StackParams) -> None:
     wps = [(500.0, 0.0, 120.0), (500.0, 500.0, 130.0)]
-    ap = ApState(jnp.asarray(MODE_AUTO), jnp.asarray(0), jnp.zeros(2))
+    ap = ApState(jnp.asarray(MODE_AUTO), jnp.asarray(0), jnp.zeros(2), jnp.asarray(120.0))
     ap, tgt = _mission_step(sp, ap, jnp.array([100.0, 0.0]), make_mission(wps))
     assert int(ap.wp_idx) == 0 and int(tgt.lateral) == LAT_WAYPOINT
     ap, tgt = _mission_step(sp, ap, jnp.array([480.0, 0.0]), make_mission(wps))  # within radius
     assert int(ap.wp_idx) == 1
     np.testing.assert_allclose(ap.leg_a, [500.0, 0.0])
-    assert float(tgt.alt) == 130.0
+    assert float(tgt.alt) == 130.0  # a 10 m change: flown at once
     # Passing the last waypoint: loop back to the first …
     ap_loop, _ = _mission_step(sp, ap, jnp.array([500.0, 510.0]), make_mission(wps, loop=True))
     assert int(ap_loop.wp_idx) == 0 and int(ap_loop.mode) == MODE_AUTO
     # … or return to launch.
     ap_rtl, tgt = _mission_step(sp, ap, jnp.array([500.0, 510.0]), make_mission(wps, loop=False))
     assert int(ap_rtl.mode) == MODE_RTL and int(tgt.lateral) == LAT_LOITER
+
+
+def test_large_altitude_changes_follow_a_glide_slope(sp: StackParams) -> None:
+    """A 40 m climb over a 1 km leg: the height target rises with progress (ArduPlane's
+    GLIDE_SLOPE_MIN, 15 m by default); a 10 m change is flown at once."""
+    wps = [(1000.0, 0.0, 160.0), (1000.0, 1000.0, 170.0)]
+    ap = ApState(jnp.asarray(MODE_AUTO), jnp.asarray(0), jnp.zeros(2), jnp.asarray(120.0))
+    for north, expected in ((0.0, 120.0), (250.0, 130.0), (500.0, 140.0), (900.0, 156.0)):
+        _, tgt = _mission_step(sp, ap, jnp.array([north, 30.0]), make_mission(wps))
+        assert float(tgt.alt) == pytest.approx(expected, abs=1e-3), north
+    ap, tgt = _mission_step(sp, ap, jnp.array([990.0, 0.0]), make_mission(wps))  # next leg
+    assert int(ap.wp_idx) == 1 and float(ap.leg_h) == 160.0 and float(tgt.alt) == 170.0
+    flat = sp._replace(l1=sp.l1._replace(glide_slope_min=0.0))  # 0: always at once
+    _, tgt = _mission_step(flat, ap._replace(wp_idx=jnp.asarray(0), leg_h=jnp.asarray(120.0),
+                                              leg_a=jnp.zeros(2)), jnp.array([250.0, 0.0]),
+                           make_mission(wps))  # fmt: skip
+    assert float(tgt.alt) == 160.0

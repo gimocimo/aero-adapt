@@ -46,6 +46,7 @@ class ApState(NamedTuple):
     mode: Array
     wp_idx: Array  # waypoint being flown to
     leg_a: Array  # (2,) start of the current leg
+    leg_h: Array  # height at the start of the current leg (m AGL)
 
 
 class StackState(NamedTuple):
@@ -78,7 +79,7 @@ def stack_init(sp: StackParams, z: SensorArrays, mode: int = MODE_AUTO) -> Stack
     height = -nav.pos[2]
     return StackState(
         nav=nav,
-        ap=ApState(jnp.asarray(mode, jnp.int32), jnp.zeros((), jnp.int32), nav.pos[:2]),
+        ap=ApState(jnp.asarray(mode, jnp.int32), jnp.zeros((), jnp.int32), nav.pos[:2], height),
         tecs=tecs_init(sp.tecs, height, nav.tas),
         att=att_init(dtype),
         cont=cont_init(dtype),
@@ -89,7 +90,11 @@ def stack_init(sp: StackParams, z: SensorArrays, mode: int = MODE_AUTO) -> Stack
 def _mission_step(
     sp: StackParams, ap: ApState, pos: Array, mission: Mission
 ) -> tuple[ApState, Target]:
-    """AUTO leg sequencing (acceptance radius or passing the waypoint) and the RTL loiter."""
+    """AUTO leg sequencing (acceptance radius or passing the waypoint) and the RTL loiter.
+
+    As ArduPlane's glide slope: a leg that changes altitude by at least ``glide_slope_min``
+    moves the height target along the leg in proportion to the progress made, so the climb or
+    descent is spread over the leg; a smaller change is flown at once."""
     wps = jnp.asarray(mission.wps)  # may arrive as host NumPy when closed over
     b = wps[ap.wp_idx, :2]
     ab = b - ap.leg_a
@@ -102,16 +107,23 @@ def _mission_step(
     )
     wp_idx = jnp.where(switch, jnp.where(done, 0, nxt), ap.wp_idx).astype(jnp.int32)
     leg_a = jnp.where(switch, b, ap.leg_a)
-    ap = ApState(mode.astype(jnp.int32), wp_idx, leg_a)
+    leg_h = jnp.where(switch, wps[ap.wp_idx, 2], ap.leg_h)
+    ap = ApState(mode.astype(jnp.int32), wp_idx, leg_a, leg_h.astype(ap.leg_h.dtype))
 
     wp = wps[ap.wp_idx]
+    leg = wp[:2] - ap.leg_a
+    progress = jnp.clip((pos - ap.leg_a) @ leg / jnp.maximum(leg @ leg, 1.0), 0.0, 1.0)
+    dh = wp[2] - ap.leg_h
+    gs = sp.l1.glide_slope_min
+    sloped = jnp.logical_and(gs > 0.0, jnp.abs(dh) >= gs)
+    alt = jnp.where(sloped, ap.leg_h + dh * progress, wp[2])
     t_auto = target(
         lateral=LAT_WAYPOINT,
         a=ap.leg_a,
         b=wp[:2],
         roll_limit=sp.l1.roll_limit,
         vertical=VERT_TECS,
-        alt=wp[2],
+        alt=alt,
         speed=mission.speed,
     )
     t_rtl = target(

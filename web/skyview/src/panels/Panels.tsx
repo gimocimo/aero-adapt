@@ -120,7 +120,6 @@ const LAYER_LABELS: Record<keyof Layers, string> = {
   trail: "Trail",
   mission: "Mission",
   zones: "Safe zones",
-  wind: "Wind",
   ghost: "Ghost",
 };
 
@@ -172,8 +171,8 @@ export function Controls({ replay }: { replay: Replay }) {
       )}
       <p className="note">{m.scenario.description}</p>
       <p className="note">
-        {m.site.name} · wind {m.scenario.environment.wind.speed_mps.toFixed(0)} m/s from{" "}
-        {m.scenario.environment.wind.from_deg.toFixed(0)}° · turbulence{" "}
+        {m.site.name} · wind {(live?.wind ?? m.scenario.environment.wind).speed_mps.toFixed(0)} m/s from{" "}
+        {(live?.wind ?? m.scenario.environment.wind).from_deg.toFixed(0)}° · turbulence{" "}
         {m.scenario.environment.turbulence.intensity} · contingency {m.scenario.stack.contingency}
       </p>
       <div className="cams">

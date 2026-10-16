@@ -290,7 +290,7 @@ export class SceneController {
 
     // Wind arrow: 10 m per m/s, drawn from the aircraft.
     const windSpeed = Math.hypot(s.windN, s.windE);
-    this.wind.show = layers.wind && windSpeed > 0.5;
+    this.wind.show = windSpeed > 0.5;
     if (this.wind.show) {
       const tip = this.frame.toCartesian(s.n + 10 * s.windN, s.e + 10 * s.windE, s.altAgl);
       this.wind.polyline!.positions = new ConstantProperty([pos, tip]) as never;

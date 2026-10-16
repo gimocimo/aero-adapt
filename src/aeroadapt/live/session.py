@@ -4,8 +4,9 @@ in short chunks so that faults can be injected while it flies.
 Each chunk yields exactly the replay columns (``telemetry.schema.COLUMNS``), so Skyview has
 one code path for replays and live sessions, and a session is recorded as an ordinary replay
 bundle. Injected faults are appended to the scenario's fault list with their onset at the
-next control step; a cleared sensor fault gets an ``until_s`` at the next control step. Both
-are recorded in the manifest (``live_commands``), from which the session re-flies offline.
+next control step; a cleared sensor fault gets an ``until_s`` at the next control step. The
+mean wind can be changed while flying (ramped over a few seconds). Every command is recorded
+in the manifest (``live_commands``), from which the session re-flies offline.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ import numpy as np
 from pydantic import TypeAdapter, ValidationError
 
 from aeroadapt.airframes import Airframe
+from aeroadapt.core.frames import wind_from_to_ned
 from aeroadapt.faultlab import build_fault_config
 from aeroadapt.faultlab.schema import FaultSpec, SensorFault, TimeTrigger
 from aeroadapt.faultlab.slots import N_SENSOR_SLOTS
@@ -32,6 +34,8 @@ from aeroadapt.telemetry.recorder import write_bundle
 from aeroadapt.telemetry.schema import COLUMNS, VIZ_RATE_HZ, columns
 
 CHUNK_S = 0.1
+WIND_RAMP_S = 5.0  # a wind change blends in over this time (a step would be a sharp gust)
+MAX_WIND_MPS = 20.0
 _FAULT = TypeAdapter(FaultSpec)
 
 
@@ -67,6 +71,11 @@ class LiveSession:
         su = setup_loop(r.airframe, r.site, r.env, r.initial, faults=r.faults, stack=r.stack,
                         seed=sc.seed, config=r.config)  # fmt: skip
         self._su = su
+        self._env = su.env
+        w0 = np.asarray(su.env.wind.steady_ned, dtype=np.float64)
+        self._wind = (w0, w0, 0.0)  # (from, to, ramp start time)
+        cfg = sc.environment.wind
+        self._wind_set = {"speed_mps": float(cfg.speed_mps), "from_deg": float(cfg.from_deg)}
         self._sim, self._st, self._z = su.sim0, su.stack0, su.z0
         self._faults = su.faults
         self._key = jax.random.fold_in(jax.random.PRNGKey(sc.seed), 1)
@@ -92,9 +101,17 @@ class LiveSession:
     def step(self) -> dict[str, np.ndarray]:
         """Fly one chunk; returns its 100 Hz replay columns."""
         r, su = self.resolved, self._su
+        w_from, w_to, t0 = self._wind
+        if not np.array_equal(w_from, w_to):  # ramping: this chunk flies the wind at its end
+            u = min(max((self.time_s + CHUNK_S - t0) / WIND_RAMP_S, 0.0), 1.0)
+            steady = np.asarray(w_from + u * (w_to - w_from), dtype=np.float32)
+            wind = self._env.wind._replace(steady_ned=jax.numpy.asarray(steady))
+            self._env = jax.device_put(self._env._replace(wind=wind))
+            if u >= 1.0:
+                self._wind = (w_to, w_to, t0)
         self._key, k = jax.random.split(self._key)
         self._sim, self._st, self._z, log = closed_loop_carry(
-            su.vp, su.env, self._faults, su.sp, r.mission, self._sim, self._st, self._z, k,
+            su.vp, self._env, self._faults, su.sp, r.mission, self._sim, self._st, self._z, k,
             n_steps=self._n, config=r.config,
         )  # fmt: skip
         cols = columns(jax.tree.map(np.asarray, log))
@@ -187,6 +204,32 @@ class LiveSession:
         self.commands.append({"time_s": until, "clear_fault": index})
         return None
 
+    def set_wind(self, speed_mps: float, from_deg: float) -> str | None:
+        """Change the mean wind (aviation convention: the direction it blows from), blended in
+        over ``WIND_RAMP_S`` from the next chunk."""
+        if not 0.0 <= speed_mps <= MAX_WIND_MPS:
+            return f"wind speed must be 0-{MAX_WIND_MPS:g} m/s"
+        from_deg = from_deg % 360.0
+        w_from, w_to, t0 = self._wind
+        u = min(max((self.time_s - t0) / WIND_RAMP_S, 0.0), 1.0)
+        current = w_from + u * (w_to - w_from)  # a change during a ramp starts from here
+        target = np.asarray(wind_from_to_ned(from_deg, speed_mps), dtype=np.float64)
+        self._wind = (current, target, self.time_s)
+        self._wind_set = {"speed_mps": float(speed_mps), "from_deg": float(from_deg)}
+        self.commands.append(
+            {
+                "time_s": self._next_step(),
+                "set_wind": {"speed_mps": speed_mps, "from_deg": from_deg},
+            }
+        )
+        return None
+
+    @property
+    def wind(self) -> dict[str, float]:
+        """The wind set (reached after any ramp): speed and the direction it blows from (kept
+        as set, so a calm keeps its direction)."""
+        return dict(self._wind_set)
+
     def fault_list(self) -> list[dict[str, Any]]:
         """Every fault of the session, for the client (``index`` is what ``clear`` takes)."""
         return [
@@ -236,6 +279,8 @@ def replay_commands(
             c = pending.pop(0)
             if "clear_fault" in c:
                 error = session.clear(int(c["clear_fault"]))
+            elif "set_wind" in c:
+                error = session.set_wind(**c["set_wind"])
             else:
                 spec = dict(c["inject_fault"])
                 spec.pop("trigger", None)

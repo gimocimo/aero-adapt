@@ -51,6 +51,9 @@ class L1Cfg(_Strict):
     wp_radius_m: float = Field(gt=0)
     roll_limit_deg: float = Field(gt=0, le=70)
     loiter_radius_m: float = Field(gt=0)
+    # GLIDE_SLOPE_MIN: a mission leg changing altitude by at least this much spreads the
+    # change along the leg; smaller changes are flown at once (0: always at once).
+    glide_slope_min_m: float = Field(default=15.0, ge=0)
 
 
 class TecsCfg(_Strict):
@@ -178,6 +181,7 @@ class L1Params(NamedTuple):
     wp_radius: float
     roll_limit: float  # rad
     loiter_radius: float
+    glide_slope_min: float = 15.0  # m
 
 
 class TecsParams(NamedTuple):
@@ -361,7 +365,12 @@ def build_stack_params(cfg: StackCfg, airframe: Airframe, site: Site, dt: float)
             gravity=G0,
         ),
         l1=L1Params(
-            l1.period_s, l1.damping, l1.wp_radius_m, rad(l1.roll_limit_deg), l1.loiter_radius_m
+            l1.period_s,
+            l1.damping,
+            l1.wp_radius_m,
+            rad(l1.roll_limit_deg),
+            l1.loiter_radius_m,
+            l1.glide_slope_min_m,
         ),
         tecs=TecsParams(
             time_const=te.time_const_s,

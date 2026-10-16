@@ -30,6 +30,13 @@ export interface LiveStatus {
   airframes: LiveAirframe[];
   /** Object URL of the flying fleet airframe's glTF (null: the default model). */
   modelUrl: string | null;
+  /** The mean wind set (it blends in over a few seconds): speed and the direction it blows from. */
+  wind: LiveWind | null;
+}
+
+export interface LiveWind {
+  speed_mps: number;
+  from_deg: number;
 }
 
 export const OFFLINE: LiveStatus = {
@@ -45,6 +52,7 @@ export const OFFLINE: LiveStatus = {
   airframe: null,
   airframes: [],
   modelUrl: null,
+  wind: null,
 };
 
 type Message =
@@ -67,6 +75,7 @@ type Message =
       done: boolean;
       error: string | null;
       faults: LiveFault[];
+      wind: LiveWind;
     };
 
 export interface LiveHandlers {
@@ -150,6 +159,7 @@ export class LiveClient {
         done: m.done,
         error: m.error,
         faults: m.faults,
+        wind: m.wind,
       });
     }
   }

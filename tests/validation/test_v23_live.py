@@ -22,7 +22,7 @@ pytest.importorskip("msgpack")
 import msgpack
 from websockets.asyncio.client import connect
 
-from aeroadapt.live.session import CHUNK_S, LiveSession, replay_commands
+from aeroadapt.live.session import CHUNK_S, WIND_RAMP_S, LiveSession, replay_commands
 from aeroadapt.scenarios.schema import load_scenario
 from aeroadapt.telemetry.recorder import FILES
 from aeroadapt.telemetry.schema import FAULT_BITS
@@ -76,6 +76,24 @@ def test_sensor_faults_clear_at_the_next_control_step() -> None:
     assert [f["clearable"] for f in s.fault_list()] == [False, True, False, True]
 
 
+def test_wind_changes_while_flying() -> None:
+    """m1-nominal flies in 6 m/s from 250°; calm is set and blends in over WIND_RAMP_S."""
+    s = LiveSession(load_scenario("m1-nominal"))
+    assert s.wind == {"speed_mps": 6.0, "from_deg": 250.0}
+    _fly(s, 2.0)
+    assert "wind speed" in (s.set_wind(25.0, 0.0) or "")
+    t_set = s.time_s
+    assert s.set_wind(0.0, 0.0) is None
+    _fly(s, WIND_RAMP_S + 1.0)
+    assert s.wind["speed_mps"] == 0.0
+    np.testing.assert_allclose(np.asarray(s._env.wind.steady_ned), 0.0, atol=1e-6)
+    cols = s.all_columns()
+    t = cols["time_us"] * 1e-6
+    wind = np.hypot(cols["truth.wind_n"], cols["truth.wind_e"])  # steady + light turbulence
+    before, after = wind[t < t_set].mean(), wind[t > t_set + WIND_RAMP_S].mean()
+    assert before > 4.0 and after < 2.5, (before, after)
+
+
 def test_command_log_refly_is_byte_identical(tmp_path: Path) -> None:
     s = LiveSession(load_scenario("m1-nominal"))
     _fly(s, 3.0)
@@ -88,11 +106,12 @@ def test_command_log_refly_is_byte_identical(tmp_path: Path) -> None:
     assert s.clear(0) is None
     _fly(s, 0.5)
     assert s.inject({"type": "sensor_fault", "kind": "mag_interference", "magnitude": 0.2}) is None
+    assert s.set_wind(10.0, 90.0) is None
     _fly(s, 1.0)
     a = s.record(tmp_path / "live")
     commands = json.loads((a / "manifest.json").read_text())["live_commands"]
     assert [next(k for k in c if k != "time_s") for c in commands] == [
-        "inject_fault", "inject_fault", "clear_fault", "inject_fault"
+        "inject_fault", "inject_fault", "clear_fault", "inject_fault", "set_wind"
     ]  # fmt: skip
     b = replay_commands(load_scenario("m1-nominal"), commands)
     while b.time_s < s.time_s - 1e-6:

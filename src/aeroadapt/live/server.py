@@ -3,9 +3,10 @@ time × a speed factor, streaming the replay viz columns and events as msgpack.
 
 Server → client: ``hello`` (manifest, the scenario and airframe catalogue, the current
 airframe's glTF), ``frames`` (columns of new rows), ``events``, ``status`` (time, speed,
-paused, done, last error, the session's faults).
+paused, done, last error, the session's faults, the wind set).
 Client → server: ``inject_fault{spec}`` (a fault spec without trigger), ``clear_fault{index}``,
-``set_speed{x}``, ``pause``, ``resume``, ``reset{scenario, airframe}``.
+``set_wind{speed_mps, from_deg}``, ``set_speed{x}``, ``pause``, ``resume``,
+``reset{scenario, airframe}``.
 
 Airframes: the scenario's own, and the sample fleet (``configs/fleets/sample``) with the
 stack configurations V20 tuned for them (``stack_cfgs.jsonl``).
@@ -123,7 +124,7 @@ class Connection:
         s = self.session
         await self.send({"type": "status", "time_s": s.time_s, "speed": self.speed,
                          "paused": self.paused, "done": s.done, "error": self.error,
-                         "faults": s.fault_list()})  # fmt: skip
+                         "faults": s.fault_list(), "wind": s.wind})  # fmt: skip
 
     async def hello(self) -> None:
         cat = self.catalogue
@@ -146,6 +147,10 @@ class Connection:
                 self.error = self.session.inject(msg.get("spec", {}))
             elif cmd == "clear_fault":
                 self.error = self.session.clear(int(msg.get("index", -1)))
+            elif cmd == "set_wind":
+                self.error = self.session.set_wind(
+                    float(msg.get("speed_mps", 0.0)), float(msg.get("from_deg", 0.0))
+                )
             elif cmd == "set_speed" and float(msg.get("x", 1.0)) in SPEEDS:
                 self.speed = float(msg["x"])
             elif cmd == "pause":

@@ -10,7 +10,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import jax
+
 from aeroadapt.scenarios.goldens import GOLDEN_SCENARIOS, metrics
+
+# As in the tests (tests/conftest.py): the goldens are float64 flights. A float32 run lands a
+# motor-cut flight tens of metres elsewhere, beyond the touchdown tolerance.
+jax.config.update("jax_enable_x64", True)
 
 OUT = Path(__file__).resolve().parents[1] / "tests" / "regression" / "goldens.json"
 

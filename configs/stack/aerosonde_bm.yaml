@@ -28,6 +28,7 @@ l1:
   wp_radius_m: 60.0           # WP_RADIUS
   roll_limit_deg: 45.0        # LIM_ROLL_CD
   loiter_radius_m: 150.0      # WP_LOITER_RAD
+  glide_slope_min_m: 15.0     # GLIDE_SLOPE_MIN (larger altitude changes are spread along the leg)
 
 tecs:
   time_const_s: 3.0           # TECS_TIME_CONST

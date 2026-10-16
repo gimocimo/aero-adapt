@@ -1,8 +1,8 @@
 // Live-mode controls: inject (and clear) faults while the aircraft flies, pick the scenario
 // and airframe, and pace the server.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useStore } from "../state/store";
-import type { LiveFault } from "./client";
+import type { LiveFault, LiveWind } from "./client";
 
 type Choice = "channel" | "body_axis" | "ned_axis" | "side";
 
@@ -143,6 +143,37 @@ function FaultRow({ k, disabled, onInject }: { k: FaultKind; disabled: boolean; 
   );
 }
 
+/** Mean wind (speed, and the direction it blows from); a change blends in over 5 s. */
+function WindControl({ wind, send }: { wind: LiveWind | null; send: (m: Record<string, unknown>) => void }) {
+  const [speed, setSpeed] = useState(wind?.speed_mps ?? 0);
+  const [from, setFrom] = useState(wind?.from_deg ?? 0);
+  // Follow the server when the session changes (reset, another scenario).
+  useEffect(() => {
+    if (wind) {
+      setSpeed(wind.speed_mps);
+      setFrom(wind.from_deg);
+    }
+  }, [wind?.speed_mps, wind?.from_deg]);
+  const set = (s: number, f: number) => send({ cmd: "set_wind", speed_mps: s, from_deg: f });
+  return (
+    <div className="windctl" data-testid="wind-control">
+      <span>Wind</span>
+      <label>
+        <input type="number" min={0} max={20} step={1} value={speed} onChange={(e) => setSpeed(Number(e.target.value))}
+          aria-label="wind speed (m/s)" />
+        <span className="unit">m/s from</span>
+      </label>
+      <label>
+        <input type="number" min={0} max={359} step={10} value={from} onChange={(e) => setFrom(Number(e.target.value))}
+          aria-label="wind direction (from, degrees)" />
+        <span className="unit">°</span>
+      </label>
+      <button onClick={() => set(speed, from)}>set</button>
+      <button onClick={() => set(0, from)} title="No mean wind (turbulence stays as the scenario sets it)">calm</button>
+    </div>
+  );
+}
+
 function ActiveFaults({ faults, send }: { faults: LiveFault[]; send: (m: Record<string, unknown>) => void }) {
   if (faults.length === 0) return null;
   return (
@@ -193,6 +224,7 @@ export function FaultPanel() {
           </select>
         </label>
       </div>
+      <WindControl wind={live.wind} send={send} />
       <ActiveFaults faults={live.faults} send={send} />
       {live.error && <p className="faulterror">{live.error}</p>}
       <h2>Inject a fault</h2>

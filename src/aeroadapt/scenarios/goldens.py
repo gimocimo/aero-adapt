@@ -37,6 +37,10 @@ TOLERANCES: dict[str, float | None] = {
     "touchdown_class": None,
     "touchdown_n_m": 30.0,
     "touchdown_e_m": 30.0,
+    "final_t_s": 3.0,
+    "final_n_m": 30.0,
+    "final_e_m": 30.0,
+    "in_zone": None,
     "airspeed_unhealthy_at_s": 1.5,
     "max_airspeed_error_mps": 1.5,
     "terminated": None,
@@ -73,10 +77,24 @@ def metrics(
         m["detect_latency_s"] = round((det[0] - onsets[0]) * 1e-6, 3)
         m["zone"] = next(e["payload"]["zone"] for e in ev if e["type"] == "zone_selected")
     td = [e for e in ev if e["type"] == "touchdown"]
+    final = [e for e in ev if e["type"] == "contingency_phase" and e["payload"]["phase"] == "FINAL"]
     if td:
         p = td[0]["payload"]
         m["touchdown_class"] = p["class"]
-        m["touchdown_n_m"], m["touchdown_e_m"] = p["pos_ne_m"]
+        if final:
+            # A contingency landing: the flare starts from the barometric height estimate, a
+            # few metres off near the ground, so the float and the touchdown point vary by tens
+            # of metres between numerically equivalent runs (float32/float64, tabulated aero).
+            # Gate when and where the planned final approach starts and whether it lands in
+            # the zone (the total flight time includes the float too).
+            k = int(np.searchsorted(c["time_us"], final[0]["time_us"]))
+            del m["flight_time_s"]
+            m["final_t_s"] = round(float(t[k]), 2)
+            m["final_n_m"] = round(float(c["truth.pos_n"][k]), 2)
+            m["final_e_m"] = round(float(c["truth.pos_e"][k]), 2)
+            m["in_zone"] = p["in_zone"]
+        else:
+            m["touchdown_n_m"], m["touchdown_e_m"] = p["pos_ne_m"]
     bad = [e for e in ev if e["type"] == "airspeed_health" and not e["payload"]["healthy"]]
     if bad:
         m["airspeed_unhealthy_at_s"] = round(bad[0]["time_us"] * 1e-6, 2)

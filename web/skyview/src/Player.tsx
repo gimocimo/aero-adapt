@@ -69,6 +69,11 @@ export default function Player() {
     const unsubGhost = useStore.subscribe((s, prev) => {
       if (s.ghost !== prev.ghost) controller.setReplays(s.replay, s.ghost);
       if (s.live?.modelUrl !== prev.live?.modelUrl) controller.setModel(s.live?.modelUrl ?? null);
+      // A replay of a fleet airframe brings its own model.
+      if (!s.live && s.replay !== prev.replay) {
+        const m = s.replay?.manifest.viz_model;
+        controller.setModel(s.replay && m ? `${bundleUrl(s.replay.id)}/${m}` : null);
+      }
     });
     return () => {
       cancelAnimationFrame(raf);

@@ -5,7 +5,8 @@ the NumPy reference (V3), invariants (V2), trims and modes (V4/V5), integrator c
 (V6), precision (V7), Dryden statistics (V8), autopilot acceptance (V11), the contingency
 (V12) and throughput (V15) from M1; and from M2 the JSBSim cross-check (V14), the aero v2
 tables (V16, V17), the generator (V18, V19), the fleet acceptance (V20), faultlab (V21) and
-live mode (V23). ``docs/validation/m1_report.md`` is the frozen M1 artefact.
+the bench (V22), live mode (V23) and fleet throughput (V15). ``docs/validation/m1_report.md``
+is the frozen M1 artefact.
 
 It lives outside the ``aeroadapt`` package because it imports the reference implementation,
 which production code must never import (import-linter contract).
@@ -74,6 +75,7 @@ from reference.bm_numpy import model as ref  # noqa: E402
 REPO = Path(__file__).resolve().parents[1]
 FLEET = REPO / "runs" / "fleets" / "m2-fleet"
 V20_RUN = REPO / "runs" / "v20" / "m2-fleet"
+BENCH_RUN = REPO / "runs" / "bench" / "b0"
 VA = 25.0
 DEG = 180 / math.pi
 
@@ -911,6 +913,75 @@ def v23_live(r: Report) -> None:
     )  # fmt: skip
 
 
+# --------------------------------------------------------------------------- V22
+def _ci(x: dict) -> str:
+    if not x["n"]:
+        return "–"
+    return f"{x['rate']:.1%} [{x['lo']:.0%}, {x['hi']:.0%}] ({x['k']}/{x['n']})"
+
+
+def v22_bench(r: Report, quick: bool) -> None:
+    import json
+    from dataclasses import asdict
+
+    from aeroadapt.bench.run import run_bench
+    from aeroadapt.bench.sampler import load_bench_spec
+
+    r.h(2, "V22 · Bench v0")
+    if (BENCH_RUN / "summary.json").exists():
+        s = json.loads((BENCH_RUN / "summary.json").read_text())
+        spec = s["spec"]
+        r.p(
+            f"`aeroadapt bench-run {spec['id']}`: **{spec['n']:,} scenarios** "
+            f"(seed {spec['seed']}) on the {spec['split']} split of the V20-accepted fleet, each "
+            "flown by B1 (the stock stack) and B2 (B1 plus the classical contingency, which acts "
+            "only on a detected motor failure), with the same start state and noise. Missions "
+            "are random closed loops; wind up to 80 % of cruise speed with turbulence following "
+            "the wind, gusts, shear and thermals; none, one or two faults of any kind. Rates "
+            "with 95 % Wilson intervals; latency means with bootstrap intervals."
+        )
+        b = s["baselines"]
+        rows = []
+        for label, get in (
+            ("Survival (no loss of control, no ground contact except a planned landing)",
+             lambda x: _ci(x["survival"])),
+            ("Mission completed (one full lap)", lambda x: _ci(x["mission_completion"])),
+            ("Loss of control", lambda x: _ci(x["loss_of_control"])),
+            ("Motor cut: survival", lambda x: _ci(x["motor_cut"]["survival"])),
+            ("Motor cut: landed in a safe zone", lambda x: _ci(x["motor_cut"]["landed_in_zone"])),
+            ("Motor cut: detected", lambda x: _ci(x["motor_cut"]["detection"])),
+            ("Motor cut: detection latency (s)", lambda x: (
+                f"{x['motor_cut']['detect_latency_s']['mean']:.2f} "
+                f"[{x['motor_cut']['detect_latency_s']['lo']:.2f}, "
+                f"{x['motor_cut']['detect_latency_s']['hi']:.2f}]"
+                if x["motor_cut"]["detect_latency_s"]["mean"] is not None else "–")),
+            ("False alarms on fault-free flights", lambda x: _ci(x["false_alarms"])),
+            ("False alarms per flight hour", lambda x: str(x["false_alarms"]["per_flight_hour"])),
+        ):  # fmt: skip
+            rows.append((label, *(get(b[k]) for k in b)))
+        r.table(["", *b], rows)
+        cats = sorted({c for k in b for c in b[k]["survival_by_category"]})
+        r.table(
+            ["Survival by fault category", *b],
+            [(c, *(_ci(b[k]["survival_by_category"].get(c, {"n": 0})) for k in b)) for c in cats],
+        )
+        if "b2_vs_b1" in s:
+            d = s["b2_vs_b1"]
+            r.p(
+                f"B1 and B2 differ on {d['scenarios_where_survival_differs']} scenarios: B2 "
+                f"survives {d['b2_better']} that B1 does not, B1 {d['b1_better']} that B2 does "
+                f"not (fault combinations: {', '.join(d['differing_fault_kinds']) or 'none'})."
+            )
+    else:
+        r.p(f"*No bench run at `{BENCH_RUN.relative_to(REPO)}` (`aeroadapt bench-run b0`).*")
+    if not quick:
+        spec = load_bench_spec("sample").model_copy(update={"n": 4, "duration_s": 60.0})
+        a, b2 = run_bench(spec, log=lambda _: None), run_bench(spec, log=lambda _: None)
+        same = [asdict(o) for o in a.outcomes] == [asdict(o) for o in b2.outcomes]
+        r.p(f"Reproducibility: the sample bench run twice gives an identical outcome table "
+            f"{mark(same)}.")  # fmt: skip
+
+
 # --------------------------------------------------------------------------- V15
 def v15_throughput(r: Report) -> None:
     out = subprocess.run(
@@ -922,6 +993,20 @@ def v15_throughput(r: Report) -> None:
     )
     r.h(2, "V15 · Throughput (recorded, not gated)")
     r.p("```", *out.stdout.strip().splitlines(), "```")
+    fleet = subprocess.run(
+        [sys.executable, str(REPO / "tools" / "bench_fleet.py"), "--batches", "64,256,1024"],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    r.p(
+        "Heterogeneous fleet with faults (M2, `tools/bench_fleet.py`; the GPU figure comes from "
+        "`notebooks/gpu_throughput.ipynb`):",
+        "```",
+        *fleet.stdout.strip().splitlines(),
+        "```",
+    )
 
 
 def build_report(out: Path, quick: bool = False) -> Path:
@@ -955,6 +1040,7 @@ def build_report(out: Path, quick: bool = False) -> Path:
         lambda: v19_fleet(r),
         lambda: v20_fleet(r),
         lambda: v21_faultlab(r, quick),
+        lambda: v22_bench(r, quick),
         lambda: v23_live(r),
         lambda: v15_throughput(r),
     ]

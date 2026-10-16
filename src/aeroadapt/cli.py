@@ -91,6 +91,17 @@ def _export_viz(args: argparse.Namespace) -> int:
     dest.mkdir(parents=True, exist_ok=True)
     for name in ("manifest.json", "events.jsonl", "viz.arrow"):
         shutil.copy2(bundle / name, dest / name)
+    # A fleet airframe's own model travels with its replay (Skyview loads ``viz_model``).
+    manifest = json.loads((bundle / "manifest.json").read_text())
+    fleet = manifest["scenario"].get("fleet")
+    if fleet:
+        from aeroadapt.airframes.fleet import fleet_path
+
+        glb = fleet_path(fleet) / "gltf" / f"{manifest['scenario']['airframe']}.glb"
+        if glb.exists():
+            shutil.copy2(glb, dest / "model.glb")
+            manifest["viz_model"] = "model.glb"
+            (dest / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     index = dest.parent / "index.json"
     entries = sorted(p.name for p in dest.parent.iterdir() if (p / "viz.arrow").exists())
     index.write_text(json.dumps(entries, indent=2) + "\n")

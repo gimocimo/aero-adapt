@@ -2,6 +2,7 @@
 import {
   Cartesian3,
   Color,
+  HeadingPitchRange,
   Math as CesiumMath,
   NearFarScalar,
   type PointPrimitive,
@@ -77,6 +78,15 @@ export class FleetScene {
       destination: this.frame.toCartesian(-3200, 0, 2600),
       orientation: { heading: 0, pitch: CesiumMath.toRadians(-42), roll: 0 },
     });
+  }
+
+  /** Orbit the site (demo capture): heading and pitch in degrees, range in metres. */
+  orbit(headingDeg: number, pitchDeg: number, range: number): void {
+    const centre = this.frame.toCartesian(-200, 0, 0);
+    this.viewer.camera.lookAt(
+      centre,
+      new HeadingPitchRange(CesiumMath.toRadians(headingDeg), CesiumMath.toRadians(pitchDeg), range),
+    );
   }
 
   destroy(): void {

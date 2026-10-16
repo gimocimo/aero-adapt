@@ -9,8 +9,12 @@ export interface SafeZone {
 
 export interface Manifest {
   schema_version: number;
+  /** A bundle-relative glTF of the airframe flown (fleet airframes; set by export-viz). */
+  viz_model?: string;
   scenario: {
     id: string;
+    airframe?: string;
+    fleet?: string | null;
     description: string;
     faults: { type: string; trigger: { at_time_s: number } }[];
     environment: { wind: { from_deg: number; speed_mps: number }; turbulence: { intensity: string } };

@@ -53,7 +53,11 @@ class LiveSession:
         scenario: Scenario,
         airframe: Airframe | None = None,
         stack_cfg: StackCfg | None = None,
+        fleet: str | None = None,
     ) -> None:
+        """``airframe`` (with its ``stack_cfg``) replaces the scenario's; ``fleet`` names the
+        bundle it comes from, for the recording."""
+        self._fleet = fleet
         r = resolve(scenario)
         if airframe is not None:
             # A fleet airframe flies the scenario with its own (tuned) configuration, from
@@ -250,6 +254,8 @@ class LiveSession:
         m = build_manifest(self.resolved, cols)
         m["scenario"]["faults"] = [f.model_dump(mode="json") for f in self.specs]
         m["scenario"]["airframe"] = self.resolved.airframe.id
+        if self._fleet is not None:
+            m["scenario"]["fleet"] = self._fleet
         m["scenario"]["initial"]["airspeed_mps"] = self.resolved.initial.airspeed_mps
         m["live_commands"] = self.commands
         return m

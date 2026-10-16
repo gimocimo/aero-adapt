@@ -49,13 +49,14 @@ class Catalogue:
     """What a client may fly: scenarios, and fleet airframes with their tuned stacks."""
 
     scenarios: list[str]
+    fleet: str | None = None  # the bundle the airframes come from (repository-relative)
     airframes: dict[str, Airframe] = field(default_factory=dict)
     stacks: dict[str, StackCfg] = field(default_factory=dict)
     models: dict[str, bytes] = field(default_factory=dict)
 
     @classmethod
     def load(cls, fleet: Path = SAMPLE_FLEET) -> Catalogue:
-        cat = cls(sorted(p.stem for p in SCENARIO_DIR.glob("*.yaml")))
+        cat = cls(sorted(p.stem for p in SCENARIO_DIR.glob("*.yaml")), str(fleet.relative_to(REPO)))
         cfgs = fleet / "stack_cfgs.jsonl"
         if not cfgs.exists():
             return cat
@@ -82,7 +83,9 @@ class Catalogue:
         sc = load_scenario(scenario_id)
         if airframe_id is None:
             return LiveSession(sc)
-        return LiveSession(sc, self.airframes[airframe_id], self.stacks[airframe_id])
+        return LiveSession(
+            sc, self.airframes[airframe_id], self.stacks[airframe_id], fleet=self.fleet
+        )
 
 
 def _pack(msg: dict[str, Any]) -> bytes:

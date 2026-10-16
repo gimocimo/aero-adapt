@@ -23,7 +23,7 @@ Evidence for the M1 spec §12 and the M2 spec §10. Each section recomputes its 
 | Rotational KE (relative) | 3.1e-14 | ≤ 1e-9 | ✅ |
 | Quaternion norm | 2.2e-16 | ≤ 1e-12 | ✅ |
 
-![V2: torque-free spin about all three axes, RK4 at 5 ms](figures/v2_invariants.png)
+![V2: torque-free spin about all three axes, RK4 at 5 ms](figures/m2/v2_invariants.png)
 
 *V2: torque-free spin about all three axes, RK4 at 5 ms*
 
@@ -50,7 +50,7 @@ Evidence for the M1 spec §12 and the M2 spec §10. Each section recomputes its 
 
 RK4 on a 30 s elevator doublet (±3°) against a 0.5 ms reference: log-log slope **4.02** (criterion 4 ± 0.5) ✅; max pitch error at the chosen 5 ms step **1.9e-09 rad** (criterion ≤ 1e-3) ✅.
 
-![V6: RK4 convergence on an elevator doublet](figures/v6_convergence.png)
+![V6: RK4 convergence on an elevator doublet](figures/m2/v6_convergence.png)
 
 *V6: RK4 convergence on an elevator doublet*
 
@@ -68,7 +68,7 @@ The same 60 s closed-loop flight (stock stack, light turbulence, sensor noise) i
 | v | 1.030 | 1.017 | +1.3% | ✅ |
 | w | 0.770 | 0.772 | -0.2% | ✅ |
 
-![V8: Dryden PSD, 64 seeds × 10 min](figures/v8_dryden_psd.png)
+![V8: Dryden PSD, 64 seeds × 10 min](figures/m2/v8_dryden_psd.png)
 
 *V8: Dryden PSD, 64 seeds × 10 min*
 
@@ -109,7 +109,7 @@ Scored on truth. Steps start at t = 20 s after navigator convergence; light-turb
 | servo saturation, mission (light turb.) | 0.002 % | ≤ 5 | ✅ |
 | loiter radius RMS error (light turb.) | 1.080 m | ≤ 5 | ✅ |
 
-![V11: step responses in calm air (truth vs demand)](figures/v11_steps.png)
+![V11: step responses in calm air (truth vs demand)](figures/m2/v11_steps.png)
 
 *V11: step responses in calm air (truth vs demand)*
 
@@ -123,7 +123,7 @@ Scored on truth. Steps start at t = 20 s after navigator convergence; light-turb
 
 **ESC telemetry** (primary) meets the latency and zero-false-alarm criteria. The **energy-residual backup** (CUSUM against TECS's throttle model) does not: gusts in light turbulence move the total-energy rate by ~1.4 m/s RMS, worst in climbing turns, while a cut at low throttle loses only ~1–2 m/s. It is tuned for zero false alarms first; the remaining false alarms and the slow tail are a documented M1 miss, addressed by learned fault diagnosis in M4.
 
-![V12: motor-cut detection latency](figures/v12_latency.png)
+![V12: motor-cut detection latency](figures/m2/v12_latency.png)
 
 *V12: motor-cut detection latency*
 
@@ -146,7 +146,7 @@ Failures (every reachable case not ending inside its zone):
 | m1-motorcut-classical-023 | landed 202 m short of the aim point |
 | m1-motorcut-classical-032 | landed 128 m short of the aim point |
 
-![V12: mini-campaign map; ○ in-zone landing, × other](figures/v12_campaign_map.png)
+![V12: mini-campaign map; ○ in-zone landing, × other](figures/m2/v12_campaign_map.png)
 
 *V12: mini-campaign map; ○ in-zone landing, × other*
 
@@ -167,7 +167,7 @@ The Aerosonde's aerodynamics are exported to a JSBSim model (`tools/jsbsim`); JS
 | Roll, aileron doublet ±2° | 0.311° | recorded (≤ 1°) | ✅ |
 | Heading, aileron doublet ±2° | 0.265° | recorded (≤ 1°) | ✅ |
 
-![V14: aerojax and JSBSim from their own power-off glide trims](figures/v14_jsbsim.png)
+![V14: aerojax and JSBSim from their own power-off glide trims](figures/m2/v14_jsbsim.png)
 
 *V14: aerojax and JSBSim from their own power-off glide trims*
 
@@ -258,7 +258,7 @@ Two real airframes are rebuilt from their published geometry and run through the
 | roll rate (°/s) | 60.4 | 242 | 937 |
 | thrust / weight | 0.41 | 0.856 | 1.76 |
 
-![V19: distributions over the accepted fleet, stacked by class](figures/v19_fleet.png)
+![V19: distributions over the accepted fleet, stacked by class](figures/m2/v19_fleet.png)
 
 *V19: distributions over the accepted fleet, stacked by class*
 

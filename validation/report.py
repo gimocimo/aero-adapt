@@ -83,7 +83,8 @@ DEG = 180 / math.pi
 class Report:
     def __init__(self, out: Path) -> None:
         self.out = out
-        self.fig_dir = out / "figures"
+        # M2's own figures: m1_report.md (frozen) keeps the ones in figures/.
+        self.fig_dir = out / "figures" / "m2"
         self.fig_dir.mkdir(parents=True, exist_ok=True)
         self.lines: list[str] = []
 
@@ -104,7 +105,7 @@ class Report:
         fig.tight_layout()
         fig.savefig(self.fig_dir / f"{name}.png", dpi=110)
         plt.close(fig)
-        self.lines += [f"![{caption}](figures/{name}.png)", "", f"*{caption}*", ""]
+        self.lines += [f"![{caption}](figures/m2/{name}.png)", "", f"*{caption}*", ""]
 
 
 def mark(ok: object) -> str:

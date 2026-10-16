@@ -587,3 +587,31 @@ dd {
     max-height: 30vh;
   }
 }
+
+.fleetpanel .fleetcounts {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.fleetpanel .fleetcounts li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 3px 0;
+}
+.fleetpanel .fleetcounts i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.6);
+}
+.fleetpanel .fleetcounts b {
+  min-width: 34px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.timeline.live input[type="range"] {
+  flex: 1;
+  margin: 0 8px;
+}

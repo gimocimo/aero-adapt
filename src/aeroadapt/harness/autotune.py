@@ -2,18 +2,19 @@
 
 Starting from the model-based configuration (``autoconfig``), each airframe flies a tuning
 manoeuvre per axis with a small grid of parameter variants, all batched in one ``vmap``. Each
-variant is scored against the axis's requirements, measured on the tuning manoeuvre, and the
-variant with the largest worst-case margin is kept (the worst ratio of value to limit; a
-small tracking-error term breaks ties). This is requirements-driven tuning, as flight-control
-engineers tune to handling-qualities limits; a weighted sum of costs instead trades one
-requirement against another unseen.
+variant is scored against the axis's requirements, measured on the tuning manoeuvre on two
+independent noise streams, and the variant with the largest worst-case margin is kept (the
+worst ratio of value to limit; a small tracking-error term breaks ties). This is
+requirements-driven tuning, as flight-control engineers tune to handling-qualities limits; a
+weighted sum of costs instead trades one requirement against another unseen.
 
 - roll: a ±20° bank doublet, then wings level. Rise time, overshoot, the error at the end of
   each half, and any oscillation left while holding level (as AUTOTUNE backs gains off when
   it detects oscillation: with servo deadband and lag, high gains limit-cycle). Variants
   scale the feed-forward and the rate P/I and set the time constant.
 - yaw: a slow ±20° bank doublet (6 s each way): steady-bank and peak sideslip. Variants
-  scale the coordination feed-forward and damper and set the sideslip integrator.
+  scale the coordination feed-forward and damper and set the sideslip integrator and the
+  aileron-to-rudder mix (KFF_RDDRMIX) against adverse yaw.
 - pitch: a ±4° doublet around trim at fixed throttle: rise time, overshoot, oscillation.
 - TECS: a height doublet: airspeed excursion and height overshoot. Variants set the time
   constant, the speed weighting (2 = speed priority, ArduPilot's setting for gliders) and
@@ -175,20 +176,28 @@ _PATHS: dict[str, tuple[tuple[str, ...], tuple[str, ...], str]] = {
     "pitch_tau": (("att.pitch_tau",), ("attitude.pitch.tconst_s",), "set"),
     "yaw_ff": (("att.yaw_ff", "att.yaw_damp"), ("attitude.yaw.ff", "attitude.yaw.damp"), "scale"),
     "yaw_slip": (("att.yaw_slip_i",), ("attitude.yaw.slip_i",), "set"),
+    "yaw_mix": (("att.yaw_mix",), ("attitude.yaw.rudder_mix",), "set"),
     "tecs_tc": (("tecs.time_const",), ("tecs.time_const_s",), "set"),
     "tecs_spd": (("tecs.spd_weight",), ("tecs.spd_weight",), "set"),
     "tecs_climb": (("tecs.climb_max",), ("tecs.climb_max_mps",), "scale"),
 }
 # Axis → (seconds per doublet half, grid per key).
+# Rate gains go down to 0.35x: with servo deadband and lag, high gains limit-cycle. Halves of
+# 4 s let the attitude settle, so the end-of-half error shows steady-state error.
 AXES: dict[str, tuple[float, dict[str, tuple[float, ...]]]] = {
-    "roll": (3.0, {"roll_ff": (0.8, 1.0, 1.25), "roll_pi": (0.5, 1.0, 1.6),
+    "roll": (4.0, {"roll_ff": (0.8, 1.0, 1.25), "roll_pi": (0.35, 0.5, 1.0, 1.6),
                    "roll_tau": (0.25, 0.3, 0.4)}),
-    "yaw": (6.0, {"yaw_ff": (0.6, 0.8, 1.0, 1.25, 1.6), "yaw_slip": (0.02, 0.08, 0.2)}),
-    "pitch": (3.0, {"pitch_ff": (0.8, 1.0, 1.25), "pitch_pi": (0.5, 1.0, 1.6),
-                    "pitch_tau": (0.22, 0.3)}),
+    "yaw": (6.0, {"yaw_ff": (0.6, 0.8, 1.0, 1.25, 1.6), "yaw_slip": (0.02, 0.08, 0.2),
+                  "yaw_mix": (0.0, 0.25, 0.5)}),
+    "pitch": (4.0, {"pitch_ff": (0.8, 1.0, 1.25), "pitch_pi": (0.35, 0.5, 1.0, 1.6),
+                    "pitch_tau": (0.22, 0.3, 0.4)}),
     "tecs": (15.0, {"tecs_tc": (3.0, 5.0, 8.0), "tecs_spd": (1.0, 1.5, 2.0),
-                    "tecs_climb": (0.6, 1.0)}),
+                    "tecs_climb": (0.4, 0.6, 1.0)}),
 }  # fmt: skip
+# Each variant flies on this many independent noise streams and is scored on its worst: a
+# variant that meets the requirements only on a lucky draw of turbulence and sensor noise is
+# not kept.
+NOISE_STREAMS = 2
 
 
 def _apply(sp: StackParams, choice: dict[str, float]) -> StackParams:
@@ -262,7 +271,7 @@ def autotune(airframes: Sequence[Airframe], cfgs: Sequence[StackCfg], site: Site
     v0 = np.array([c.tecs.airspeed_cruise_mps for c in cfgs])
     ids = [a.id for a in airframes]
     sim0, z0, _ = _initial(vps, env, v0, airframe_keys(ids, 0, 0))
-    fly_keys = airframe_keys(ids, 0, 1)
+    streams = [airframe_keys(ids, 0, 1 + k) for k in range(NOISE_STREAMS)]
     n = len(airframes)
     chosen: list[dict[str, float]] = [{} for _ in range(n)]
     for axis, (_, grid) in AXES.items():
@@ -273,7 +282,9 @@ def autotune(airframes: Sequence[Airframe], cfgs: Sequence[StackCfg], site: Site
             for c in combos:
                 runs.append(_apply(sps[i], c))
                 idx.append(i)
-        costs = _evaluate(vps, runs, env, sim0, z0, np.array(idx), axis, fly_keys)
+        costs = np.max(
+            [_evaluate(vps, runs, env, sim0, z0, np.array(idx), axis, k) for k in streams], axis=0
+        )
         costs = costs.reshape(n, len(combos))
         for i in range(n):
             if np.isfinite(costs[i]).any():

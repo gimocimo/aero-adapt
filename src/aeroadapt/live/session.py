@@ -57,7 +57,7 @@ class LiveSession:
         r = resolve(scenario)
         if airframe is not None:
             # A fleet airframe flies the scenario with its own (tuned) configuration, from
-            # trim at its own cruise speed.
+            # trim at its own cruise speed, and flies the mission at that speed.
             cfg = stack_cfg or r.stack_cfg
             r = replace(
                 r,
@@ -65,6 +65,9 @@ class LiveSession:
                 stack_cfg=cfg,
                 stack=build_stack_params(cfg, airframe, r.site, r.config.dt_control),
                 initial=replace(r.initial, airspeed_mps=cfg.tecs.airspeed_cruise_mps),
+                mission=r.mission._replace(
+                    speed=jax.numpy.asarray(cfg.tecs.airspeed_cruise_mps, r.mission.speed.dtype)
+                ),
             )
         self.resolved: ResolvedScenario = r
         sc = r.scenario

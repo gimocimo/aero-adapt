@@ -93,6 +93,9 @@ class YawCfg(_Strict):
     damp: float = Field(ge=0)
     slip_i: float = Field(ge=0)
     imax: float = Field(ge=0)
+    # KFF_RDDRMIX: rudder added in proportion to the aileron command, against adverse yaw
+    # (ArduPlane's default is 0.5; the hand-tuned M1 Aerosonde flies without it).
+    rudder_mix: float = Field(default=0.0, ge=0, le=1)
 
 
 class ServoTrimCfg(_Strict):
@@ -242,6 +245,7 @@ class AttParams(NamedTuple):
     trim_rud: float
     trim_ele_a: float
     trim_ele_b: float
+    yaw_mix: float = 0.0  # KFF_RDDRMIX
 
 
 class ContParams(NamedTuple):
@@ -422,6 +426,7 @@ def build_stack_params(cfg: StackCfg, airframe: Airframe, site: Site, dt: float)
             yaw_damp=at.yaw.damp,
             yaw_slip_i=at.yaw.slip_i,
             yaw_imax=at.yaw.imax,
+            yaw_mix=at.yaw.rudder_mix,
             v_cruise=te.airspeed_cruise_mps,
             scaler_min=at.scaler_min,
             scaler_max=at.scaler_max,

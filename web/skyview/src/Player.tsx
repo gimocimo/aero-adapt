@@ -1,13 +1,4 @@
-import {
-  CesiumTerrainProvider,
-  GridImageryProvider,
-  ImageryLayer,
-  Ion,
-  Viewer,
-} from "cesium";
-import "cesium/Build/Cesium/Widgets/widgets.css";
 import { useEffect, useRef, useState } from "react";
-import { loadGoogleTiles } from "./googleTiles";
 import { Hud } from "./hud/Hud";
 import { LiveClient, OFFLINE } from "./live/client";
 import { FaultPanel, LiveBar } from "./live/FaultPanel";
@@ -16,8 +7,7 @@ import { sample } from "./replay/interp";
 import { listReplays, loadReplay } from "./replay/load";
 import { SceneController } from "./scene/SceneController";
 import { SPEEDS, useStore } from "./state/store";
-
-const TOKEN = import.meta.env.VITE_CESIUM_ION_TOKEN?.trim();
+import { createViewer } from "./viewer";
 
 function params() {
   const q = new URLSearchParams(window.location.search);
@@ -50,49 +40,14 @@ export default function Player() {
   // Viewer, scene controller and the animation loop.
   useEffect(() => {
     if (!container.current) return;
-    const { tiles } = params();
-    const useTiles = Boolean(TOKEN) && tiles;
-    if (TOKEN) Ion.defaultAccessToken = TOKEN;
-    const viewer = new Viewer(container.current, {
-      timeline: false,
-      animation: false,
-      baseLayerPicker: false,
-      geocoder: false,
-      homeButton: false,
-      sceneModePicker: false,
-      navigationHelpButton: false,
-      fullscreenButton: false,
-      infoBox: false,
-      selectionIndicator: false,
-      baseLayer: useTiles ? false : new ImageryLayer(new GridImageryProvider({})),
-    });
-    if (import.meta.env.DEV) (window as unknown as { __skyview?: Viewer }).__skyview = viewer;
+    const store = useStore.getState();
+    const { viewer, destroy } = createViewer(container.current, params().tiles, store.setStatus);
     const controller = new SceneController(viewer);
     if (import.meta.env.DEV) {
       // Dev hooks for console debugging (and stepping frames while the tab is hidden).
       const w = window as unknown as Record<string, unknown>;
       w.__controller = controller;
       w.__store = useStore;
-    }
-    const store = useStore.getState();
-    let cancelled = false;
-    if (useTiles) {
-      viewer.scene.globe.show = false;
-      loadGoogleTiles()
-        .then((tileset) => {
-          if (cancelled) return tileset.destroy();
-          viewer.scene.primitives.add(tileset);
-          if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__tileset = tileset;
-          store.setStatus("Google Photorealistic 3D Tiles via Cesium ion");
-        })
-        .catch((e: unknown) => store.setStatus(`3D tiles failed: ${String(e)}`));
-    } else if (TOKEN) {
-      CesiumTerrainProvider.fromIonAssetId(1)
-        .then((tp) => !cancelled && (viewer.terrainProvider = tp))
-        .catch(() => undefined);
-      store.setStatus("Tiles off (?tiles=0): terrain + grid");
-    } else {
-      store.setStatus("No Cesium ion token: ellipsoid + grid fallback");
     }
 
     let raf = 0;
@@ -116,11 +71,10 @@ export default function Player() {
       if (s.live?.modelUrl !== prev.live?.modelUrl) controller.setModel(s.live?.modelUrl ?? null);
     });
     return () => {
-      cancelled = true;
       cancelAnimationFrame(raf);
       unsubGhost();
       controller.destroy();
-      viewer.destroy();
+      destroy();
     };
   }, []);
 

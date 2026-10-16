@@ -10,6 +10,7 @@ aeroadapt fleet <id> --n N [--start K]         generate a fleet bundle (runs/fle
 aeroadapt fleet-accept <fleet> [--n N]         V20: configure, tune and accept a fleet
 aeroadapt fleet-sample <fleet> <v20>           the committed sample: V20-accepted, tuned
 aeroadapt bench-run <spec> [--n N]             bench v0: B1/B2 over sampled scenarios (runs/bench)
+aeroadapt export-fleet <bench> [--to DIR]      a bench's trajectories for Skyview's fleet view
 aeroadapt serve [--scenario ID] [--port P]     live server for Skyview (?live=ws://localhost:P)
 """
 
@@ -178,6 +179,36 @@ def _bench_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _export_fleet(args: argparse.Namespace) -> int:
+    import numpy as np
+    import pyarrow.parquet as pq
+
+    from aeroadapt.bench.run import TRAJ_FIELDS
+    from aeroadapt.scenarios import load_site
+
+    bench = Path(args.bench)
+    spec = json.loads((bench / "summary.json").read_text())["spec"]
+    rows = pq.read_table(bench / "outcomes.parquet").to_pylist()
+    traj = np.load(bench / "trajectories.npz")["traj"].astype("<f4")
+    dest = Path(args.to) if args.to else SKYVIEW_REPLAYS.parent / "fleet" / spec["id"]
+    dest.mkdir(parents=True, exist_ok=True)
+    keep = ("scenario", "baseline", "airframe_class", "faults", "survived", "touchdown",
+            "in_zone", "planned_landing")  # fmt: skip
+    meta = {
+        "id": spec["id"],
+        "description": spec.get("description", ""),
+        "site": {"origin": load_site(spec["site"]).origin.model_dump(mode="json")},
+        "dt_s": 1.0,
+        "samples": int(traj.shape[1]),
+        "fields": list(TRAJ_FIELDS),
+        "flights": [{k: r[k] for k in keep} for r in rows],
+    }
+    (dest / "fleet.json").write_text(json.dumps(meta) + "\n")
+    (dest / "fleet.bin").write_bytes(traj.tobytes())
+    print(f"{len(rows)} flights x {traj.shape[1]} s → {dest} ({traj.nbytes / 1e6:.1f} MB)")
+    return 0
+
+
 def _serve(args: argparse.Namespace) -> int:
     import asyncio
 
@@ -240,6 +271,10 @@ def main(argv: list[str] | None = None) -> int:
     br.add_argument("--n", type=int, default=None, help="override the number of scenarios")
     br.add_argument("--out", help="output directory (default: runs/bench/<id>)")
     br.set_defaults(func=_bench_run)
+    ef = sub.add_parser("export-fleet", help="a bench run's trajectories for the fleet view")
+    ef.add_argument("bench", help="bench run directory (runs/bench/<id>)")
+    ef.add_argument("--to", help="destination (default: web/skyview/public/fleet/<id>)")
+    ef.set_defaults(func=_export_fleet)
     sv = sub.add_parser("serve", help="live server: fly a scenario and inject faults from Skyview")
     sv.add_argument("--scenario", default="m1-nominal")
     sv.add_argument("--port", type=int, default=8765)

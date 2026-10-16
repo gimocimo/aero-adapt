@@ -51,6 +51,9 @@ BATCH = 64  # flights per vmap
 LOC_ROLL_DEG, LOC_PITCH_DEG = 90.0, 60.0  # attitude beyond these is a loss of control
 AIRSPEED_KINDS = {"pitot_blockage", "airspeed_bias", "airspeed_stuck", "airspeed_drift"}
 PLANNED = (FINAL, FLARE, STRAIGHT_IN)  # contingency phases that end in a planned landing
+# 1 Hz trajectories for the fleet view: position, attitude and a state code (0 flying the
+# mission, 1 in the contingency, 2 on the ground or ended).
+TRAJ_FIELDS = ("n", "e", "alt", "roll", "pitch", "yaw", "state")
 
 
 @dataclass
@@ -86,6 +89,16 @@ class BenchResult:
     spec: BenchSpec
     outcomes: list[Outcome]
     seconds: float
+    trajectories: np.ndarray  # (flights, seconds, len(TRAJ_FIELDS)) float32, 1 Hz
+
+
+def _trajectory(log: Any) -> np.ndarray:
+    k = slice(LOG_EVERY - 1, None, LOG_EVERY)  # the 10 Hz log → 1 Hz
+    pos, eul = np.asarray(log.pos_ned)[k], np.asarray(log.euler)[k]
+    state = np.where(
+        np.asarray(log.done)[k], 2.0, np.where(np.asarray(log.phase)[k] != 0, 1.0, 0.0)
+    )
+    return np.column_stack([pos[:, 0], pos[:, 1], -pos[:, 2], eul, state]).astype(np.float32)
 
 
 def _stack(trees: Sequence[Any]) -> Any:
@@ -178,7 +191,9 @@ def _outcome(
     )  # fmt: skip
 
 
-def _fly(flights: list[tuple[Scenario, ResolvedScenario, str, Any]], n: int) -> list[Outcome]:
+def _fly(
+    flights: list[tuple[Scenario, ResolvedScenario, str, Any]], n: int
+) -> tuple[list[Outcome], np.ndarray]:
     """One vmapped batch of (scenario, resolved, baseline, setup) flights."""
     cfg = flights[0][1].config
     st0 = [
@@ -199,10 +214,11 @@ def _fly(flights: list[tuple[Scenario, ResolvedScenario, str, Any]], n: int) -> 
     )  # fmt: skip
     sims, sts, logs = jax.tree.map(np.asarray, (sims, sts, logs))
     pick = lambda tree, i: jax.tree.map(lambda x: x[i], tree)  # noqa: E731
-    return [
+    outcomes = [
         _outcome(f[0], f[1], f[2], pick(sims, i), pick(sts, i), pick(logs, i))
         for i, f in enumerate(flights)
     ]
+    return outcomes, np.stack([_trajectory(pick(logs, i)) for i in range(len(flights))])
 
 
 def _no_cont(sp: Any) -> Any:
@@ -232,13 +248,16 @@ def run_bench(
     log(f"{len(scenarios)} scenarios over {len(airframes)} airframes prepared "
         f"({time.perf_counter() - t0:.0f} s)")  # fmt: skip
     outcomes: list[Outcome] = []
+    trajectories = []
     for k in range(0, len(flights), BATCH):
-        outcomes += _fly(flights[k : k + BATCH], n)
+        o, tr = _fly(flights[k : k + BATCH], n)
+        outcomes += o
+        trajectories.append(tr)
         log(
             f"{min(k + BATCH, len(flights))}/{len(flights)} flights "
             f"({time.perf_counter() - t0:.0f} s)"
         )
-    return BenchResult(spec, outcomes, time.perf_counter() - t0)
+    return BenchResult(spec, outcomes, time.perf_counter() - t0, np.concatenate(trajectories))
 
 
 # --------------------------------------------------------------------------- summary
@@ -310,6 +329,12 @@ def summary(result: BenchResult) -> dict[str, Any]:
 
 def write_bench(out_dir: Path, result: BenchResult) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        out_dir / "trajectories.npz",
+        traj=result.trajectories,
+        scenario=np.array([o.scenario for o in result.outcomes]),
+        baseline=np.array([o.baseline for o in result.outcomes]),
+    )
     pq.write_table(
         pa.Table.from_pylist([asdict(o) for o in result.outcomes]), out_dir / "outcomes.parquet"
     )

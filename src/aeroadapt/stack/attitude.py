@@ -79,10 +79,12 @@ def attitude_step(
     ele_trim = p.trim_ele_a + p.trim_ele_b * load * (p.v_cruise / v) ** 2
     elevator = ele_trim + (p.pitch_ff * q_dem + p.pitch_p * q_err) * sc2 + pitch_i
 
-    # Yaw: coordination feed-forward + damper + sideslip integrator (null lateral accel).
+    # Yaw: coordination feed-forward + damper + sideslip integrator (null lateral accel), and
+    # the aileron-to-rudder mix against adverse yaw (KFF_RDDRMIX).
     r_dem = G / v * jnp.sin(roll_c) * jnp.cos(pitch)
     yaw_i = jnp.clip(s.yaw_i - p.yaw_slip_i * accel_y * dt, -p.yaw_imax, p.yaw_imax)
-    rudder = p.trim_rud + (p.yaw_ff * r_dem + p.yaw_damp * (r_dem - rr)) * sc2 + yaw_i
+    mix = p.yaw_mix * (jnp.clip(aileron, -1, 1) - p.trim_ail)
+    rudder = p.trim_rud + (p.yaw_ff * r_dem + p.yaw_damp * (r_dem - rr)) * sc2 + yaw_i + mix
 
     out = AttOut(
         jnp.clip(aileron, -1, 1), jnp.clip(elevator, -1, 1), jnp.clip(rudder, -1, 1), p_dem, q_dem

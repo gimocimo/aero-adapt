@@ -40,3 +40,4 @@ web/skyview/playwright-report/
 # Local agent tooling
 .claude/
 web/skyview/public/replays/
+web/skyview/public/fleet/

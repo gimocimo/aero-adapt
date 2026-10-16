@@ -2,7 +2,7 @@
 
 Every lane flies one of the committed sample fleet's airframes (cycled) with its own mean
 wind, turbulence level and fault (onset during the run), in float32. Two numbers per batch
-size, both in control steps per second (one step = 10 ms of flight, 5 physics substeps):
+size, both in control steps per second (one step = 10 ms of flight, 2 physics substeps at 200 Hz):
 
 - **simulator:** ``sim_step`` holding the trim command, which is what a reinforcement-learning
   environment step costs (the policy supplies the command);

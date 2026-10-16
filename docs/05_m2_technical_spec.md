@@ -805,3 +805,175 @@ Never cut aero v2 parity (V16/V17), V14, V20, the bench or live fault injection.
 | D9 Throughput | ⏳ week 8 |
 | D10 Live mode | ✅ V23 and the Playwright test |
 | D11 Demo and write-up | ⏳ week 8 |
+
+### Week 8 (16 Oct 2026)
+
+**Built**
+
+- **Bench v0** (`src/aeroadapt/bench/`, `aeroadapt bench-run <spec>`, `configs/bench/b0.yaml`):
+  - The sampler draws, per scenario and all from one seed:
+    - an airframe from a split (80/10/10 by an id hash) of the V20-accepted fleet, flying its
+      tuned stack;
+    - a random closed-loop mission sized to the airframe's cruise speed;
+    - wind up to 80 % of cruise speed, with turbulence following the wind as Dryden defines
+      it (the level nearest W20, or smooth air);
+    - gusts, shear and thermals;
+    - none, one or two faults of any kind.
+  - Every scenario is written as an ordinary scenario file. Scenarios can now name a fleet
+    airframe and a fleet run's tuned stacks, so any bench flight re-flies and replays alone.
+  - B1 (stock stack) and B2 (plus the classical contingency) fly every scenario in one
+    `vmap` over mixed airframes, with paired start states and noise.
+  - Outcomes: survival, loss of control, planned landing, touchdown class and zone, mission
+    completion, detection and airspeed-flag latency, false alarms.
+  - Summary: Wilson and bootstrap intervals, broken down by fault category, airframe class,
+    wind band and turbulence.
+  - V22 (full tier, on the committed sample fleet): the same seed gives the same table; B2
+    survives motor cuts at least as often as B1.
+- **Fleet view** (Skyview `?fleet=<bench>`, `aeroadapt export-fleet`): every bench flight at
+  once over the site, coloured by state (flying, in the contingency, landed safely, lost),
+  with live counts, a B1/B2 toggle and playback.
+- **Throughput:** `tools/bench_fleet.py` measures a heterogeneous fleet with per-lane wind,
+  turbulence and a fault, for the simulator alone and for the closed loop;
+  `notebooks/gpu_throughput.ipynb` runs it on a GPU.
+- **Live mode:**
+  - wind speed and direction are controllable while flying (5 s blend, in the command log);
+  - the "Wind" layer checkbox is gone (it only hid the arrow);
+  - fleet airframes fly the mission at their own cruise speed and record their fleet, so
+    replays show their model;
+  - exported fleet-airframe replays carry their glTF.
+- **Stack:**
+  - ArduPlane's glide slope (`GLIDE_SLOPE_MIN`, 15 m): larger altitude changes are spread
+    along the leg;
+  - ArduPlane's aileron-to-rudder mix (`KFF_RDDRMIX`): 0 for the M1 Aerosonde; autotune
+    picks 0, 0.25 or 0.5.
+- **Autotune:**
+  - each variant flies on two independent noise streams and is scored on its worst;
+  - lower rate-gain options against deadband limit cycles;
+  - 4 s doublet halves;
+  - a lower climb-limit option.
+- **Demo:** `tools/make_demo_m2.py` builds the video from seeds. The frame capture also
+  drives the fleet view.
+- **Report:** V22 and fleet-throughput sections.
+
+**Results**
+
+- **V20** (1,000 airframes, `runs/v20/m2-fleet`, 103 min on an M2 Pro):
+  **855 pass (85.5 %), below the 90 % criterion ❌**. Week 7 was 80.6 %.
+
+  | Class | Week 7 | Week 8 |
+  |---|---|---|
+  | Conventional | 85 % | 90 % |
+  | T-tail | 87 % | 87 % |
+  | V-tail | 73 % | 83 % |
+  | Twin-boom | 90 % | 92 % |
+  | Glider | 44 % | 54 % |
+
+  - Remaining failures: limit cycles 40, roll steady-state error 37, sideslip in the turn 36,
+    airspeed sag in the altitude step 30, pitch overshoot 14, roll overshoot 9, others ≤ 4.
+  - 117 of the 145 failing airframes fail one check, by a median of 6-18 % beyond the limit.
+  - Failing airframes are excluded from the bench with their reasons (spec §6).
+- **Bench v0** (`aeroadapt bench-run b0`: 1,000 scenarios, seed 2026, 80 test-split airframes;
+  12.6 min on the M2 Pro, 7.6 of them preparing start states):
+
+  | | B1 stock | B2 + contingency |
+  |---|---|---|
+  | Survival | 83.1 % [80.7, 85.3] | 86.4 % [84.1, 88.4] |
+  | Mission completed (one lap) | 93.4 % | 92.5 % |
+  | Loss of control | 10.5 % | 10.4 % |
+  | Motor cut (34): survival | 4 (12 %) | 32 (94 %) |
+  | Motor cut: detected / in a safe zone | 0 / 0 | 33 / 17 |
+  | Motor cut: touchdowns controlled / hard / crash | 0 / 2 / 27 | 26 / 6 / 1 |
+  | Motor cut: detection latency | – | 2.0 s [0.9, 3.5] |
+  | False alarms on fault-free flights | 13.6 % [10.3, 17.7], 1.6 per hour | the same |
+
+  Survival by fault category, B1 / B2:
+
+  | Category | B1 | B2 |
+  |---|---|---|
+  | None | 99.7 % | 99.7 % |
+  | Sensor | 86.4 % | 88.3 % |
+  | Actuator | 66.7 % | 66.7 % |
+  | Propulsion | 75.0 % | 93.2 % |
+  | Energy | 100 % | 100 % |
+  | Airframe | 100 % | 100 % |
+  | Two faults | 66.6 % | 73.3 % |
+
+  - B1's four motor-cut "survivors" were still gliding when the 5-minute flight ended.
+  - Of B2's 34 motor cuts, 25 had a reachable field (17 landed inside it); 9 had none and
+    landed straight ahead.
+  - B2 survives 39 scenarios that B1 does not, and B1 six that B2 does not. In those six the
+    contingency's landing crashed: four involve a thermal derate (partial power) that the
+    ESC detector classifies as a motor failure; one a sagging battery with a stuck airspeed
+    sensor; one a motor cut with a cell failure.
+  - The false alarms are the stock airspeed check: the DCM-class wind estimate lags and
+    drifts in strong, gusty wind. Flagged fault-free flights have a median wind of 70 % of
+    cruise speed, against 41 % for fault-free flights overall; 17 of the 42 fault-free
+    flights in moderate turbulence are flagged. This is M4's target.
+  - Airspeed faults are flagged after 28 s on average (slow drifts take time to cross the
+    threshold).
+- **Throughput, CPU** (Apple M2 Pro, 10 cores, float32; 10 airframes cycled with per-lane wind,
+  turbulence and a fault):
+
+  | Batch | Simulator steps/s | Closed-loop steps/s |
+  |---|---|---|
+  | 64 | 450,538 | 214,365 |
+  | 256 | 517,433 | 234,808 |
+  | 1,024 | 563,510 | 227,138 |
+  | 4,096 | 850,559 | 302,538 |
+
+  The GPU run (`notebooks/gpu_throughput.ipynb`) is open question 1.
+- **V22:** the same seed gives the same table, and B2 ≥ B1 on motor-cut survival (full tier,
+  sample fleet).
+- **Live:**
+  - calm air removes the crab angle (0.2° median vs 9.7°);
+  - a 12 m/s crosswind gives a 27° crab angle (29° predicted).
+
+**Deviations**
+
+1. **Start-up bugs found by the bench, fixed.**
+   - Trimmed starts held the trim relative to the ground, so an airborne start in wind had
+     the wrong airspeed: a 15.5 m/s aircraft with a 10.9 m/s tailwind started at 4.6 m/s.
+   - The navigator's wind estimate started at zero and only updates while the airspeed is
+     healthy. Its airspeed check compares against that estimate, so a strong wind flagged
+     the sensor for good.
+   - The start velocity now includes the wind. The harness warm-starts the wind estimate at
+     the steady wind, as after a climb-out (privileged initial knowledge, so it is in the
+     harness, not the stack).
+   - The deadlock itself remains a stock-stack weakness in flight.
+   - The M1 goldens were regenerated; their outcomes are unchanged.
+2. **Golden landing metrics.** Contingency landings now gate when and where the final
+   approach starts, and whether the landing is in the zone, not the touchdown point.
+   - The flare starts from the barometric height estimate, a few metres off near the
+     ground. The float then lasted 13 s analytically vs 7 s with tabulated aero on an
+     otherwise identical flight, 50 m apart at touchdown.
+   - `tools/update_goldens.py` now runs in float64, as the tests do.
+3. **Bench turbulence follows the wind** (Dryden's levels are defined by W20), rather than
+   being drawn independently. Severe turbulence in a 4 m/s wind is not a consistent
+   atmosphere.
+4. **The Rascal first flight moves to M3 week 1** (D4, Should; third in the slip order).
+   V20 and the bench took the time; it needs a datasheet airframe from generator geometry
+   and native JSBSim engine and FCS mapping.
+5. **V20 stays below 90 % (D6).** The tuner was made robust and the stack gained the rudder
+   mix. With the start-up fixes, 80.6 % became 85.5 %.
+   - The remaining failures are marginal and spread over four requirements.
+   - The next steps are tuning inside the loop for limit cycles (deadband-aware rate gains),
+     an integrator check for roll steady-state error, and climb-rate limits from measured
+     rather than modelled excess power.
+   - The criteria are unchanged. D6 carries into M3 week 1. Bench v0 uses the 855 accepted
+     airframes, which spec §6 allows.
+
+**Definition of Done status (M2)**
+
+| # | Status |
+|---|---|
+| D1 CI green | ✅ |
+| D2 Aero v2 | ✅ |
+| D3 JSBSim + V14 | ✅ |
+| D4 Rascal (Should) | ⏳ M3 week 1 (deviation 4) |
+| D5 Generator | ✅ |
+| D6 Auto-configuration ≥ 90 % (V20) | ❌ 85.5 %, failures characterised (deviation 5) |
+| D7 faultlab | ✅ 30 kinds, events, five confounded pairs (V21) |
+| D8 Bench v0 | ✅ 1,000 scenarios, B1/B2 with intervals, one command, V22 |
+| D9 Throughput | ✅ CPU recorded (0.85 M simulator steps/s on a laptop); GPU ⏳ (open question 1) |
+| D10 Live mode | ✅ (now with wind control) |
+| D11 Demo and write-up | ✅ video from seeds (`tools/make_demo_m2.py` → `runs/demo/m2_demo.mp4`, 88 s: a live session, then the fleet view), `docs/demo/m2.md`, `docs/blog/m2_draft.md`, report M2 sections |

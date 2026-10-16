@@ -9,6 +9,7 @@ aeroadapt export-viz <bundle> [--to DIR]       copy a bundle's browser files for
 aeroadapt fleet <id> --n N [--start K]         generate a fleet bundle (runs/fleets/<id>)
 aeroadapt fleet-accept <fleet> [--n N]         V20: configure, tune and accept a fleet
 aeroadapt fleet-sample <fleet> <v20>           the committed sample: V20-accepted, tuned
+aeroadapt bench-run <spec> [--n N]             bench v0: B1/B2 over sampled scenarios (runs/bench)
 aeroadapt serve [--scenario ID] [--port P]     live server for Skyview (?live=ws://localhost:P)
 """
 
@@ -159,6 +160,24 @@ def _fleet_sample(args: argparse.Namespace) -> int:
     return 0
 
 
+def _bench_run(args: argparse.Namespace) -> int:
+    from aeroadapt.bench.run import run_bench, summary, write_bench
+    from aeroadapt.bench.sampler import load_bench_spec
+
+    spec = load_bench_spec(args.spec)
+    if args.n is not None:
+        spec = spec.model_copy(update={"n": args.n})
+    out = Path(args.out or f"runs/bench/{spec.id}")
+    result = run_bench(spec, out_dir=out)
+    write_bench(out, result)
+    for b, s in summary(result)["baselines"].items():
+        sv, mc = s["survival"], s["motor_cut"]["survival"]
+        print(f"{b}: survival {sv['rate']:.1%} [{sv['lo']:.1%}, {sv['hi']:.1%}] of {sv['n']}; "
+              f"motor cut {mc['rate']:.1%} of {mc['n']}")  # fmt: skip
+    print(f"→ {out}")
+    return 0
+
+
 def _serve(args: argparse.Namespace) -> int:
     import asyncio
 
@@ -216,6 +235,11 @@ def main(argv: list[str] | None = None) -> int:
     fs.add_argument("--per-class", type=int, default=2)
     fs.add_argument("--out", default="configs/fleets/sample")
     fs.set_defaults(func=_fleet_sample)
+    br = sub.add_parser("bench-run", help="bench v0: baselines over sampled scenarios (§8)")
+    br.add_argument("spec", help="bench spec id (configs/bench) or path")
+    br.add_argument("--n", type=int, default=None, help="override the number of scenarios")
+    br.add_argument("--out", help="output directory (default: runs/bench/<id>)")
+    br.set_defaults(func=_bench_run)
     sv = sub.add_parser("serve", help="live server: fly a scenario and inject faults from Skyview")
     sv.add_argument("--scenario", default="m1-nominal")
     sv.add_argument("--port", type=int, default=8765)

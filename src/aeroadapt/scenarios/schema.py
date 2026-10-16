@@ -115,7 +115,11 @@ class StackChoice(_Strict):
     # airframes without ESC telemetry). None: as in the stack parameter set.
     motor_detector: Literal["esc", "energy"] | None = None
     estimator: Literal["navigator"] = "navigator"
-    params: str | None = Field(default=None, description="configs/stack/<id>; default: airframe")
+    params: str | None = Field(
+        default=None,
+        description="configs/stack/<id>, or a fleet run's tuned stacks (a directory with "
+        "stack_cfgs.jsonl); default: the airframe's id",
+    )
 
 
 class Scenario(_Strict):
@@ -124,6 +128,8 @@ class Scenario(_Strict):
     description: str = ""
     site: str
     airframe: str
+    # A fleet bundle (id under runs/fleets, or a path): the airframe is one of its airframes.
+    fleet: str | None = None
     seed: int = Field(default=0, ge=0)
     duration_s: float = Field(gt=0, le=3600)
     initial: InitialCfg = InitialCfg()

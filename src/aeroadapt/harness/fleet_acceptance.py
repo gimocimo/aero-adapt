@@ -27,7 +27,7 @@ from aeroadapt.harness.closed_loop import LoopLog, closed_loop
 from aeroadapt.scenarios.site import Site
 from aeroadapt.sim.aerojax import SimConfig, init_state, make_env
 from aeroadapt.sim.aerojax.actuators import target_to_command
-from aeroadapt.sim.aerojax.atmosphere import isa
+from aeroadapt.sim.aerojax.atmosphere import isa, steady_wind
 from aeroadapt.sim.aerojax.battery import open_circuit_voltage
 from aeroadapt.sim.aerojax.environment import Environment, EnvParams
 from aeroadapt.sim.aerojax.state import RigidBodyState
@@ -128,13 +128,13 @@ def _initial(vps: Sequence[VehicleParams], env: EnvParams, v0: np.ndarray, keys:
                              jnp.asarray(v0, jnp.float64))  # fmt: skip
         z, res = np.asarray(z), np.asarray(res)
     states, cmds = [], []
+    wind = steady_wind(env.wind, jnp.asarray(ALT0))  # the trim holds relative to the air
     for i, vp in enumerate(vps):
         a, th = z[i, 0], z[i, 1]
-        vel = v0[i] * np.array([math.cos(a), 0.0, math.sin(a)])
+        air = v0[i] * np.array([math.cos(a), 0.0, math.sin(a)])
         q = quaternion.from_euler(z[i, 2], th, 0.0)
-        states.append(
-            RigidBodyState(jnp.array([0.0, 0.0, -ALT0]), jnp.asarray(vel), q, jnp.zeros(3))
-        )
+        vel = quaternion.ned_to_body(q, quaternion.body_to_ned(q, jnp.asarray(air)) + wind)
+        states.append(RigidBodyState(jnp.array([0.0, 0.0, -ALT0]), vel, q, jnp.zeros(3)))
         cmds.append(target_to_command(vp.airframe, vp.actuators, jnp.asarray(z[i, 3:7])))
 
     def one(vp, rb, cmd, key):
@@ -147,7 +147,14 @@ def _initial(vps: Sequence[VehicleParams], env: EnvParams, v0: np.ndarray, keys:
 def _fly(
     vp, env, sp, mission, sim0, z0, mode: int, n: int, guided, every: int, keys: Array
 ) -> LoopLog:
-    st0 = jax.vmap(lambda s, z: stack_init(s, z, mode))(sp, z0)
+    # The navigator's wind estimate starts converged, as in every harness flight (warm_wind).
+    w = steady_wind(env.wind, jnp.asarray(ALT0)) * jnp.array([1.0, 1.0, 0.0])
+
+    def init(s, z):
+        st = stack_init(s, z, mode)
+        return st._replace(nav=st.nav._replace(wind=w.astype(st.nav.wind.dtype)))
+
+    st0 = jax.vmap(init)(sp, z0)
 
     def one(vp, sp, mission, sim0, st0, z0, key):
         return closed_loop(

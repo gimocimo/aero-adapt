@@ -110,10 +110,21 @@ class FlightStack:
     def _vector(self, frame: SensorFrame) -> np.ndarray:
         return pack_sensors(arrays_from_frame(frame, self._origin))
 
-    def reset(self, frame: SensorFrame, mission: Mission, mode: int = MODE_AUTO) -> None:
-        """Initialise (align) from the first sensor frame and load the mission."""
+    def reset(
+        self,
+        frame: SensorFrame,
+        mission: Mission,
+        mode: int = MODE_AUTO,
+        wind_ned: np.ndarray | None = None,
+    ) -> None:
+        """Initialise (align) from the first sensor frame and load the mission. ``wind_ned``
+        starts the wind estimate converged, as after a climb-out (a harness's warm start)."""
         self._mission = jax.device_put(mission)
-        self._state = self._init(self._vector(frame), mode)
+        state = self._init(self._vector(frame), mode)
+        if wind_ned is not None:
+            w = jnp.asarray(np.asarray(wind_ned, dtype=float) * [1.0, 1.0, 0.0])
+            state = state._replace(nav=state.nav._replace(wind=w.astype(state.nav.wind.dtype)))
+        self._state = state
 
     def step(self, frame: SensorFrame) -> tuple[ActuatorCommand, StackTelemetry]:
         if self._state is None or self._mission is None:

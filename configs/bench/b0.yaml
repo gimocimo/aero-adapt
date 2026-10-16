@@ -1,0 +1,13 @@
+# Bench v0 (M2 spec §8): stock baselines over sampled scenarios on the test split of the
+# V20-accepted fleet. `aeroadapt bench-run b0` reproduces it (needs the fleet and its V20 run:
+# `aeroadapt fleet m2-fleet --n 10000`, `aeroadapt fleet-accept m2-fleet --n 1000`).
+id: b0
+description: >-
+  1,000 scenarios: test-split airframes, random closed-loop missions, wind up to 80 % of cruise
+  speed with turbulence, gusts, shear and thermals, and none, one or two faults of any kind.
+fleet: m2-fleet
+stacks: runs/v20/m2-fleet
+split: test
+n: 1000
+seed: 2026
+duration_s: 300

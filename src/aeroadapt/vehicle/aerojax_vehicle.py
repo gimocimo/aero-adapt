@@ -20,7 +20,7 @@ from aeroadapt.faultlab import FaultConfig, fault_labels, no_faults
 from aeroadapt.scenarios import Site
 from aeroadapt.sim.aerojax import EnvParams, RigidBodyState, SimConfig, init_state, sim_step
 from aeroadapt.sim.aerojax.actuators import target_to_command
-from aeroadapt.sim.aerojax.atmosphere import isa
+from aeroadapt.sim.aerojax.atmosphere import event_wind, isa, steady_wind
 from aeroadapt.sim.aerojax.battery import open_circuit_voltage
 from aeroadapt.sim.aerojax.environment import Environment
 from aeroadapt.sim.aerojax.sim import SimState, StepInfo
@@ -41,7 +41,8 @@ def trimmed_start(
 ) -> tuple[RigidBodyState, np.ndarray]:
     """Straight-and-level trim at the requested airspeed and height. Returns the state
     (rotated to the requested heading and placed at the requested position) and the
-    normalised command that holds it."""
+    normalised command that holds it. The trim holds relative to the air: the start velocity
+    over the ground includes the wind at the start point."""
     vp = to_vehicle_params(airframe)
     _, _, rho = isa(env.isa, env.isa.alt_origin_msl_m + initial.alt_agl_m)
     v_supply = float(open_circuit_voltage(vp.battery, jnp.asarray(initial.soc)))
@@ -55,9 +56,13 @@ def trimmed_start(
     if not tr.success:
         raise ValueError(f"no trim for {initial}")
     q = quaternion.from_euler(tr.phi, tr.theta, math.radians(initial.heading_deg))
+    pos = jnp.asarray([*initial.pos_ne_m, -initial.alt_agl_m])
+    h = jnp.asarray(initial.alt_agl_m)
+    wind = steady_wind(env.wind, h) + event_wind(env.events, pos, h, jnp.asarray(0.0))
+    air_ned = quaternion.body_to_ned(q, jnp.asarray(tr.state.vel_body))
     state = RigidBodyState(
-        pos_ned=jnp.asarray([*initial.pos_ne_m, -initial.alt_agl_m]),
-        vel_body=jnp.asarray(tr.state.vel_body),
+        pos_ned=pos,
+        vel_body=quaternion.ned_to_body(q, air_ned + wind),
         quat=jnp.asarray(q),
         omega=jnp.zeros(3),
     )

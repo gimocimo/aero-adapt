@@ -1,0 +1,9 @@
+# A small bench on the committed sample fleet (CI and V22): every airframe, short flights.
+id: sample
+fleet: configs/fleets/sample
+stacks: configs/fleets/sample
+split: all
+n: 6
+seed: 7
+duration_s: 120
+faults: {onset_s: [20, 60]}

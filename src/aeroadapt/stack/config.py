@@ -7,6 +7,7 @@ simulator or fault ground truth (ADR-006).
 
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 from typing import NamedTuple
@@ -145,8 +146,19 @@ class StackCfg(_Strict):
     contingency: ContingencyCfg
 
 
-def load_stack_cfg(name_or_path: str | Path) -> StackCfg:
+def load_stack_cfg(name_or_path: str | Path, airframe_id: str | None = None) -> StackCfg:
+    """By id (``configs/stack/<id>.yaml``), by path, or from a fleet run's tuned stacks: a
+    directory with ``stack_cfgs.jsonl`` (``aeroadapt fleet-accept``), for ``airframe_id``."""
     path = Path(name_or_path)
+    for d in (path, STACK_DIR.parents[1] / path):
+        if (d / "stack_cfgs.jsonl").exists():
+            if airframe_id is None:
+                raise ValueError(f"{d} holds tuned stacks: name the airframe")
+            for line in (d / "stack_cfgs.jsonl").read_text().splitlines():
+                row = json.loads(line)
+                if row["airframe"] == airframe_id:
+                    return StackCfg.model_validate(row["stack"])
+            raise KeyError(f"no tuned stack for {airframe_id} in {d}")
     if path.suffix not in {".yaml", ".yml"}:
         path = STACK_DIR / f"{name_or_path}.yaml"
     with path.open() as f:

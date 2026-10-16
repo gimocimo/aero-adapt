@@ -28,6 +28,7 @@ from aeroadapt.core.messages import SensorArrays
 from aeroadapt.faultlab import FaultConfig, FaultLabels, no_faults
 from aeroadapt.scenarios import Site
 from aeroadapt.sim.aerojax import EnvParams, SimConfig, SimState, init_state, sim_step
+from aeroadapt.sim.aerojax.atmosphere import steady_wind
 from aeroadapt.stack.autopilot import MODE_AUTO, StackState, stack_init, stack_step
 from aeroadapt.stack.config import StackParams, build_stack_params, load_stack_cfg
 from aeroadapt.stack.types import Mission, Target
@@ -243,6 +244,19 @@ class LoopSetup:
         )
 
 
+def warm_wind(stack0: StackState, env: EnvParams, initial: InitialCondition) -> StackState:
+    """Start the navigator's wind estimate at the steady wind, as after a climb-out.
+
+    Scenarios start airborne. A zero estimate in a strong wind makes the airspeed check
+    (|TAS - |v_ground - wind|| over its threshold) flag the sensor within seconds, and the
+    estimate only updates while the airspeed is healthy, so it would never recover. A real
+    flight converges the estimate during the climb; this is that, done at once (privileged
+    initial knowledge, so it lives in the harness, not the stack)."""
+    nav = stack0.nav
+    w = steady_wind(env.wind, jnp.asarray(initial.alt_agl_m)) * jnp.array([1.0, 1.0, 0.0])
+    return stack0._replace(nav=nav._replace(wind=w.astype(nav.wind.dtype)))
+
+
 def setup_loop(
     airframe: Airframe,
     site: Site,
@@ -266,6 +280,6 @@ def setup_loop(
     sim0, z0 = init_state(
         vp, env, fc, rb0, jnp.asarray(cmd0), jax.random.PRNGKey(seed), initial.soc, config
     )
-    stack0 = stack_init(sp, z0, mode)
+    stack0 = warm_wind(stack_init(sp, z0, mode), env, initial)
     vp, env, fc, sp = jax.device_put((vp, env, fc, sp))
     return LoopSetup(vp, env, fc, sp, sim0, stack0, z0, config)

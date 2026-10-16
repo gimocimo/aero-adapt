@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from aeroadapt.airframes import Airframe, load_airframe
+from aeroadapt.airframes.fleet import fleet_path, load_fleet_airframe
 from aeroadapt.core.frames import wind_from_to_ned
 from aeroadapt.faultlab import FaultConfig, build_fault_config
 from aeroadapt.scenarios.schema import EventsCfg, Scenario
@@ -76,10 +77,24 @@ def build_env(scenario: Scenario, site: Site) -> EnvParams:
     )
 
 
-def resolve(scenario: Scenario, config: SimConfig = SimConfig()) -> ResolvedScenario:  # noqa: B008
-    airframe = load_airframe(scenario.airframe)
+def resolve(
+    scenario: Scenario,
+    config: SimConfig = SimConfig(),  # noqa: B008
+    *,
+    airframe: Airframe | None = None,
+    stack_cfg: StackCfg | None = None,
+) -> ResolvedScenario:
+    """``airframe`` and ``stack_cfg`` skip loading them (a bench resolves many scenarios of the
+    same fleet)."""
+    if airframe is None:
+        airframe = (
+            load_fleet_airframe(fleet_path(scenario.fleet), scenario.airframe)
+            if scenario.fleet
+            else load_airframe(scenario.airframe)
+        )
     site = load_site(scenario.site)
-    stack_cfg = load_stack_cfg(scenario.stack.params or scenario.airframe)
+    if stack_cfg is None:
+        stack_cfg = load_stack_cfg(scenario.stack.params or scenario.airframe, scenario.airframe)
     if stack_cfg.airframe != airframe.id:
         raise ValueError(f"stack params {stack_cfg.id} are for {stack_cfg.airframe}")
     sp = build_stack_params(stack_cfg, airframe, site, config.dt_control)

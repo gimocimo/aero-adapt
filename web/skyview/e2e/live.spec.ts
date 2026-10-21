@@ -62,11 +62,12 @@ test("txt2fly: a typed plan is checked, confirmed and flown", async ({ page }) =
   await expect(page.getByTestId("clock")).toContainText("LIVE", { timeout: 60_000 });
 
   await page.getByTestId("plan-tab").click();
+  // A circle the aircraft cannot hold, over a no-fly area: flown as closely as allowed, with
+  // every change explained.
   await page.getByRole("button", { name: "Church, 30 m circle" }).click();
   await page.getByTestId("plan-check").click();
-  await expect(page.getByTestId("plan-verdict")).toContainText("Cannot fly", { timeout: 30_000 });
-  await expect(page.getByTestId("plan-proposal")).toContainText("limited to 45°");
-  await expect(page.getByTestId("plan-confirm")).toBeDisabled();
+  await expect(page.getByTestId("plan-notes")).toContainText("the tightest it can", { timeout: 30_000 });
+  await expect(page.getByTestId("plan-notes")).toContainText("within Coton village (no-fly)");
 
   await page.getByRole("button", { name: "Patrol A, B, C" }).click();
   await page.getByTestId("plan-check").click();

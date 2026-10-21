@@ -140,7 +140,7 @@ def test_steps_become_items(gaz: Gazetteer, ac: Aircraft) -> None:
         {"do": "orbit", "target": _place("field F"), "radius_m": 150, "duration_s": 60},
         {"do": "return_home"},
     )
-    b = build(plan, ac, gaz)
+    b = build(plan, ac, gaz, adapt=False)  # literally: one item layout to check
     assert not b.errors
     kinds = [it.kind for it in b.items]
     assert kinds == [ITEM_WAYPOINT, ITEM_WAYPOINT, ITEM_FLYOVER, ITEM_WAYPOINT,
@@ -162,14 +162,16 @@ def test_steps_become_items(gaz: Gazetteer, ac: Aircraft) -> None:
 
 def test_patrol_laps_and_battery_sizing(gaz: Gazetteer, ac: Aircraft) -> None:
     targets = [_place("field A"), _place("field B"), _place("field C")]
-    three = build(_plan({"do": "patrol", "targets": targets, "laps": 3}), ac, gaz)
-    jump = three.items[-1]
-    assert jump.kind == ITEM_JUMP and jump.p1 == 0 and jump.p2 == 2
+    three = build(_plan({"do": "patrol", "targets": targets, "laps": 3}), ac, gaz, adapt=False)
+    jump = next(it for it in three.items if it.kind == ITEM_JUMP)
+    assert jump.p1 == 0 and jump.p2 == 2
     assert three.energy is not None and three.energy.laps == 3
     until = build(_plan({"do": "patrol", "targets": targets}), ac, gaz)
     e = until.energy
     assert e is not None and e.laps is not None and e.laps > 3
-    assert until.items[-1].p2 == e.laps - 1
+    jump = next(it for it in until.items if it.kind == ITEM_JUMP)
+    assert until.items[int(jump.p1)].kind in (ITEM_FLYOVER, ITEM_WAYPOINT)
+    assert jump.p2 == e.laps - 1 and until.items[-1].kind == ITEM_RTL
     assert e.needed_mah is not None and e.needed_mah <= e.available_mah
     assert any("laps before the battery reserve" in n for n in until.notes)
 
@@ -189,7 +191,9 @@ def _failed(r) -> set[str]:
 
 
 def test_the_church_at_30_m_is_explained(gaz: Gazetteer, ac: Aircraft) -> None:
-    r = check(build(load_plan(PLANS / "church_30m.yaml"), ac, gaz), gaz)
+    """Taken literally, the checker refuses it and says why; the planner flies the closest
+    allowed circle and says what it changed."""
+    r = check(build(load_plan(PLANS / "church_30m.yaml"), ac, gaz, adapt=False), gaz)
     assert not r.ok
     k2 = next(c for c in r.checks if c.rule == "K2")
     assert "needs 73° of bank at 25 m/s in this wind" in k2.reason
@@ -198,6 +202,11 @@ def test_the_church_at_30_m_is_explained(gaz: Gazetteer, ac: Aircraft) -> None:
     assert "Coton village" in next(c for c in r.checks if c.rule == "K8").reason
     js = report_json(r)
     assert js["ok"] is False and js["preview"] and js["plan"]["steps"][0]["do"] == "orbit"
+    a = check(build(load_plan(PLANS / "church_30m.yaml"), ac, gaz), gaz)
+    assert a.ok
+    notes = " ".join(a.built.notes)
+    assert "would need 73° of bank" in notes and "circles at 120 m, the tightest it can" in notes
+    assert "is within Coton village (no-fly): circles the nearest place clear of it" in notes
 
 
 def test_good_plans_pass(gaz: Gazetteer, ac: Aircraft) -> None:
@@ -207,8 +216,10 @@ def test_good_plans_pass(gaz: Gazetteer, ac: Aircraft) -> None:
 
 
 def test_each_rule_catches_its_violation(gaz: Gazetteer, ac: Aircraft) -> None:
+    """Plans taken literally: every rule catches its violation."""
+
     def failed(*steps: dict) -> set[str]:
-        return _failed(check(build(_plan(*steps), ac, gaz), gaz))
+        return _failed(check(build(_plan(*steps), ac, gaz, adapt=False), gaz))
 
     assert "K4" in failed({"do": "pass_over", "target": _place("field A"), "alt_m": 150})
     assert "K4" in failed({"do": "pass_over", "target": _place("field A"), "alt_m": 25})
@@ -247,3 +258,26 @@ def test_airframe_matters(gaz: Gazetteer) -> None:
     circle = {"do": "orbit", "target": _place("field B"), "radius_m": 30, "turns": 1}
     r = check(build(_plan(circle), ac, gaz), gaz)
     assert next(c for c in r.checks if c.rule == "K2").ok
+
+
+def test_requests_are_adapted_and_explained(gaz: Gazetteer, ac: Aircraft) -> None:
+    """The planner flies the closest allowed version of a request and says what changed;
+    only what nothing can fix (here the battery) is refused."""
+
+    def adapted(*steps: dict) -> tuple[bool, str]:
+        r = check(build(_plan(*steps), ac, gaz), gaz)
+        return r.ok, " ".join(r.built.notes)
+
+    ok, notes = adapted({"do": "pass_over", "target": _place("field A"), "alt_m": 150})
+    assert ok and "at 120 m, the ceiling here (asked 150 m)" in notes
+    ok, notes = adapted({"do": "set_speed", "speed": 45.0},
+                        {"do": "pass_over", "target": _place("field A")})  # fmt: skip
+    assert ok and "the nearest this aircraft can fly (asked 45)" in notes
+    wood = {"do": "orbit", "target": _place("Rowan's Wood"), "radius_m": 150, "turns": 1}
+    ok, notes = adapted(wood)
+    assert ok and "Rowan's Wood" in notes
+    many = {"do": "patrol", "targets": [_place("field A"), _place("field C")], "laps": 400}
+    assert not adapted(many)[0]
+    beyond = {"do": "goto", "target": _place("Saint Peter (Coton Parish Church)")}
+    ok, notes = adapted(beyond, {"do": "return_home"})
+    assert ok and "goes to the nearest place clear of it" in notes

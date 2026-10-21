@@ -194,3 +194,19 @@ def test_battery_reserve_switches_to_rtl(sp: StackParams) -> None:
     legacy = mission_from_items([Item(ITEM_WAYPOINT, 900.0, 0.0, 120.0)])  # rtl_mah 0: off
     ap, _ = _mission_step(sp, _ap(), jnp.asarray([0.0, 0.0]), legacy, used_mah=jnp.asarray(1e6))
     assert int(ap.mode) == MODE_AUTO
+
+
+def test_loiter_ends_at_once_when_the_next_item_is_inside_the_circle(sp: StackParams) -> None:
+    """ArduPlane's verify_loiter_heading: the course never points at a point inside the
+    circle, so the loiter ends once its turns are done."""
+    m = mission_from_items([Item(ITEM_LOITER_TURNS, 0, 0, 120, radius=150.0, p1=1.0),
+                            Item(ITEM_WAYPOINT, 60.0, 40.0, 120.0)])  # fmt: skip
+    states = _circle(sp, m, radius=150.0, direction=1.0, start_deg=0.0, step_deg=5.0, n=90)
+    idx = [int(a.wp_idx) for a, _ in states]
+    assert 1 in idx and 360.0 <= 5.0 * idx.index(1) < 370.0
+    # … and towards home when the next item is RTL.
+    rtl = mission_from_items([Item(ITEM_LOITER_TURNS, 0, 0, 120, radius=150.0, p1=1.0),
+                              Item(ITEM_RTL)], home=(0.0, 1000.0, 120.0))  # fmt: skip
+    states = _circle(sp, rtl, radius=150.0, direction=1.0, start_deg=0.0, step_deg=5.0, n=90)
+    modes = [int(a.mode) for a, _ in states]
+    assert MODE_RTL in modes and 360.0 <= 5.0 * modes.index(MODE_RTL) < 420.0

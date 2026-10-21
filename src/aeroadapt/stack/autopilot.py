@@ -168,7 +168,8 @@ def _mission_step(
       made, so the climb or descent is spread over the leg; a smaller change is flown at once.
     * LOITER_TURNS / LOITER_TIME: circle the item; turns or time count from capture (on the
       circle), and the loiter ends once they are done and the course points at the next item
-      (ArduPlane's "heading required" exit). LOITER_UNLIM never ends.
+      (ArduPlane's "heading required" exit; at once if that item is inside the circle).
+      LOITER_UNLIM never ends.
     * JUMP: resolved when sequencing past it; RTL: switches to the RTL mode.
     * Leaving a loiter starts the next leg where the aircraft is; leaving a waypoint, at it.
     * Failsafes (when ``height`` / ``used_mah`` are given): leaving the geofence or climbing
@@ -198,8 +199,14 @@ def _mission_step(
     turned = jnp.where(captured & ~newly, ap.turned + direction * step, 0.0)
     t_capture = jnp.where(newly, t, ap.t_capture)
     nxt, jumps, end = _next_item(mission, i, ap.jumps)
-    to_next = wps[nxt, :2] - pos
-    heading_ok = vel @ to_next >= LOITER_EXIT_COS * jnp.linalg.norm(vel) * jnp.linalg.norm(to_next)
+    # The next item's position (home for RTL); one inside the circle ends the loiter at once
+    # (as ArduPlane's verify_loiter_heading does), since the course never points at it.
+    nxt_pos = jnp.where(kind[nxt] == ITEM_RTL, jnp.asarray(mission.home)[:2], wps[nxt, :2])
+    to_next = nxt_pos - pos
+    heading_ok = jnp.logical_or(
+        vel @ to_next >= LOITER_EXIT_COS * jnp.linalg.norm(vel) * jnp.linalg.norm(to_next),
+        jnp.linalg.norm(nxt_pos - b) < radius,
+    )
     counted = jnp.where(k == ITEM_LOITER_TURNS, turned >= 2.0 * jnp.pi * prm[i, 1],
                         t - t_capture >= prm[i, 1])  # fmt: skip
     loiter_done = jnp.logical_and(

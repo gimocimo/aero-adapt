@@ -94,11 +94,21 @@ function Proposal({ p, ack, setAck }: { p: PlanProposal; ack: Record<string, boo
           </li>
         ))}
       </ol>
-      {[...p.assumptions, ...p.notes].map((n, i) => (
+      {p.assumptions.map((n, i) => (
         <p key={i} className="note">
-          {n}
+          Reading: {n}
         </p>
       ))}
+      {p.notes.length > 0 && (
+        <div className="changes" data-testid="plan-notes">
+          <h3>How it will fly it</h3>
+          <ul>
+            {p.notes.map((n, i) => (
+              <li key={i}>{n}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       <ul className="checks">
         {p.checks.map((c) => (
           <CheckRow key={c.rule} c={c} />

@@ -43,6 +43,11 @@ auto-configuration at 90 % (D6) and the Rascal (D4).
 3. **Feasibility is physics, not prompting.** Turn radius, altitude, energy and glide reach come from
    the airframe's own configuration and the current wind estimate. The model is given the same
    numbers so that its suggestions are sensible, but the checker decides.
+3b. **Always a flyable plan** (the owner's request, 21 Oct 2026). The builder treats the request
+   as the goal. It searches for the closest version that keeps every rule and says what it
+   changed: a tighter circle the aircraft can hold, a height inside the band, a route round a
+   no-fly area, the nearest allowed place to one inside it. Hard rules are never relaxed;
+   only what nothing can fix (a battery too small for the plan) is refused.
 4. **Reproducible from the plan, not the text.** The model's replies vary from run to run, so the
    session log records the validated plan. Replays never call the model. The evaluation reports
    the variation (§11).
@@ -275,12 +280,38 @@ Suggestions round up to the next 10 m.
 - The flown track differs from the preview (gusts, navigation error, the full dynamics); V26
   measures by how much.
 
-**Adapting to the site** (added in week 9). When the preview comes within the tracking margin
-of a no-fly area or the geofence after crossing a place, the builder blames that crossing and
-tries again: first the pass's other directions (along the field either way, then across it),
-then crossing points further inside the field from the area. It previews at most 10 distinct
-attempts and keeps the clearest; the plan's notes say what changed ("crosses field C away
-from its middle, to keep the turns clear of the M11 motorway"). The checker judges the result.
+**Realising the request** (week 9, revised the same day so that a request always yields a
+flyable plan where one exists):
+
+- **Each step has options**, the request first and then nearby versions:
+  - circles: the radius asked (or the tightest the aircraft can hold, if tighter was asked),
+    a larger and a tighter one, the centre moved while the place stays inside the circle, the
+    other way round;
+  - passes: along the place either way, across it, at a slant; the middle, or a point inside
+    the place with room to turn; full runs, shorter runs, or a pass over part of a large place;
+  - patrols: the order given or reversed, visits over each place or by it (turning early),
+    places moved for room;
+  - heights and airspeeds outside the allowed band are brought inside it;
+  - a place inside a no-fly area or beyond the geofence: the nearest reachable place clear
+    of it, with more and more room to turn.
+- **Routes** go round no-fly areas (A* on the site's clearance map, pulled taut), on the way
+  to a step, between a patrol's places and on the way home.
+- **Turns are made certain.** A waypoint is added where a path meets a circle (a loiter, or RTL's
+  circle over home), already going its way round; a turn point fixes the side where the route
+  doubles back; waypoints closer together than 1.5 acceptance radii are merged. A left and a
+  right turn are otherwise nearly as short, and the aircraft and the preview could take
+  different ones (V25 found tracks 300 m apart before this).
+- **The preview is conservative:** it banks 5° short of the roll limit, so its turns are a little
+  wider than the aircraft's.
+- **Beam search.** For each step all options fly at once in the preview (`vmap`), from where the
+  previous step left the aircraft; the best three partial plans go on. Clear of every no-fly
+  area by the margin plus 10 m comes first, then closest to the request, then quickest. The six
+  best complete plans are then flown in full, in order, until one keeps clear. If none does,
+  the search runs again asking for twice, then three times, the room to turn.
+- **Every change is a note** the operator reads before confirming ("circle field C: centred 84 m
+  north-west of it (still over it), to keep clear of M11 motorway (no-fly)").
+- `build(..., adapt=False)` takes a plan literally; the checker's tests use it to show every
+  rule catching its violation.
 
 ---
 
@@ -660,3 +691,50 @@ Never cut the checker, the confirm step, the safety invariant or replay determin
 | T10 Glide landing | ⏳ (Should) |
 | T11 Demo and write-up | ⏳ week 10 |
 | T12 Survey | ⏳ (Could) |
+
+### Week 9, follow-up (21 Oct 2026): always a flyable plan
+
+The owner tried the live panel and found that most proposals were refused: the builder took
+requests literally (a 30 m circle, a height above the ceiling, a field beside the M11) and
+adapted little. It now realises each request as closely as the rules allow (§6, *Realising the
+request*), and says what it changed.
+
+**Built**
+
+- `txt2fly/routing.py`: the site's clearance map (10 m grid, within 3.5 m of the exact
+  distances) and routes round no-fly areas (A*, pulled taut; only reachable places count,
+  since a pocket between the M11 and the campus is clear but cut off).
+- `txt2fly/builder.py` rewritten: options per step, routes, a batched beam search (`vmap`),
+  finalists flown in full, a retry with more room to turn, and the turn-certainty pass
+  (circle joins, reversal turn points, merged waypoints).
+- The stack: a loiter whose next item lies inside its circle now ends once its turns are done
+  (as ArduPlane's `verify_loiter_heading`); before, the course never pointed at the item and
+  the loiter never ended. The planner's preview found it.
+- Skyview: the planner's notes under "How it will fly it".
+
+**Results**
+
+- **Requests that come back flyable:** 300 of 300 random requests (Aerosonde and a fleet
+  twin-boom, calm and 6 m/s, from points of the waiting circle; places anywhere in the
+  gazetteer, including inside no-fly areas and beyond the geofence). Before: 33 of 60.
+- **The panel's examples:** 360 of 360 (five plans × 24 start points × three winds up to
+  10 m/s).
+- **In flight (V25):** the 200 random plans, flown in the full simulator, keep at least 29 m
+  from every no-fly area and the geofence's edge. On the way there, V25 found three ways a
+  flight could leave its preview by up to 300 m, all now closed:
+  1. near-reversals (the aircraft and the preview turning opposite ways);
+  2. joining a circle the wrong way round;
+  3. clusters of waypoints passed within a second.
+
+  The flown track now stays within 70 m of its preview (41 m at the 90th percentile), the
+  preview's turns being slightly wider by design.
+- **Speed:** about 1 s per request on average, 2.2 s at the 95th percentile, 7 s at worst
+  (a retry with more room).
+
+**Deviations from the spec**
+
+- §6: the builder adapts the request instead of the checker refusing it; the checker is
+  unchanged and still judges the final mission. `build(..., adapt=False)` keeps the literal
+  reading for tests.
+- §6: the preview banks 5° short of the roll limit (conservative), and V26 now checks
+  clearance in flight rather than the distance from the preview.

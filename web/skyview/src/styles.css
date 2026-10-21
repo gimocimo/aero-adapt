@@ -721,3 +721,18 @@ dd {
   font-size: 10px;
   color: #7d889a;
 }
+.proposal .changes {
+  margin: 6px 0;
+  padding: 4px 6px;
+  border-left: 3px solid #ffc93c;
+  background: rgba(255, 201, 60, 0.08);
+}
+.proposal .changes h3 {
+  margin: 0 0 2px;
+  font-size: 11px;
+  color: #ffc93c;
+}
+.proposal .changes ul {
+  margin: 0;
+  padding-left: 14px;
+}

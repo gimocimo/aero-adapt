@@ -5,12 +5,18 @@ Each chunk yields exactly the replay columns (``telemetry.schema.COLUMNS``), so 
 one code path for replays and live sessions, and a session is recorded as an ordinary replay
 bundle. Injected faults are appended to the scenario's fault list with their onset at the
 next control step; a cleared sensor fault gets an ``until_s`` at the next control step. The
-mean wind can be changed while flying (ramped over a few seconds). Every command is recorded
-in the manifest (``live_commands``), from which the session re-flies offline.
+mean wind can be changed while flying (ramped over a few seconds). A Txt2Fly plan (spec 06
+§10) is proposed (built and checked against the aircraft's state now), then confirmed: it is
+rebuilt and re-checked from the state at that moment and flown from the next chunk. Every
+command is recorded in the manifest (``live_commands``), a plan as the mission it became, from
+which the session re-flies offline without rebuilding anything.
 """
 
 from __future__ import annotations
 
+import itertools
+import math
+import threading
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -28,10 +34,16 @@ from aeroadapt.harness.closed_loop import closed_loop_carry, setup_loop
 from aeroadapt.scenarios.resolve import ResolvedScenario, resolve
 from aeroadapt.scenarios.runner import build_manifest
 from aeroadapt.scenarios.schema import Scenario
+from aeroadapt.stack.autopilot import MODE_AUTO, ap_init
 from aeroadapt.stack.config import StackCfg, build_stack_params
+from aeroadapt.stack.types import Mission, mission_from_dict, mission_to_dict
 from aeroadapt.telemetry.events import extract_events
 from aeroadapt.telemetry.recorder import write_bundle
 from aeroadapt.telemetry.schema import COLUMNS, VIZ_RATE_HZ, columns
+from aeroadapt.txt2fly.builder import Aircraft, build
+from aeroadapt.txt2fly.checker import Report, check, report_json
+from aeroadapt.txt2fly.gazetteer import load_gazetteer
+from aeroadapt.txt2fly.plan import Plan
 
 CHUNK_S = 0.1
 WIND_RAMP_S = 5.0  # a wind change blends in over this time (a step would be a sharp gust)
@@ -95,6 +107,12 @@ class LiveSession:
         self.commands: list[dict[str, Any]] = []
         self.chunks: list[dict[str, np.ndarray]] = []
         self._last_event_us = -1
+        self._proposals: dict[str, Plan] = {}
+        self._proposal_ids = itertools.count(1)
+        self._pending: tuple[Mission, dict[str, Any]] | None = None  # applied by step()
+        self._lock = threading.Lock()  # step() runs in a worker thread (the server)
+        self.active_plan: dict[str, Any] | None = None  # the confirmed plan being flown
+        self.plan_changed = False  # set when a plan is applied (the server tells the client)
 
     # ------------------------------------------------------------------ stepping
     @property
@@ -107,6 +125,12 @@ class LiveSession:
 
     def step(self) -> dict[str, np.ndarray]:
         """Fly one chunk; returns its 100 Hz replay columns."""
+        with self._lock:
+            pending, self._pending = self._pending, None
+        if pending is not None:  # a confirmed plan starts with this chunk
+            mission, entry = pending
+            self._fly_mission(mission)
+            self.commands.append({"time_s": round(self.time_s, 6), "set_mission": entry})
         r, su = self.resolved, self._su
         w_from, w_to, t0 = self._wind
         if not np.array_equal(w_from, w_to):  # ramping: this chunk flies the wind at its end
@@ -231,6 +255,73 @@ class LiveSession:
         )
         return None
 
+    # ------------------------------------------------------------------ plans (Txt2Fly)
+    def aircraft(self) -> Aircraft:
+        """What the planner knows now: the configuration, the navigator's estimates and the
+        battery monitor (never the simulator's truth)."""
+        nav = self._st.nav
+        pos, vel, wind = (np.asarray(x, dtype=float) for x in (nav.pos, nav.vel, nav.wind))
+        r = self.resolved
+        return Aircraft(
+            r.stack_cfg, r.airframe, (pos[0], pos[1]), -pos[2],
+            math.degrees(math.atan2(vel[1], vel[0])), (wind[0], wind[1]),
+            float(self._z.battery_mah),
+        )  # fmt: skip
+
+    def _check(self, plan: Plan) -> Report:
+        gaz = load_gazetteer(self.resolved.site)
+        return check(build(plan, self.aircraft(), gaz), gaz)
+
+    def propose(self, plan: dict[str, Any] | Plan) -> tuple[str | None, dict[str, Any] | None]:
+        """Build and check a plan from the aircraft's state now: (error, proposal)."""
+        try:
+            plan = Plan.model_validate(plan)
+            report = self._check(plan)
+        except ValueError as e:
+            return _message(e), None
+        pid = f"plan-{next(self._proposal_ids)}"
+        self._proposals[pid] = plan
+        return None, {"id": pid, **report_json(report)}
+
+    def confirm(self, pid: str, acknowledged: list[str] | tuple[str, ...] = ()) -> str | None:
+        """Fly a proposed plan from the next chunk, rebuilt and re-checked from the state now
+        (the aircraft has moved since the proposal); returns an error message, if any."""
+        plan = self._proposals.pop(pid, None)
+        if plan is None:
+            return f"no proposal {pid}"
+        report = self._check(plan)
+        if not report.ok:
+            failed = [c for c in report.checks if c.hard and not c.ok]
+            return "the plan no longer passes: " + " ".join(c.reason for c in failed)
+        missing = [c.rule for c in report.warnings if c.rule not in acknowledged]
+        if missing:
+            return f"acknowledge {', '.join(missing)} first"
+        mission = report.built.mission
+        assert mission is not None
+        entry = {"plan": plan.model_dump(mode="json"), "mission": mission_to_dict(mission),
+                 "acknowledged": sorted(acknowledged)}  # fmt: skip
+        with self._lock:
+            self._pending = (mission, entry)
+        self.active_plan = {"id": pid, **report_json(report)}
+        return None
+
+    def cancel(self, pid: str) -> None:
+        self._proposals.pop(pid, None)
+
+    def set_mission(self, entry: dict[str, Any]) -> None:
+        """Fly a logged mission from the next chunk (replays)."""
+        with self._lock:
+            self._pending = (mission_from_dict(entry["mission"]), entry)
+
+    def _fly_mission(self, mission: Mission) -> None:
+        old = self.resolved.mission
+        # Same dtypes as the mission the loop was compiled with: a swap never recompiles.
+        mission = jax.tree.map(lambda n, o: jax.numpy.asarray(n, o.dtype), mission, old)
+        self.resolved = replace(self.resolved, mission=mission)
+        nav = self._st.nav
+        self._st = self._st._replace(ap=ap_init(MODE_AUTO, nav.pos[:2], -nav.pos[2]))
+        self.plan_changed = True
+
     @property
     def wind(self) -> dict[str, float]:
         """The wind set (reached after any ramp): speed and the direction it blows from (kept
@@ -286,7 +377,10 @@ def replay_commands(
     while pending or session.time_s < end:
         while pending and pending[0]["time_s"] <= session.time_s + dt + 1e-6:
             c = pending.pop(0)
-            if "clear_fault" in c:
+            if "set_mission" in c:
+                session.set_mission(c["set_mission"])
+                error = None
+            elif "clear_fault" in c:
                 error = session.clear(int(c["clear_fault"]))
             elif "set_wind" in c:
                 error = session.set_wind(**c["set_wind"])

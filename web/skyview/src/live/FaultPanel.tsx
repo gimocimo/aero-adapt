@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useStore } from "../state/store";
 import type { LiveFault, LiveWind } from "./client";
+import { PlanPanel } from "./PlanPanel";
 
 type Choice = "channel" | "body_axis" | "ned_axis" | "side";
 
@@ -194,7 +195,9 @@ function ActiveFaults({ faults, send }: { faults: LiveFault[]; send: (m: Record<
 export function FaultPanel() {
   const live = useStore((s) => s.live);
   const send = useStore((s) => s.liveSend);
+  const [tab, setTab] = useState<"faults" | "plan">("faults");
   if (!live || !send) return null;
+  const planTab = tab === "plan" && live.site !== null;
   const reset = (p: { scenario?: string; airframe?: string | null }) =>
     send({ cmd: "reset", scenario: p.scenario ?? live.scenario, airframe: p.airframe === undefined ? live.airframe : p.airframe });
   return (
@@ -225,17 +228,34 @@ export function FaultPanel() {
         </label>
       </div>
       <WindControl wind={live.wind} send={send} />
-      <ActiveFaults faults={live.faults} send={send} />
       {live.error && <p className="faulterror">{live.error}</p>}
-      <h2>Inject a fault</h2>
-      {FAULT_GROUPS.map((g) => (
-        <details key={g.title} className="faultgroup" open={g.title === "Propulsion"}>
-          <summary>{g.title}</summary>
-          {g.kinds.map((k) => (
-            <FaultRow key={k.label} k={k} disabled={live.done} onInject={(spec) => send({ cmd: "inject_fault", spec })} />
+      {live.site && (
+        <div className="tabs" role="tablist">
+          <button role="tab" aria-selected={!planTab} className={planTab ? "" : "on"} onClick={() => setTab("faults")}>
+            Faults
+          </button>
+          <button role="tab" aria-selected={planTab} className={planTab ? "on" : ""} onClick={() => setTab("plan")}
+            data-testid="plan-tab">
+            Plan
+          </button>
+        </div>
+      )}
+      {planTab ? (
+        <PlanPanel />
+      ) : (
+        <>
+          <ActiveFaults faults={live.faults} send={send} />
+          <h2>Inject a fault</h2>
+          {FAULT_GROUPS.map((g) => (
+            <details key={g.title} className="faultgroup" open={g.title === "Propulsion"}>
+              <summary>{g.title}</summary>
+              {g.kinds.map((k) => (
+                <FaultRow key={k.label} k={k} disabled={live.done} onInject={(spec) => send({ cmd: "inject_fault", spec })} />
+              ))}
+            </details>
           ))}
-        </details>
-      ))}
+        </>
+      )}
     </div>
   );
 }

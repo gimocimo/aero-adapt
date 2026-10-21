@@ -12,6 +12,8 @@ aeroadapt fleet-sample <fleet> <v20>           the committed sample: V20-accepte
 aeroadapt bench-run <spec> [--n N]             bench v0: B1/B2 over sampled scenarios (runs/bench)
 aeroadapt export-fleet <bench> [--to DIR]      a bench's trajectories for Skyview's fleet view
 aeroadapt serve [--scenario ID] [--port P]     live server for Skyview (?live=ws://localhost:P)
+aeroadapt plan check <plan.yaml> [state …]     Txt2Fly: build and check a typed plan
+aeroadapt plan fly <plan.yaml> [state …]       … and fly it in the simulator (replay bundle)
 """
 
 from __future__ import annotations
@@ -220,6 +222,61 @@ def _export_fleet(args: argparse.Namespace) -> int:
     return 0
 
 
+def _plan_session(args: argparse.Namespace):
+    """A live session at the state the options give (txt2fly-demo scenario)."""
+    from aeroadapt.airframes.fleet import load_fleet_airframe
+    from aeroadapt.live.server import SAMPLE_FLEET
+    from aeroadapt.live.session import LiveSession
+    from aeroadapt.scenarios.schema import Scenario, load_scenario
+    from aeroadapt.stack.config import load_stack_cfg
+
+    d = load_scenario(args.scenario).model_dump(mode="json")
+    n, e = (float(x) for x in args.at.split(","))
+    speed, frm = (float(x) for x in args.wind.split("@"))
+    d["initial"].update(pos_ne_m=[n, e], alt_agl_m=args.alt, heading_deg=args.heading)
+    d["environment"]["wind"].update(speed_mps=speed, from_deg=frm)
+    d["mission"]["home_ne_m"] = [n, e]
+    sc = Scenario.model_validate(d)
+    if args.airframe in (None, sc.airframe):
+        return LiveSession(sc)
+    af = load_fleet_airframe(SAMPLE_FLEET, args.airframe)
+    return LiveSession(sc, af, load_stack_cfg(SAMPLE_FLEET, args.airframe),
+                       fleet=str(SAMPLE_FLEET.relative_to(REPO)))  # fmt: skip
+
+
+def _plan(args: argparse.Namespace) -> int:
+    from aeroadapt.live.session import CHUNK_S
+    from aeroadapt.txt2fly.builder import build
+    from aeroadapt.txt2fly.checker import check, describe
+    from aeroadapt.txt2fly.gazetteer import load_gazetteer
+    from aeroadapt.txt2fly.plan import load_plan
+
+    plan = load_plan(args.plan)
+    session = _plan_session(args)
+    for _ in range(round(args.settle / CHUNK_S)):  # let the navigator settle first
+        session.step()
+    gaz = load_gazetteer(session.resolved.site)
+    report = check(build(plan, session.aircraft(), gaz), gaz)
+    print(describe(report))
+    if args.action == "check":
+        return 0 if report.ok else 1
+    if not report.ok:
+        return 1
+    err, prop = session.propose(plan)
+    if err is None and prop is not None:  # the CLI acknowledges the warnings it printed
+        err = session.confirm(prop["id"], prop["warnings"])
+    if err:
+        print(f"not flown: {err}")
+        return 1
+    t_end = session.time_s + args.seconds
+    while session.time_s < t_end - 1e-6 and not session.done:
+        session.step()
+    stem = Path(args.plan).stem
+    out = session.record(Path(args.out) if args.out else RUNS / "txt2fly" / stem)
+    print(f"flown for {args.seconds:g} s → {out} (aeroadapt export-viz {out} to view it)")
+    return 0
+
+
 def _serve(args: argparse.Namespace) -> int:
     import asyncio
 
@@ -290,6 +347,19 @@ def main(argv: list[str] | None = None) -> int:
     sv.add_argument("--scenario", default="m1-nominal")
     sv.add_argument("--port", type=int, default=8765)
     sv.set_defaults(func=_serve)
+    pl = sub.add_parser("plan", help="Txt2Fly: check a typed plan, or fly it (docs/06)")
+    pl.add_argument("action", choices=("check", "fly"))
+    pl.add_argument("plan", help="plan file (YAML)")
+    pl.add_argument("--scenario", default="txt2fly-demo", help="site, airframe and weather")
+    pl.add_argument("--airframe", help="a sample-fleet airframe id (default: the scenario's)")
+    pl.add_argument("--at", default="-150,-200", help="start position north,east (m)")
+    pl.add_argument("--alt", type=float, default=100.0, help="start height above ground (m)")
+    pl.add_argument("--heading", type=float, default=0.0)
+    pl.add_argument("--wind", default="6@250", help="speed@from: m/s and degrees")
+    pl.add_argument("--settle", type=float, default=5.0, help="seconds flown before planning")
+    pl.add_argument("--seconds", type=float, default=300.0, help="fly: seconds after confirming")
+    pl.add_argument("--out", help="fly: bundle directory (default: runs/txt2fly/<plan>)")
+    pl.set_defaults(func=_plan)
     args = p.parse_args(argv)
     return int(args.func(args))
 

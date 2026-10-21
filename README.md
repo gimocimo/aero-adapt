@@ -14,7 +14,7 @@ AeroAdapt is built simulation-first. It is validated rigorously and compared aga
 > - **Throughput:** 0.85 M simulator steps/s on a laptop CPU for a heterogeneous fleet with faults.
 > - **Evidence:** [M2 write-up](docs/demo/m2.md) (with its fidelity and limits), the [week-by-week log](docs/05_m2_technical_spec.md#14-implementation-log-living-section) and the [validation report](docs/validation/m2_report.md). M1: [write-up](docs/demo/m1.md), [frozen report](docs/validation/m1_report.md).
 >
-> Next: **Txt2Fly** (weeks 9–10, [spec](docs/06_txt2fly_spec.md)): tell the aircraft where to go in plain words; a checker tests the plan against the airframe and the wind before it flies. Then M3, one learned policy flying airframes it never trained on.
+> Now: **Txt2Fly** (weeks 9–10, [spec](docs/06_txt2fly_spec.md)): tell the aircraft where to go in plain words. Week 9 built the deterministic core. A typed plan ("patrol fields A, B and C", "circle the church at 30 m") is built for the aircraft flying and the wind blowing. A checker then explains, in plain words, what cannot fly and why: turn radius, no-fly areas from OpenStreetMap, height, battery, glide reach. Plans are previewed on the map and flown live from the next chunk. Week 10 adds the language layer (Claude Haiku 5.5). Then M3, one learned policy flying airframes it never trained on.
 
 ![Skyview: the classical contingency flaring over field A after a motor cut](docs/media/skyview_final.jpg)
 
@@ -61,6 +61,14 @@ uv run aeroadapt bench-run b0                        # bench v0: B1/B2 over 1,00
 uv run aeroadapt export-fleet runs/bench/b0          # then open http://localhost:5173/?fleet=b0
 ```
 
+Txt2Fly plans (typed, week 9; plain words in week 10):
+
+```bash
+uv run aeroadapt serve --scenario txt2fly-demo                      # the Plan tab in Skyview's live mode
+uv run aeroadapt plan check configs/txt2fly/plans/church_30m.yaml   # build and check: reasons, suggestions
+uv run aeroadapt plan fly configs/txt2fly/plans/patrol_abc.yaml     # fly it → runs/txt2fly/patrol_abc
+```
+
 Other commands: `aeroadapt campaign m1-mini` (the 50-cut V12 mini-campaign), `make report` (validation report), `make demo` and `tools/make_demo_m2.py` (demo videos from seeds), `aeroadapt bench` and `tools/bench_fleet.py` (throughput).
 
 ## Repository layout
@@ -72,6 +80,7 @@ Other commands: `aeroadapt campaign m1-mini` (the 50-cut V12 mini-campaign), `ma
 | `src/aeroadapt/generator` | Offline procedural airframe generator (never imported by the simulator or the stack) |
 | `src/aeroadapt/bench` | Bench v0: scenario sampler, splits, B1/B2 runner, statistics |
 | `src/aeroadapt/live` | Live server and sessions (WebSocket + msgpack) |
+| `src/aeroadapt/txt2fly` | Txt2Fly planner: plans, the site gazetteer, the airframe- and wind-aware builder with its preview, the checker (docs/06) |
 | `src/aeroadapt/sim/aerojax` | JAX 6-DoF fixed-wing simulator, written as a pure functional core (ADR-002): actuators, battery, atmosphere and turbulence, sensors, trim |
 | `src/aeroadapt/faultlab` | Fault specifications, fixed-shape fault slots and ground-truth labels (ADR-003) |
 | `src/aeroadapt/scenarios` | Sites, scenario schema and resolver, runner, campaigns, V12 evaluation, golden flights |
@@ -79,10 +88,10 @@ Other commands: `aeroadapt campaign m1-mini` (the 50-cut V12 mini-campaign), `ma
 | `src/aeroadapt/stack` | Flight stack: navigator, L1, TECS, attitude loops, modes and mission, classical motor-failure contingency, and the `FlightStack` host shell. It runs on sensor data only and must not import the simulator or a vehicle backend (ADR-006). |
 | `src/aeroadapt/vehicle` | The `Vehicle` interface (ADR-004) and the `AerojaxVehicle` adapter, with privileged truth access (ADR-006) |
 | `src/aeroadapt/harness` | Closed loop (simulator + stack) in one `lax.scan`, vmap-able; V11 acceptance; auto-configuration and auto-tuning; V20; confounded pairs |
-| `src/aeroadapt/cli.py` | `aeroadapt run / campaign / validate / report / bench / export-viz / fleet / fleet-accept / fleet-sample / bench-run / export-fleet / serve` |
+| `src/aeroadapt/cli.py` | `aeroadapt run / campaign / validate / report / bench / export-viz / fleet / fleet-accept / fleet-sample / bench-run / export-fleet / serve / plan` |
 | `validation/` | Validation report builder (outside the package: it uses the reference implementation) |
 | `reference/bm_numpy` | Independent NumPy reference implementation, used only for N-version validation |
-| `configs/` | Airframes, sites, stack parameters, scenarios, campaigns |
+| `configs/` | Airframes, sites (with their OpenStreetMap extracts), stack parameters, scenarios, campaigns, Txt2Fly example plans |
 | `web/skyview` | Skyview: replay player, live mode with the fault panel, fleet view (CesiumJS, React, Arrow) |
 
 ## Validation philosophy

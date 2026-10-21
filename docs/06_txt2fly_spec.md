@@ -191,11 +191,13 @@ is checked whole.
 
 ## 5. The gazetteer
 
-- **Site file** (hand-made, like the M1 safe zones):
+- **Site file** (the operator's choices, like the M1 safe zones):
   - `geofence_ne_m` (a polygon), `ceiling_agl_m` (120 m, as the UK open category), `min_agl_m`
     (40 m);
-  - `no_fly` polygons, each with a name and a reason: the M11 corridor, Coton village and the West
-    Cambridge campus, the ground-risk features in the site description;
+  - `no_fly` areas, each with a name and a reason: the M11 corridor, Coton village and the
+    West Cambridge campus, the ground-risk features in the site description. They are areas
+    of the OSM extract chosen by id: the motorway 50 m either side, the built-up area 30 m
+    around it, the campus as mapped, each merged into one outline (or drawn by hand);
   - named `places`: home and any hand-picked points;
   - the existing safe zones A, B, C and F, which are also places ("field A").
 - **OpenStreetMap features** (Should).
@@ -241,11 +243,13 @@ Suggestions round up to the next 10 m.
   - over a field: through the polygon's centroid, along its long axis;
   - over a point: along the current course.
   - `into_wind` aligns it with the wind.
-- Run-in and run-out each extend 2·r_min, at least 100 m, beyond the target, so the turn onto
-  the line ends before the target.
+- The run-in extends one turn radius (at least 100 m) beyond the target's near edge and the
+  run-out half that beyond its far edge: L1 is on the line before the target (V26).
 
 **Patrols.**
 - The places are visited in the order given; the operator's order is part of the intent.
+- Each visit is a fly-over (or, with `visit: goto`, a fly-by) of the place on the route from
+  the one before, so the pattern stays compact.
 - `until_reserve` becomes a repeat count. The count is the energy available above the reserve,
   minus the energy to get home, divided by the energy per lap. The operator sees it as "about N
   laps (about T min)".
@@ -264,9 +268,19 @@ Suggestions round up to the next 10 m.
 
 **Output.**
 - The mission items (§8).
-- A **preview path**: the expected ground track, with turns drawn at r_min, sampled every 10 m.
+- A **preview**: the mission flown by a point-mass aircraft with the stack's own item
+  sequencer and L1 guidance, in the current wind. Its bank follows the guidance's demand with
+  the roll loop's time constant and rate limit, and its height moves within TECS's limits.
   The checker and the map both use it.
-- The flown track differs from the preview (L1 overshoot, gusts); V26 measures by how much.
+- The flown track differs from the preview (gusts, navigation error, the full dynamics); V26
+  measures by how much.
+
+**Adapting to the site** (added in week 9). When the preview comes within the tracking margin
+of a no-fly area or the geofence after crossing a place, the builder blames that crossing and
+tries again: first the pass's other directions (along the field either way, then across it),
+then crossing points further inside the field from the area. It previews at most 10 distinct
+attempts and keeps the clearest; the plan's notes say what changed ("crosses field C away
+from its middle, to keep the turns clear of the M11 motorway"). The checker judges the result.
 
 ---
 
@@ -280,13 +294,15 @@ change only in the site and stack configuration files.
 |---|---|---|---|
 | K1 | Every target resolves; the plan expands to ≤ 32 items | Hard | "There is no place called 'the old mill' on this site." |
 | K2 | Every circle and turn is at least r_min (§6) for the commanded speed and the current wind | Hard | "A 30 m circle needs 73° of bank at 25 m/s in this wind; this aircraft is limited to 45°. The tightest circle now is about 120 m." |
-| K3 | The preview path, widened by r_min/2 + 20 m, stays inside the geofence and outside every no-fly polygon | Hard | "The circle would cross the M11 corridor (no-fly)." |
+| K3 | The preview stays 30 m (the tracking margin) inside the geofence and away from every no-fly area | Hard | "The circle would cross the M11 corridor (no-fly)." |
 | K4 | min_agl ≤ altitude ≤ ceiling; at least 30 m above any known feature height under the path | Hard | "120 m is the ceiling here." |
 | K5 | Airspeeds within the airframe's configured range | Hard | "This aircraft cannot fly slower than 11 m/s." |
 | K6 | Predicted energy ≤ remaining energy − reserve (30 % of capacity); open-ended plans must be bounded (`until_reserve`) | Hard | "This plan needs about 140 % of the remaining battery." |
 | K7 | Glide reach: every 50 m along the path, at least one safe zone is reachable in the current wind, by the contingency's own test (`assess_zones`) | **Soft** | "From the far side of the circle, no field is within glide." Uncovered stretches are drawn in amber |
 | K8 | The join from the current position passes K3 and K4 | Hard | "The way there crosses Coton village (no-fly)." |
 
+- The 30 m tracking margin rests on measurement: in V26 the flown track strayed at most 24 m
+  from its preview (the Aerosonde in a 6 m/s wind; at most 14 m for the fleet aircraft).
 - A soft rule needs the operator to tick an acknowledgement in the confirm dialog. The model
   cannot acknowledge anything.
 - Acknowledgements are logged with the plan.
@@ -346,8 +362,21 @@ style items.
 
 ## 9. The language layer
 
-- **The call:** `AsyncAnthropic` (the server is asyncio), model `claude-opus-5-5`, adaptive thinking
-  at low effort for latency. The eval compares low and medium effort.
+- **The model: Claude Haiku 5.5** (`claude-haiku-5-5`), the owner's choice (21 Oct 2026), because
+  latency comes first: commands should feel immediate.
+  - It is called through `AsyncAnthropic`, since the server is asyncio.
+  - Thinking is off by default; the API allows that at low effort. The eval also runs adaptive
+    thinking at low effort, and one Opus 5.5 pass as a reference for how much a larger model would
+    add (§11).
+- **Designed for a small model.** The model's job is narrow:
+  1. choose the step types;
+  2. pick places from an enum;
+  3. copy numbers and directions from the text;
+  4. ask when the text leaves something open.
+
+  Geometry, physics and safety all live in code. Relative positions ("200 m north of the church")
+  are resolved by the builder, not by the model, and the cached prompt carries worked examples of
+  every step type.
 - **Structured output.** The reply type (§4) is a Pydantic model passed as the output format, so
   the API returns schema-valid JSON. The SDK validates it, Pydantic validates it again, and then the
   builder and checker run. Numeric limits are checked in Pydantic and by the checker, not in the
@@ -376,11 +405,13 @@ style items.
 - **Tests.** CI uses recorded replies (`tests/fixtures/txt2fly/`) and a stand-in translator. It
   never calls the API.
 - **Cost estimate**, to be measured in V27:
-  - about 8k tokens of cached system prompt, about 1.5k tokens in and 1.5k out (thinking included)
-    per instruction;
-  - at Opus 5.5 prices ($4 / $20 per million input / output tokens; cache reads 10 % of input),
-    about **$0.04 per instruction** and about **$8 per 200-instruction eval pass**.
-- **Latency target:** p50 ≤ 5 s and p95 ≤ 12 s from send to preview, measured.
+  - about 8k tokens of cached system prompt, about 1.5k tokens in and 0.5k out per instruction;
+  - at Haiku 5.5 prices ($0.10 / $0.50 per million input / output tokens for prompts under 100k
+    tokens; cache reads 10 % of input), about **$0.0005 per instruction**;
+  - about **$0.30 for the eval** (200 cases × 3 repeats);
+  - the one Opus 5.5 reference pass is about $8 and gets a go-ahead first.
+- **Latency target:** p50 ≤ 2 s and p95 ≤ 4 s from send to preview, measured. Confirming is one
+  key press (Enter).
 
 ---
 
@@ -439,6 +470,13 @@ On confirmation the proposed path replaces the white mission line.
 
 - **Grading** is deterministic code: the reply is typed, so no model judges another.
 - **Repeats:** each case runs 3 times, and the report gives the mean and the worst of the 3.
+- **Configurations:**
+  - Haiku 5.5 with thinking off (the default);
+  - Haiku 5.5 with adaptive thinking at low effort;
+  - one Opus 5.5 pass, as the reference.
+
+  The report gives accuracy and latency for each, so the cost of a smaller model is measured, not
+  guessed.
 - **Targets** (test half):
   - clear and follow-up: correct plan ≥ 90 %;
   - ambiguous: asks ≥ 80 %, with unnecessary questions on clear cases ≤ 10 %;
@@ -485,6 +523,7 @@ Never cut the checker, the confirm step, the safety invariant or replay determin
 | Risk | Mitigation |
 |---|---|
 | The model misreads the intent | Plain-language summary and assumptions, map preview, confirm step; measured on the eval |
+| A small model (Haiku) misreads more often than a large one | Narrow job and tight schema (enums for places and step types); worked examples in the prompt; geometry in code; the Opus reference pass measures the gap |
 | Invented places | Schema restricts targets to gazetteer ids; unknown names → clarify |
 | Prompt injection through place names or the instruction | Names passed as quoted data; schema-constrained replies; checker authoritative; operator confirms; adversarial cases in the eval |
 | Latency | Low effort, prompt caching, a "thinking…" state in the panel; measured |
@@ -499,12 +538,11 @@ Never cut the checker, the confirm step, the safety invariant or replay determin
 
 ## 15. Open questions
 
-1. **API account and spend.** The translator needs an Anthropic API key, set as `ANTHROPIC_API_KEY`
-   in the shell that runs `aeroadapt serve`. It never goes in the repo or the chat. The estimate is
-   about $0.04 per instruction, about $8 per eval pass, and roughly $30–50 for the whole block. As
-   with GPU runs, each paid eval run gets a go-ahead first.
-2. **Model.** Opus 5.5 by default. If latency misses its target, would Sonnet 5.5 for the
-   translator be acceptable? To be decided on the measured numbers in week 10.
+1. **API account.** The translator needs an Anthropic API key, set as `ANTHROPIC_API_KEY` in the
+   shell that runs `aeroadapt serve`. It never goes in the repo or the chat. With Haiku 5.5 the
+   spend is small (about $0.30 per eval). The Opus reference pass (about $8) gets a go-ahead first.
+2. **Model** (resolved 21 Oct 2026). Haiku 5.5, for latency. If it misses the accuracy targets, the
+   eval shows by how much and on which categories, and moving up a model is then the owner's choice.
 3. **"Above the church".** Proposed: above the ground at the church, stated as an assumption, with
    clearance over its height enforced by K4. The alternative is above the top of the church.
 
@@ -526,3 +564,99 @@ Never cut the checker, the confirm step, the safety invariant or replay determin
 ## 16. Implementation log (living section)
 
 *Written as the work happens, as in the M1 and M2 specs.*
+
+### Week 9 (21 Oct 2026): the deterministic core
+
+**Built**
+
+- **Mission v2 in the stack** (`stack/types.py`, `stack/autopilot.py`):
+  - an item table (32 × 8): WAYPOINT (fly-by), FLYOVER, LOITER_TURNS / LOITER_TIME /
+    LOITER_UNLIM (turns and time count from capture; the loiter ends heading for the next
+    item), JUMP (with a repeat count), RTL, and a per-item airspeed;
+  - failsafes: leaving the geofence (16 vertices) or climbing above its ceiling → RTL; the
+    battery monitor's consumed charge reaching the reserve → RTL (the Should from §8);
+  - `make_mission` builds the M1/M2 waypoint missions as before; `ap_init` starts a new
+    mission from where the aircraft is; missions serialise for session logs.
+- **Plans** (`txt2fly/plan.py`): the §4 steps and targets; example plans in
+  `configs/txt2fly/plans/`.
+- **The site's operating area** (`configs/sites/cambridge_west.yaml`, new `operations` block):
+  - a geofence over the farmland west of the M11 (2.1 × 1.6 km), a 120 m ceiling, a 40 m
+    minimum, and home over field A (so the RTL circle stays clear of the M11);
+  - no-fly areas from the OpenStreetMap extract (`cambridge_west.osm.json`): the M11 with
+    50 m either side, Coton's built-up area with 30 m around it, houses on Madingley Road,
+    the West Cambridge campus;
+  - 48 places: the four safe zones, 20 named fields, woods, farms, the church and others.
+- **`tools/fetch_gazetteer.py`**: one Overpass query; named features to local metres; no-fly
+  candidates merged into outlines with shapely (for this tool only).
+- **Builder and checker** (`txt2fly/builder.py`, `checker.py`, `energy.py`): §6 and §7, with
+  the preview and the adaptation described there; plain-language reasons and suggestions.
+- **Live mode:** `propose_plan`, `confirm_plan` (rebuilt and re-checked from the state at that
+  moment, then flown from the next chunk), `cancel_plan`; the session log records the mission
+  a plan became, so a replay never rebuilds anything. The server compiles the preview at
+  start-up.
+- **Skyview:** a Plan tab next to Faults (example plans, an editor, the verdict, the steps,
+  the builder's notes, the check list, warnings to acknowledge, Confirm or Enter); on the map,
+  the no-fly areas and geofence, the proposal's track (dashed) with the points where checks
+  fail, and the plan being flown in place of the mission line; the OSM attribution.
+- **CLI:** `aeroadapt plan check <plan>` and `aeroadapt plan fly <plan>` (a replay bundle).
+- **Tests:** unit tests for the geometry, gazetteer, builder and every rule; mission items;
+  V24, V25, V26 (full tier) and V28; a Playwright test of the plan flow; import contracts (the
+  planner never imports faultlab; the stack never imports the planner).
+
+**Results**
+
+- **Existing flights unchanged:** the M1 golden flights pass. Flown before and after, the
+  nominal and servo-jam flights are bit-identical; the motor-cut flight differs by at most
+  1.3e-10 in float64 (XLA fuses the larger graph differently; in float32 a one-ulp difference
+  appears after a phase change and grows).
+- **Energy:** the model gives 8.9 A for the Aerosonde at 25 m/s; the simulator draws 8.7 A over
+  the M1 box mission, turns included.
+- **V26, preview against flight** (Aerosonde, a twin-boom and a glider from the sample fleet;
+  calm and 6 m/s; the three example plans): the flown track strays at most 24 m from the
+  preview (Aerosonde), 14 m for the fleet aircraft; nothing flown comes near a no-fly area.
+  With an instant-bank preview it was 44 m, which is why the preview has roll dynamics.
+- **V24:** at r_min the three aircraft hold the circle within 15 %, calm and in 6 m/s; at half
+  of it they fly wider.
+- **V25:** 200 random plans; 68 accepted (refusals: K3 110, K8 51, K2 19; a plan can fail
+  several). All 68 flown at once for 300 s: the closest any came to a no-fly area or the
+  geofence's edge was 16 m, and the highest was 124.4 m (the fence is at 140 m). Every
+  injected violation (a ceiling breach, a detour over the village) was caught by its rule.
+- **V28:** a confirmed plan starts with the next chunk; the session replays byte for byte;
+  unacknowledged warnings and plans that no longer pass are refused.
+- **Speed:** a plan is built and checked in 0.2–0.5 s on average, about 1.2 s at worst, once
+  the preview is compiled.
+- **The Aerosonde over this site:** from the 24 points of its waiting circle, the patrol of
+  fields A, B and C passes in both test winds; the fly-by of field A passes from all 24 in an
+  easterly but only from 12 in a 6 m/s westerly. From the other 12 the aircraft is heading
+  for the M11, and its 117 m turns cannot avoid the buffer; the checker says so. The fleet
+  aircraft (13–15 m/s) fit the fields easily.
+
+**Deviations from the spec**
+
+1. **The preview flies the stack's guidance** instead of drawing turns at r_min (§6). K3's
+   widening of r_min/2 + 20 m became a fixed 30 m margin, set from V26.
+2. **The builder adapts** pass directions and crossing points to the site (§6), which the spec
+   did not plan; the site is tight for a 25 m/s aircraft.
+3. **Patrols fly over the places on the route** between them instead of making long passes.
+4. **Pass run-ins are one turn radius**, not two: L1 is on the line in time (V26).
+5. **No-fly areas come from OpenStreetMap** rather than being drawn by hand; the site file
+   chooses them.
+6. **Not yet done:** MAVLink export (T9, Should), the glide landing (T10, Should) and the
+   survey (T12, Could). The language layer, the evaluation and the demo are week 10.
+
+**Definition of Done status (after week 9)**
+
+| # | Status |
+|---|---|
+| T1 CI | ✅ when the week-9 push is green |
+| T2 Plan, builder, checker | ✅ (V24, V25) |
+| T3 Mission v2 | ✅ (goldens, V24, V26) |
+| T4 Live plans | ✅ (V28) |
+| T5 Gazetteer | ✅ site and OSM |
+| T6 Language layer | ⏳ week 10 |
+| T7 Evaluation | ⏳ week 10 |
+| T8 Skyview panel | ✅ for typed plans; the text box is week 10 |
+| T9 MAVLink export | ⏳ (Should) |
+| T10 Glide landing | ⏳ (Should) |
+| T11 Demo and write-up | ⏳ week 10 |
+| T12 Survey | ⏳ (Could) |

@@ -23,6 +23,7 @@ import {
 } from "cesium";
 import { orientationFromNedQuat } from "../cesiumOrientation";
 import { SiteFrame } from "../geo";
+import type { PlanReport, SiteLayers } from "../live/client";
 import { sample, type Sample } from "../replay/interp";
 import type { Replay } from "../replay/types";
 import type { CameraMode, Layers } from "../state/store";
@@ -36,6 +37,9 @@ const DEG = Math.PI / 180;
 const ZONE_REACHABLE = Color.fromCssColorString("#38d16a");
 const ZONE_UNREACHABLE = Color.fromCssColorString("#8a949e");
 const ZONE_SELECTED = Color.fromCssColorString("#ffc93c");
+const NO_FLY = Color.fromCssColorString("#e5484d");
+const PROPOSED = Color.fromCssColorString("#4cc9f0");
+const FLYING = Color.fromCssColorString("#ffffff");
 
 interface Prepared {
   replay: Replay;
@@ -59,6 +63,11 @@ export class SceneController {
   private touchdown: Entity;
   private mission: Entity | null = null;
   private zones: { fill: Entity; border: Entity; label: Entity }[] = [];
+  /** Txt2Fly: the operating area, the proposed track (and where it fails), the plan flown. */
+  private site: SiteLayers | null = null;
+  private siteEntities: Entity[] = [];
+  private plans: { proposal: PlanReport | null; active: PlanReport | null } = { proposal: null, active: null };
+  private planEntities: Entity[] = [];
   private zoneState = "";
   private trail: PolylineCollection;
   private trailBuiltAt = -1;
@@ -155,6 +164,8 @@ export class SceneController {
       this.main = this.prepare(main);
       this.buildMission(main);
       this.buildZones(main);
+      this.buildSite();
+      this.buildPlans();
       this.trailBuiltAt = -1;
       this.smoothHeading = null;
     }
@@ -178,6 +189,127 @@ export class SceneController {
         }),
       },
     });
+  }
+
+  /** Txt2Fly: the site's operating area (drawn once a replay gives the site frame). */
+  setSite(site: SiteLayers | null): void {
+    if (site === this.site) return;
+    this.site = site;
+    this.buildSite();
+  }
+
+  /** Txt2Fly: the proposal's track, dashed, with the points where checks fail; the plan
+   * being flown, solid, in place of the scenario's mission line. */
+  setPlans(proposal: PlanReport | null, active: PlanReport | null): void {
+    if (proposal === this.plans.proposal && active === this.plans.active) return;
+    this.plans = { proposal, active };
+    this.buildPlans();
+  }
+
+  private buildSite(): void {
+    for (const e of this.siteEntities) this.viewer.entities.remove(e);
+    this.siteEntities = [];
+    const f = this.frame;
+    if (!f || !this.site) return;
+    const ents = this.viewer.entities;
+    for (const area of this.site.no_fly) {
+      let sn = 0;
+      let se = 0;
+      let k = 0;
+      for (const poly of area.polygons) {
+        const deg = poly.map(([n, e]) => f.toDegrees(n, e));
+        this.siteEntities.push(
+          ents.add({
+            polygon: {
+              hierarchy: new PolygonHierarchy(Cartesian3.fromDegreesArray(deg.flat())),
+              material: new ColorMaterialProperty(NO_FLY.withAlpha(0.35)),
+              classificationType: ClassificationType.BOTH,
+            },
+          }),
+          ents.add({
+            polyline: {
+              positions: Cartesian3.fromDegreesArray([...deg.flat(), ...deg[0]!]),
+              clampToGround: true,
+              width: 2,
+              material: new ColorMaterialProperty(NO_FLY),
+              classificationType: ClassificationType.BOTH,
+            },
+          }),
+        );
+        for (const [n, e] of poly) {
+          sn += n;
+          se += e;
+          k += 1;
+        }
+      }
+      this.siteEntities.push(
+        ents.add({
+          position: f.toCartesian(sn / k, se / k, 30),
+          label: {
+            text: `${area.name} · no-fly`,
+            font: "12px sans-serif",
+            fillColor: NO_FLY.brighten(0.4, new Color()),
+            style: LabelStyle.FILL_AND_OUTLINE,
+            outlineWidth: 3,
+            outlineColor: Color.BLACK,
+            horizontalOrigin: HorizontalOrigin.CENTER,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          },
+        }),
+      );
+    }
+    const fence = this.site.geofence.map(([n, e]) => f.toDegrees(n, e));
+    this.siteEntities.push(
+      ents.add({
+        polyline: {
+          positions: Cartesian3.fromDegreesArray([...fence.flat(), ...fence[0]!]),
+          clampToGround: true,
+          width: 2,
+          material: new PolylineDashMaterialProperty({ color: NO_FLY.withAlpha(0.9), dashLength: 16 }),
+          classificationType: ClassificationType.BOTH,
+        },
+      }),
+    );
+  }
+
+  private buildPlans(): void {
+    for (const e of this.planEntities) this.viewer.entities.remove(e);
+    this.planEntities = [];
+    const f = this.frame;
+    if (!f) return;
+    const ents = this.viewer.entities;
+    const { proposal, active } = this.plans;
+    const track = (r: PlanReport) => r.preview.map(([n, e, h]) => f.toCartesian(n, e, h));
+    if (active && active.preview.length > 1) {
+      this.planEntities.push(
+        ents.add({ polyline: { positions: track(active), width: 2, material: new ColorMaterialProperty(FLYING.withAlpha(0.8)) } }),
+      );
+    }
+    if (proposal && proposal.preview.length > 1) {
+      this.planEntities.push(
+        ents.add({
+          polyline: {
+            positions: track(proposal),
+            width: 3,
+            material: new PolylineDashMaterialProperty({ color: PROPOSED, dashLength: 20 }),
+          },
+        }),
+      );
+      for (const c of proposal.checks) {
+        if (c.ok) continue;
+        const color = c.hard ? NO_FLY : ZONE_SELECTED;
+        for (const [n, e] of c.where) {
+          this.planEntities.push(
+            ents.add({
+              position: f.toCartesian(n, e, 2),
+              point: { pixelSize: 7, color, outlineColor: Color.BLACK, outlineWidth: 1, disableDepthTestDistance: Number.POSITIVE_INFINITY },
+            }),
+          );
+        }
+      }
+    }
+    // A confirmed plan replaces the scenario's mission.
+    if (this.mission) this.mission.show = !active;
   }
 
   private buildZones(r: Replay): void {
@@ -286,7 +418,7 @@ export class SceneController {
     if (g) this.place(this.ghostAircraft, g);
 
     this.updateZones(s, layers.zones);
-    if (this.mission) this.mission.show = layers.mission;
+    if (this.mission) this.mission.show = layers.mission && !this.plans.active;
 
     // Wind arrow: 10 m per m/s, drawn from the aircraft.
     const windSpeed = Math.hypot(s.windN, s.windE);

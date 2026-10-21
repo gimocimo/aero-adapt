@@ -1,0 +1,8 @@
+summary: Circle Rowan's Wood twice at 100 m, then come home.
+steps:
+  - do: orbit
+    target: {kind: place, id: "Rowan's Wood"}
+    radius_m: 150
+    alt_m: 100
+    turns: 2
+  - do: return_home

@@ -1,5 +1,6 @@
-"""Site definitions: geodetic origin, ground model, atmosphere offsets, Earth magnetic field, and
-pre-surveyed safe zones (authored in YAML under configs/sites)."""
+"""Site definitions: geodetic origin, ground model, atmosphere offsets, Earth magnetic field,
+pre-surveyed safe zones and, for planned missions (Txt2Fly), the operating area: geofence,
+height limits, no-fly areas and named places (authored in YAML under configs/sites)."""
 
 from __future__ import annotations
 
@@ -86,6 +87,52 @@ class SafeZone(_Strict):
         return inside
 
 
+class NoFly(_Strict):
+    """An area planned missions keep out of: polygons drawn here, or an area of the site's
+    OpenStreetMap extract (``<site>.osm.json``, by its id)."""
+
+    id: str
+    name: str
+    reason: str
+    osm_area: str | None = None
+    polygons_ne_m: list[list[tuple[float, float]]] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _one_source(self) -> NoFly:
+        if (self.osm_area is None) == (not self.polygons_ne_m):
+            raise ValueError(f"no-fly {self.id}: give either osm_area or polygons_ne_m")
+        return self
+
+
+class Place(_Strict):
+    """A named place for planned missions, beyond the safe zones and the OSM extract."""
+
+    id: str
+    name: str
+    kind: str = "point"
+    point_ne_m: tuple[float, float]
+    aliases: list[str] = Field(default_factory=list)
+
+
+class Operations(_Strict):
+    """Where planned missions may fly (Txt2Fly spec §5). The geofence goes up with every
+    planned mission (a breach switches the stack to RTL); the planner checks the rest."""
+
+    home_ne_m: tuple[float, float]  # RTL loiter centre for planned missions
+    geofence_ne_m: list[tuple[float, float]] = Field(min_length=3, max_length=16)
+    ceiling_agl_m: float = Field(gt=0)
+    min_agl_m: float = Field(gt=0)
+    fence_alt_margin_m: float = Field(default=20.0, ge=0)  # altitude fence = ceiling + this
+    no_fly: list[NoFly] = Field(default_factory=list)
+    places: list[Place] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _heights(self) -> Operations:
+        if self.min_agl_m >= self.ceiling_agl_m:
+            raise ValueError("min_agl_m must be below ceiling_agl_m")
+        return self
+
+
 class Site(_Strict):
     schema_version: int = Field(ge=1, le=1)
     id: str
@@ -101,6 +148,7 @@ class Site(_Strict):
     magnetic: Magnetic
     airspace_notes: str
     safe_zones: list[SafeZone] = Field(default_factory=list, max_length=MAX_SAFE_ZONES)
+    operations: Operations | None = None
 
     @property
     def ground_msl_m(self) -> float:

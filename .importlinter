@@ -70,3 +70,22 @@ source_modules =
     aeroadapt.telemetry
 forbidden_modules =
     aeroadapt.generator
+
+# Txt2Fly (docs/06): the planner is ground-station software. It knows the airframe as a
+# manufacturer would (design-time models, as auto-configuration does) and the aircraft's state
+# from telemetry, never fault ground truth; and the flight stack never depends on it.
+[importlinter:contract:planner-has-no-ground-truth]
+name = The Txt2Fly planner must not import faultlab, and the stack must not import the planner
+type = forbidden
+source_modules =
+    aeroadapt.txt2fly
+forbidden_modules =
+    aeroadapt.faultlab
+
+[importlinter:contract:stack-does-not-know-the-planner]
+name = The flight stack must not import the Txt2Fly planner
+type = forbidden
+source_modules =
+    aeroadapt.stack
+forbidden_modules =
+    aeroadapt.txt2fly

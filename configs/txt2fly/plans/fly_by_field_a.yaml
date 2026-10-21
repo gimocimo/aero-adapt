@@ -1,0 +1,4 @@
+summary: A pass over field A along its long axis.
+steps:
+  - do: pass_over
+    target: {kind: place, id: field A}

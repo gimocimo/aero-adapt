@@ -1,0 +1,7 @@
+summary: Go to the church and circle it at 30 m radius, 80 m above it.
+assumptions: ["80 m above the ground at the church"]
+steps:
+  - do: orbit
+    target: {kind: place, id: "Saint Peter (Coton Parish Church)"}
+    radius_m: 30
+    alt_m: 80

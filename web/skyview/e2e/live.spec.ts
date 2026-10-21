@@ -49,3 +49,30 @@ test("live mode: a sensor fault is injected and cleared; a motor cut is logged a
   }
   expect(errors).toEqual([]);
 });
+
+// Txt2Fly (docs/06 T8): a typed plan is checked by the server, shown with its verdict, and
+// flown once confirmed.
+test("txt2fly: a typed plan is checked, confirmed and flown", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (err) => errors.push(err.message));
+  await page.goto("/?live=ws://localhost:8799&tiles=0");
+  await expect(page.getByTestId("clock")).toContainText("LIVE", { timeout: 60_000 });
+  await page.getByTestId("scenario-picker").selectOption("txt2fly-demo");
+  await expect(page.getByTestId("scenario-picker")).toHaveValue("txt2fly-demo", { timeout: 30_000 });
+  await expect(page.getByTestId("clock")).toContainText("LIVE", { timeout: 60_000 });
+
+  await page.getByTestId("plan-tab").click();
+  await page.getByRole("button", { name: "Church, 30 m circle" }).click();
+  await page.getByTestId("plan-check").click();
+  await expect(page.getByTestId("plan-verdict")).toContainText("Cannot fly", { timeout: 30_000 });
+  await expect(page.getByTestId("plan-proposal")).toContainText("limited to 45°");
+  await expect(page.getByTestId("plan-confirm")).toBeDisabled();
+
+  await page.getByRole("button", { name: "Patrol A, B, C" }).click();
+  await page.getByTestId("plan-check").click();
+  await expect(page.getByTestId("plan-verdict")).toHaveText("Can fly", { timeout: 30_000 });
+  await page.getByTestId("plan-confirm").click();
+  await expect(page.getByTestId("active-plan")).toContainText("Patrol fields A, B and C", { timeout: 20_000 });
+  await expect(page.locator(".eventlog").getByText("Mode AUTO")).toBeVisible({ timeout: 20_000 });
+  expect(errors).toEqual([]);
+});

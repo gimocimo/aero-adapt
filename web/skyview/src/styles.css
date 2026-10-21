@@ -615,3 +615,109 @@ dd {
   flex: 1;
   margin: 0 8px;
 }
+
+/* Txt2Fly (docs/06 §10): the Plan tab of the live panel */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin: 8px 0 6px;
+}
+.tabs button {
+  flex: 1;
+  padding: 4px 0;
+}
+.tabs button.on {
+  background: #2b3a55;
+  border-color: #4cc9f0;
+}
+.planpanel .examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.planpanel .examples button {
+  padding: 3px 6px;
+  font-size: 11px;
+}
+.planpanel textarea {
+  box-sizing: border-box;
+  width: 100%;
+  font: 11px ui-monospace, monospace;
+  background: rgba(0, 0, 0, 0.35);
+  color: #e8ecf2;
+  border: 1px solid #3a4558;
+  border-radius: 6px;
+  padding: 6px;
+}
+.planbuttons {
+  display: flex;
+  gap: 6px;
+  margin: 6px 0;
+}
+.planbuttons .confirm:not(:disabled) {
+  background: #1f6f43;
+  border-color: #38d16a;
+}
+.planpanel .flying {
+  margin: 0 0 6px;
+  padding: 4px 6px;
+  border-left: 3px solid #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+.proposal .verdict {
+  margin: 4px 0;
+  font-weight: 600;
+}
+.proposal .verdict.ok {
+  color: #38d16a;
+}
+.proposal .verdict.fail {
+  color: #ff6b6b;
+}
+.proposal .summary {
+  margin: 4px 0;
+  font-style: italic;
+}
+.proposal .steps {
+  margin: 4px 0 4px 18px;
+  padding: 0;
+}
+.proposal .note {
+  margin: 2px 0;
+  color: #9aa6b8;
+}
+.proposal .checks {
+  margin: 6px 0;
+  padding: 0;
+  list-style: none;
+}
+.proposal .check {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 4px;
+  line-height: 1.35;
+}
+.proposal .check .mark {
+  flex: 0 0 12px;
+  font-weight: 700;
+}
+.proposal .check.ok .mark {
+  color: #38d16a;
+}
+.proposal .check.fail .mark {
+  color: #ff6b6b;
+}
+.proposal .check.warn .mark {
+  color: #ffc93c;
+}
+.proposal .ack {
+  display: block;
+  margin: 4px 0;
+  color: #ffc93c;
+}
+.planpanel .attribution {
+  margin: 8px 0 0;
+  font-size: 10px;
+  color: #7d889a;
+}

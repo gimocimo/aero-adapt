@@ -8,6 +8,11 @@ Client → server: ``inject_fault{spec}`` (a fault spec without trigger), ``clea
 ``set_wind{speed_mps, from_deg}``, ``set_speed{x}``, ``pause``, ``resume``,
 ``reset{scenario, airframe}``.
 
+Txt2Fly (docs/06 §10): ``hello`` carries the site's operating area (geofence, no-fly areas,
+places); ``propose_plan{plan}`` answers ``plan_proposal`` (the plan built and checked from the
+aircraft's state now); ``confirm_plan{id, acknowledged}`` flies it from the next chunk
+(``plan_active`` follows); ``cancel_plan{id}``.
+
 Airframes: the scenario's own, and the sample fleet (``configs/fleets/sample``) with the
 stack configurations V20 tuned for them (``stack_cfgs.jsonl``).
 
@@ -36,6 +41,7 @@ from aeroadapt.airframes.fleet import load_fleet
 from aeroadapt.live.session import CHUNK_S, LiveSession
 from aeroadapt.scenarios.schema import SCENARIO_DIR, load_scenario
 from aeroadapt.stack.config import StackCfg
+from aeroadapt.txt2fly.gazetteer import site_layers
 
 REPO = Path(__file__).resolve().parents[3]
 RUNS = REPO / "runs" / "live"
@@ -139,6 +145,8 @@ class Connection:
             "airframe": self.airframe_id,
             "airframes": cat.listing(),
             "model": cat.models.get(self.airframe_id or ""),
+            "site": site_layers(self.session.resolved.site),
+            "plan": self.session.active_plan,
         })  # fmt: skip
 
     async def receive(self) -> None:
@@ -160,6 +168,16 @@ class Connection:
                 self.paused = True
             elif cmd == "resume":
                 self.paused = False
+            elif cmd == "propose_plan":
+                err, prop = await asyncio.to_thread(self.session.propose, msg.get("plan") or {})
+                self.error = err
+                if prop is not None:
+                    await self.send({"type": "plan_proposal", "proposal": prop})
+            elif cmd == "confirm_plan":
+                ack = [str(x) for x in msg.get("acknowledged") or []]
+                self.error = await asyncio.to_thread(self.session.confirm, str(msg.get("id")), ack)
+            elif cmd == "cancel_plan":
+                self.session.cancel(str(msg.get("id")))
             elif cmd == "reset":
                 scenario = str(msg.get("scenario") or self.scenario_id)
                 airframe = msg.get("airframe", self.airframe_id) or None
@@ -189,6 +207,9 @@ class Connection:
             events = await asyncio.to_thread(session.new_events)
             if events:
                 await self.send({"type": "events", "events": events})
+            if session.plan_changed:
+                session.plan_changed = False
+                await self.send({"type": "plan_active", "plan": session.active_plan})
             if session.done:
                 await self.status()
             next_wall += CHUNK_S / self.speed
@@ -230,8 +251,12 @@ async def _handler(ws: ServerConnection, catalogue: Catalogue, scenario_id: str)
 
 def _warm_up(catalogue: Catalogue, scenario_id: str) -> None:
     """Compile the closed loop before the first browser connects: once for the scenario's
-    airframe and once for tabulated (fleet) aerodynamics."""
-    catalogue.session(scenario_id, None).step()
+    airframe and once for tabulated (fleet) aerodynamics; and the plan preview."""
+    session = catalogue.session(scenario_id, None)
+    session.step()
+    if session.resolved.site.operations is not None:
+        session.propose({"steps": [{"do": "return_home"}]})  # the short preview
+        session.propose({"steps": [{"do": "hold"}]})  # … and the long one
     for af in itertools.islice(catalogue.airframes, 1):
         catalogue.session(scenario_id, af).step()
 

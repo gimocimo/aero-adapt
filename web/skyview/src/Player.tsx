@@ -69,6 +69,11 @@ export default function Player() {
     const unsubGhost = useStore.subscribe((s, prev) => {
       if (s.ghost !== prev.ghost) controller.setReplays(s.replay, s.ghost);
       if (s.live?.modelUrl !== prev.live?.modelUrl) controller.setModel(s.live?.modelUrl ?? null);
+      // Txt2Fly: the operating area, the proposed plan and the plan flown.
+      if (s.live !== prev.live || s.replay !== prev.replay) {
+        controller.setSite(s.live?.site ?? null);
+        controller.setPlans(s.live?.proposal ?? null, s.live?.activePlan ?? null);
+      }
       // A replay of a fleet airframe brings its own model.
       if (!s.live && s.replay !== prev.replay) {
         const m = s.replay?.manifest.viz_model;
@@ -145,7 +150,8 @@ export default function Player() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const st = useStore.getState();
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+      const t = e.target;
+      if (t instanceof HTMLInputElement || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement) return;
       if (e.key === " ") {
         st.setPlaying(!st.playing);
         e.preventDefault();

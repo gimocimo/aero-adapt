@@ -1,0 +1,7 @@
+summary: Circle field C twice at 100 m, then come home.
+steps:
+  - do: orbit
+    target: {kind: place, id: field C}
+    alt_m: 100
+    turns: 2
+  - do: return_home

@@ -11,3 +11,8 @@ Princeton University Press, 2012 (and the propeller/motor addendum by T. W. McLa
 as published in byu-magicc/mavsim_public (mavsim_python/parameters/aerosonde_parameters.py,
 commit 10363e0eaeb16a61a7463505f8e122a9eb7e2b4e). Only parameter values are used;
 no source code from that repository is included.
+
+configs/sites/cambridge_west.osm.json is an extract of OpenStreetMap data
+(© OpenStreetMap contributors), made with tools/fetch_gazetteer.py. It is available
+under the Open Database License 1.0 (https://opendatacommons.org/licenses/odbl/1-0/);
+see https://www.openstreetmap.org/copyright. The extract stays under the ODbL.

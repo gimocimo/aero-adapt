@@ -11,7 +11,7 @@ import pytest
 from aeroadapt.airframes import Airframe
 from aeroadapt.scenarios import load_site
 from aeroadapt.stack.attitude import att_init, attitude_step
-from aeroadapt.stack.autopilot import MODE_AUTO, MODE_RTL, ApState, _mission_step
+from aeroadapt.stack.autopilot import MODE_AUTO, MODE_RTL, _mission_step, ap_init
 from aeroadapt.stack.config import StackParams, build_stack_params, load_stack_cfg
 from aeroadapt.stack.tecs import tecs_init, tecs_step
 from aeroadapt.stack.types import LAT_LOITER, LAT_WAYPOINT, make_mission
@@ -133,7 +133,7 @@ def test_speed_scaler_raises_gains_when_slow(sp: StackParams) -> None:
 # --------------------------------------------------------------------------- mission
 def test_mission_switches_legs_loops_and_rtl(sp: StackParams) -> None:
     wps = [(500.0, 0.0, 120.0), (500.0, 500.0, 130.0)]
-    ap = ApState(jnp.asarray(MODE_AUTO), jnp.asarray(0), jnp.zeros(2), jnp.asarray(120.0))
+    ap = ap_init(MODE_AUTO, jnp.zeros(2), jnp.asarray(120.0))
     ap, tgt = _mission_step(sp, ap, jnp.array([100.0, 0.0]), make_mission(wps))
     assert int(ap.wp_idx) == 0 and int(tgt.lateral) == LAT_WAYPOINT
     ap, tgt = _mission_step(sp, ap, jnp.array([480.0, 0.0]), make_mission(wps))  # within radius
@@ -152,7 +152,7 @@ def test_large_altitude_changes_follow_a_glide_slope(sp: StackParams) -> None:
     """A 40 m climb over a 1 km leg: the height target rises with progress (ArduPlane's
     GLIDE_SLOPE_MIN, 15 m by default); a 10 m change is flown at once."""
     wps = [(1000.0, 0.0, 160.0), (1000.0, 1000.0, 170.0)]
-    ap = ApState(jnp.asarray(MODE_AUTO), jnp.asarray(0), jnp.zeros(2), jnp.asarray(120.0))
+    ap = ap_init(MODE_AUTO, jnp.zeros(2), jnp.asarray(120.0))
     for north, expected in ((0.0, 120.0), (250.0, 130.0), (500.0, 140.0), (900.0, 156.0)):
         _, tgt = _mission_step(sp, ap, jnp.array([north, 30.0]), make_mission(wps))
         assert float(tgt.alt) == pytest.approx(expected, abs=1e-3), north

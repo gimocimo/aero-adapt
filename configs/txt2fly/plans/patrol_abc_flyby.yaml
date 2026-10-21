@@ -1,0 +1,6 @@
+summary: Patrol fields A, B and C (passing by each), until the battery reserve.
+steps:
+  - do: patrol
+    targets: [{kind: place, id: field A}, {kind: place, id: field B}, {kind: place, id: field C}]
+    visit: goto
+    alt_m: 100

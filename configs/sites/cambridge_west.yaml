@@ -70,3 +70,38 @@ safe_zones:
     surface: grass/arable strip, 6 ha; narrow (about 95-190 m wide)
     quality: 0.7
     polygon_ne_m: [[-298.8, -568.6], [-298.8, -475.3], [-612.9, -356.8], [-608.3, -552.7]]
+
+# Planned missions (Txt2Fly, docs/06 §5). The operating area is the farmland west of the M11.
+# No-fly areas come from the OpenStreetMap extract (cambridge_west.osm.json, written by
+# tools/fetch_gazetteer.py; © OpenStreetMap contributors, ODbL): the motorway with 50 m either
+# side, Coton's built-up area with 30 m around it, and the West Cambridge campus. Simulation
+# only: real operations follow the CAA's rules and an operator's own risk assessment.
+operations:
+  home_ne_m: [-150.0, -200.0]  # over field A, so the RTL circle stays clear of the M11
+  geofence_ne_m: [[800.0, -1300.0], [800.0, 300.0], [-1300.0, 300.0], [-1300.0, -1300.0]]
+  ceiling_agl_m: 120.0  # the UK open category's maximum height
+  min_agl_m: 40.0
+  fence_alt_margin_m: 20.0
+  no_fly:
+    - id: m11
+      name: M11 motorway
+      reason: motorway traffic below
+      osm_area: motorway-m11
+    - id: coton
+      name: Coton village
+      reason: houses and people below
+      osm_area: settlement-coton
+    - id: coton-north
+      name: houses on Madingley Road
+      reason: houses and people below
+      osm_area: settlement-coton-2
+    - id: west-cambridge
+      name: West Cambridge campus
+      reason: buildings and people below
+      osm_area: campus-cambridge-west
+  places:
+    - id: home
+      name: home
+      kind: home
+      point_ne_m: [-150.0, -200.0]
+      aliases: [launch point, base]

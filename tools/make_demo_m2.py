@@ -126,6 +126,7 @@ def main() -> None:
          "-crf", "28", "-preset", "slow", "-movflags", "+faststart", str(video)],
         check=True,
     )  # fmt: skip
+    shutil.rmtree(frames)  # ~2 MB a frame: the video is what stays (a rerun redraws them)
     print(video, f"{video.stat().st_size / 1e6:.1f} MB")
 
 

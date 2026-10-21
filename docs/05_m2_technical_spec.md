@@ -977,3 +977,5 @@ Never cut aero v2 parity (V16/V17), V14, V20, the bench or live fault injection.
 | D9 Throughput | ✅ CPU recorded (0.85 M simulator steps/s on a laptop); GPU ⏳ (open question 1) |
 | D10 Live mode | ✅ (now with wind control) |
 | D11 Demo and write-up | ✅ video from seeds (`tools/make_demo_m2.py` → `runs/demo/m2_demo.mp4`, 88 s: a live session, then the fleet view), `docs/demo/m2.md`, `docs/blog/m2_draft.md`, report M2 sections |
+
+*21 Oct 2026:* the roadmap gained Txt2Fly as weeks 9–10 ([doc 03 §7.2](03_uav_architecture_and_six_month_roadmap.md#72-milestones), [spec 06](06_txt2fly_spec.md)), so "M3 week 1" above is now week 11. The notebook for D9 now installs its own Python 3.12 with uv, so it runs on Colab, Kaggle or any GPU machine.

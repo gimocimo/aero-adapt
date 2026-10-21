@@ -14,7 +14,7 @@ AeroAdapt is built simulation-first. It is validated rigorously and compared aga
 > - **Throughput:** 0.85 M simulator steps/s on a laptop CPU for a heterogeneous fleet with faults.
 > - **Evidence:** [M2 write-up](docs/demo/m2.md) (with its fidelity and limits), the [week-by-week log](docs/05_m2_technical_spec.md#14-implementation-log-living-section) and the [validation report](docs/validation/m2_report.md). M1: [write-up](docs/demo/m1.md), [frozen report](docs/validation/m1_report.md).
 >
-> Next: M3, one learned policy flying airframes it never trained on.
+> Next: **Txt2Fly** (weeks 9–10, [spec](docs/06_txt2fly_spec.md)): tell the aircraft where to go in plain words; a checker tests the plan against the airframe and the wind before it flies. Then M3, one learned policy flying airframes it never trained on.
 
 ![Skyview: the classical contingency flaring over field A after a motor cut](docs/media/skyview_final.jpg)
 
@@ -27,6 +27,7 @@ AeroAdapt is built simulation-first. It is validated rigorously and compared aga
 | [03 — AeroAdapt-UAV plan](docs/03_uav_architecture_and_six_month_roadmap.md) | **Current plan**: architecture, fleet, benchmarks, six-month roadmap |
 | [04 — M1 technical spec](docs/04_m1_technical_spec.md) | Interfaces, models, validation plan and work plan for M1 |
 | [05 — M2 technical spec](docs/05_m2_technical_spec.md) | The fleet: tabulated aero, airframe generator, JSBSim backend, auto-configuration, faultlab v1, bench v0, live mode |
+| [06 — Txt2Fly spec](docs/06_txt2fly_spec.md) | Plain-language missions: typed plans, a wind- and airframe-aware builder, a checker, the language layer and its evaluation |
 | [ADRs](docs/adr/) | Architecture decision records |
 
 ## Quick start

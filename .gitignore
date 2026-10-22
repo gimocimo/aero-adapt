@@ -23,6 +23,9 @@ replays/
 !configs/fleets/**/*.parquet
 validation/out/
 
+# Downloaded source data (open data; fetched by tools/*_fetch.py, never committed raw)
+data/
+
 # Third-party code fetched for tests (never vendored)
 third_party/
 

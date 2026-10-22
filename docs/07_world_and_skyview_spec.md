@@ -333,6 +333,7 @@ The world is synthetic. Wrenfold is not a real place, and its origin only sets t
   - **Drawing.** `tools/sketch_map.py` draws the map sheet, the city close-up and the operations map, and `--lock` saves what is not yet locked. `tools/sketch_iso.py` draws isometric views. `tools/sketch_8k.py` draws an 8K isometric picture at true heights: a ray cast over the heightfield, every building, turbine, pylon and tree standing, shadows, and with `--zones` the no-fly zones as volumes. It takes about 40 s.
   - **Cost.** Building the whole map from the locks takes about 6 s and 0.9 GB.
 - **22 Oct 2026, the test map flies.** The locked sketch is baked into a world (§14) and flown: `testmap-nominal` is a tour from its airstrip at 150 m. A headless 30-minute run is clean: no collision, at least 87 m above the ground and everything on it, never inside a zone closed at all heights, never out of the geofence.
+- **22 Oct 2026, the cinematic look.** Skyview's chase view gets a look for demo videos (§15): sunlight with soft shadows, a sky, haze and filmic grading; tree models up close; ground grain by land cover; roads, water and building facades of their own; turning turbines; and a film mode (`&film=1`) with nothing but the picture.
 
 ## 14. Baked worlds: the test map
 
@@ -363,3 +364,41 @@ The owner's test map is not generated from a spec. It was drawn with the sketch 
   - The 30 no-fly zones carry their heights (`ceiling_m`; `ceiling_from: centre` for the flat-topped cylinders round the turbines and masts).
   - **The planner does not use those heights yet:** it keeps out of every zone at all heights, so Txt2Fly routes round the city rather than over it. Fixed-waypoint missions (`testmap-nominal`) were checked against the heights by hand.
 - **Skyview** shows each zone's height: closed at all heights in red, up to a height in orange and dashed, labelled with how high it reaches. It also draws the turbines (rotors facing the wind), pylons, cooling towers and wires; buildings in their own colours; the water as land cover; and the town's streets, squares and parks.
+
+## 15. The cinematic look (Skyview)
+
+![The test map's vale in the cinematic look: fields, the city and the eastern range](media/testmap_vale.jpg)
+
+![The old town, close up: tiled roofs, windows by floor, the cathedral and the river](media/testmap_oldtown.jpg)
+
+For demo videos, Skyview's chase view has a look of its own. It is on by default; `?quality=low` turns it off (for slow GPUs, as before). `&film=1` shows the chase view alone, filling the window, without the route, zones or labels.
+
+- **Light.**
+  - The sun is in the west-south-west, 32° up, as in the sketches.
+  - Soft shadows fall within 320 m of what the camera follows.
+  - A sky dome runs from deep blue overhead to the haze at the horizon, with the sun's glow. Its light falls on every surface, and water and glass reflect it.
+  - Haze thickens with distance, and the picture is graded with ACES filmic tone mapping.
+- **Trees.**
+  - Within 340 m of the camera, each tree is a model of its kind (broadleaf, conifer, willow or shrub): a trunk and a lobed crown, casting a shadow.
+  - Beyond that, the simple instanced shapes stand in. The near set is refreshed every 30 m the camera moves.
+  - Hedges are continuous lumpy rows, each bush long along its hedge.
+- **Ground.**
+  - The painted land cover, as before, has grain by kind up close: grass, crops in rows, ploughed soil, tarmac, a wood's floor.
+  - Patches tens of metres across reach out a few kilometres, and broad mottling covers everything, so no field is one flat colour.
+  - High open ground is moorland olive (it was khaki).
+- **Roads** are surfaces of their own, with sharp edges and tarmac grain. Roads have a dashed centre line and edge lines; tracks have wheel ruts with grass between. They fade into the painted roads beyond about a kilometre.
+- **Buildings.**
+  - Homes, offices and industrial buildings have windows on every floor above the ground floor; towers have glass curtain walls that reflect the sky.
+  - Churches and landmarks are stone. Pitched roofs are tiled, flat roofs gravelled.
+  - All of it is drawn in the shader from each wall's own coordinates, with no image textures.
+- **Water** fills each water cover bank to bank, rippled and reflecting the sky. It is level at its lowest shore nearby, so a river steps down as it falls. The painted water at its edge reads as shallows.
+- **Turbines** turn at about 15 rpm, by the wall clock: in a replay at 4×, they still turn at 1×.
+- **Set shots.** `__view.setShot([n, e, h], [n, e, h])` in the dev console puts the camera at one point looking at another, for stills; `setShot(null)` gives the follow view back. `web/skyview/scripts/stills.mjs <out-dir> <shots.json>` takes a list of them at 1920×1080, headless (the pictures above).
+- **Cost.** About 12.6 million triangles a frame; 118 fps at 1600×1000 on the development Mac.
+
+**Fidelity.** None of this changes the simulator; the views draw the same payload, at the same positions and heights. The look is a drawing:
+
+- the ground's grain is made from noise in the browser, not photographs;
+- windows are patterns on the walls, not modelled;
+- the river's surface is drawn level at its banks, while the simulator has the channel's ground;
+- the rotors turn for the eye only. The simulator keeps each rotor as a wall across the wind (§14).

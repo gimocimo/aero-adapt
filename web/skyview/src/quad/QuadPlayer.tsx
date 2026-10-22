@@ -19,6 +19,8 @@ function params() {
     ghost: q.get("ghost"),
     live: q.get("live"),
     quality: q.get("quality"),
+    /** &film=1: the follow view alone, filling the window (for video). */
+    film: q.get("film") === "1",
     /** &t=<s>: open a replay paused at that moment (links and stills). */
     t: q.has("t") && Number.isFinite(t) ? t : null,
   };
@@ -68,7 +70,7 @@ export default function QuadPlayer() {
   // The renderer and the animation loop.
   useEffect(() => {
     if (!canvasRef.current) return;
-    const view = new WorldView(canvasRef.current, { thin: params().quality === "low" ? 3 : 1 });
+    const view = new WorldView(canvasRef.current, { thin: params().quality === "low" ? 3 : 1, film: params().film });
     view.setHosts(chaseRef.current, topRef.current);
     viewRef.current = view;
     if (import.meta.env.DEV) {
@@ -92,7 +94,8 @@ export default function QuadPlayer() {
       const s = useStore.getState();
       const mode: ChaseMode = s.camera === "orbit" || s.camera === "free" ? s.camera : "chase";
       view.update(s.time, s.layers, mode);
-      view.render(chaseRef.current?.getBoundingClientRect() ?? null, topRef.current?.getBoundingClientRect() ?? null);
+      const top = params().film ? null : (topRef.current?.getBoundingClientRect() ?? null);
+      view.render(chaseRef.current?.getBoundingClientRect() ?? null, top);
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
@@ -224,7 +227,7 @@ export default function QuadPlayer() {
 
   const cameraName = camera === "orbit" ? "orbit" : camera === "free" ? "free" : "chase";
   return (
-    <div className="quad">
+    <div className={params().film ? "quad film" : "quad"}>
       <canvas ref={canvasRef} className="gl" />
       <section ref={chaseRef} className="q q-chase" data-testid="view-follow">
         <h2 className="q-title">Follow · {cameraName}</h2>

@@ -1,6 +1,8 @@
 // Stylised meshes of a world (docs/07 §8): terrain draped with the painted land cover,
 // hedges, trees, buildings and masts, each exactly where the simulator has them.
 import * as THREE from "three";
+import { buildingMaterial, FACADE, roadMaterial, waterMaterial } from "./materials";
+import { ROAD } from "./paint";
 import { Ground, type Building, type Structure, type WorldPayload } from "./payload";
 
 /** Terrain grid → mesh in the three.js world (x east, y up, z south), UVs over the bounds. */
@@ -69,10 +71,11 @@ export function hedges(w: WorldPayload, ground: Ground): THREE.InstancedMesh | n
   const n = h.length / 6;
   if (n === 0) return null;
   const SPACING = 2.6;
-  const bushes: [number, number, number, number, number, number][] = []; // e, base, -n, radius, height, seed
+  const bushes: [number, number, number, number, number, number, number][] = []; // e, base, -n, radius, height, seed, yaw
   for (let k = 0; k < n; k++) {
     const [na, ea, nb, eb, height, width] = [h[6 * k]!, h[6 * k + 1]!, h[6 * k + 2]!, h[6 * k + 3]!, h[6 * k + 4]!, h[6 * k + 5]!];
     const len = Math.hypot(nb - na, eb - ea);
+    const yaw = Math.atan2(nb - na, eb - ea); // the bush's long axis along the hedge
     const count = Math.max(1, Math.round(len / SPACING));
     for (let i = 0; i < count; i++) {
       const s = (i + 0.5) / count;
@@ -80,7 +83,7 @@ export function hedges(w: WorldPayload, ground: Ground): THREE.InstancedMesh | n
       const j = seed - Math.floor(seed); // 0..1, fixed per bush
       const nn = na + (nb - na) * s + (j - 0.5) * 0.6;
       const ee = ea + (eb - ea) * s + (j - 0.5) * 0.6;
-      bushes.push([ee, ground.at(nn, ee) - 0.3, -nn, (width / 2) * (0.85 + 0.5 * j), height * (0.8 + 0.35 * j), j]);
+      bushes.push([ee, ground.at(nn, ee) - 0.3, -nn, (width / 2) * (0.85 + 0.5 * j), height * (0.8 + 0.35 * j), j, yaw]);
     }
   }
   const blob = new THREE.IcosahedronGeometry(1, 1);
@@ -90,9 +93,10 @@ export function hedges(w: WorldPayload, ground: Ground): THREE.InstancedMesh | n
   const q = new THREE.Quaternion();
   const up = new THREE.Vector3(0, 1, 0);
   const c = new THREE.Color();
-  bushes.forEach(([x, y, z, r, ht, j], k) => {
-    q.setFromAxisAngle(up, j * 6.283);
-    m.compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(r * 1.35, ht * 0.62, r * 1.15));
+  bushes.forEach(([x, y, z, r, ht, j, yaw], k) => {
+    // Long along the hedge, so neighbours overlap into one lumpy hedge (not beads on a string).
+    q.setFromAxisAngle(up, yaw + (j - 0.5) * 0.5);
+    m.compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(Math.max(r * 1.9, 1.75), ht * 0.62, r * 1.1));
     mesh.setMatrixAt(k, m);
     mesh.setColorAt(k, c.setHSL(0.27 + 0.05 * (j - 0.5), 0.42, 0.29 + 0.07 * j));
   });
@@ -159,30 +163,67 @@ const ROOFS = ["#4b5059", "#9d4c37", "#7b4b35", "#3f444c", "#5a5e66", "#8a4632",
 const KIND_WALL: Record<string, string> = { barn: "#7c8576", shed: "#8b9088", hangar: "#9aa1a8", nave: "#c9c0a8", tower: "#c4bba2" };
 const KIND_ROOF: Record<string, string> = { barn: "#8a9296", shed: "#80878c", hangar: "#7c838a", nave: "#4a4f58", tower: "#7d8389" };
 
+type UV = [number, number];
+
 class Builder {
   pos: number[] = [];
   col: number[] = [];
+  fac: number[] = []; // per vertex: metres along, metres up, facade kind (materials.FACADE)
   private c = new THREE.Color();
 
-  tri(a: THREE.Vector3, b: THREE.Vector3, d: THREE.Vector3, colour: string): void {
+  tri(a: THREE.Vector3, b: THREE.Vector3, d: THREE.Vector3, colour: string, uv?: [UV, UV, UV], kind = 0): void {
     this.c.set(colour);
-    for (const p of [a, b, d]) {
+    [a, b, d].forEach((p, k) => {
       this.pos.push(p.x, p.y, p.z);
       this.col.push(this.c.r, this.c.g, this.c.b);
-    }
+      const [x, y] = uv?.[k] ?? [0, 0];
+      this.fac.push(x, y, kind);
+    });
   }
 
-  quad(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, d: THREE.Vector3, colour: string): void {
-    this.tri(a, b, c, colour);
-    this.tri(a, c, d, colour);
+  quad(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, d: THREE.Vector3, colour: string, uv?: [UV, UV, UV, UV], kind = 0): void {
+    this.tri(a, b, c, colour, uv && [uv[0], uv[1], uv[2]], kind);
+    this.tri(a, c, d, colour, uv && [uv[0], uv[2], uv[3]], kind);
   }
 
   geometry(): THREE.BufferGeometry {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.Float32BufferAttribute(this.pos, 3));
     g.setAttribute("color", new THREE.Float32BufferAttribute(this.col, 3));
+    g.setAttribute("aFacade", new THREE.Float32BufferAttribute(this.fac, 3));
     g.computeVertexNormals();
     return g;
+  }
+}
+
+/** Which facade and roof a building has (windows by use; tiles on pitched roofs). */
+function facades(b: Building): [number, number] {
+  const roof = b.roof === "flat" ? FACADE.flat : FACADE.tiles;
+  switch (b.kind) {
+    case "tower":
+      return b.roof === "spire" ? [FACADE.stone, roof] : [FACADE.glass, FACADE.flat]; // a church's, or a tall block
+    case "modern":
+    case "block":
+    case "hall":
+      return [FACADE.offices, roof];
+    case "old":
+    case "terrace":
+    case "house":
+    case "farmhouse":
+    case "pub":
+      return [FACADE.homes, roof];
+    case "landmark":
+    case "castle":
+    case "nave":
+      return [FACADE.stone, roof];
+    case "industrial":
+    case "barn":
+    case "shed":
+    case "hangar":
+    case "reactor":
+      return [FACADE.industry, roof];
+    default:
+      return [FACADE.none, FACADE.none]; // masts, antennas, gantries
   }
 }
 
@@ -196,6 +237,7 @@ function addBuilding(B: Builder, b: Building): void {
   const W = b.width / 2;
   const wall = b.colours?.[0] ?? KIND_WALL[b.kind] ?? WALLS[b.variant % WALLS.length]!;
   const roof = b.colours?.[1] ?? KIND_ROOF[b.kind] ?? ROOFS[b.variant % ROOFS.length]!;
+  const [fw, fr] = facades(b);
   const top = b.roof === "flat" ? b.ridge : b.eaves;
   const sink = -0.6; // walls start a little below the ground (slopes)
   const corners: [number, number][] = [
@@ -207,18 +249,22 @@ function addBuilding(B: Builder, b: Building): void {
   for (let k = 0; k < 4; k++) {
     const [a1, c1] = corners[k]!;
     const [a2, c2] = corners[(k + 1) % 4]!;
-    B.quad(P(a1, c1, sink), P(a2, c2, sink), P(a2, c2, top), P(a1, c1, top), wall);
+    const len = Math.hypot(a2 - a1, c2 - c1);
+    B.quad(P(a1, c1, sink), P(a2, c2, sink), P(a2, c2, top), P(a1, c1, top), wall,
+           [[0, sink], [len, sink], [len, top], [0, top]], fw); // prettier-ignore
   }
   if (b.roof === "flat") {
-    B.quad(P(L, W, top), P(-L, W, top), P(-L, -W, top), P(L, -W, top), roof);
+    B.quad(P(L, W, top), P(-L, W, top), P(-L, -W, top), P(L, -W, top), roof, [[L, W], [-L, W], [-L, -W], [L, -W]], fr);
     return;
   }
   if (b.roof === "spire") {
     const apex = P(0, 0, b.ridge);
+    const slope = Math.hypot(Math.max(L, W) * 0.9, b.ridge - top);
     for (let k = 0; k < 4; k++) {
       const [a1, c1] = corners[k]!;
       const [a2, c2] = corners[(k + 1) % 4]!;
-      B.tri(P(a1 * 0.9, c1 * 0.9, top), P(a2 * 0.9, c2 * 0.9, top), apex, roof);
+      const len = Math.hypot(a2 - a1, c2 - c1) * 0.9;
+      B.tri(P(a1 * 0.9, c1 * 0.9, top), P(a2 * 0.9, c2 * 0.9, top), apex, roof, [[0, 0], [len, 0], [len / 2, slope]], fr);
     }
     B.quad(P(L, W, top), P(-L, W, top), P(-L, -W, top), P(L, -W, top), wall);
     return;
@@ -227,21 +273,207 @@ function addBuilding(B: Builder, b: Building): void {
   const o = 0.35;
   const r1 = P(L + o, 0, b.ridge);
   const r2 = P(-L - o, 0, b.ridge);
-  B.quad(P(L + o, W + o, top - 0.25), P(-L - o, W + o, top - 0.25), r2, r1, roof);
-  B.quad(P(-L - o, -W - o, top - 0.25), P(L + o, -W - o, top - 0.25), r1, r2, roof);
-  B.tri(P(L, W, top), P(L, 0, b.ridge), P(L, -W, top), wall);
-  B.tri(P(-L, -W, top), P(-L, 0, b.ridge), P(-L, W, top), wall);
+  const slope = Math.hypot(W + o, b.ridge - top + 0.25);
+  const tiles: [UV, UV, UV, UV] = [[L + o, 0], [-L - o, 0], [-L - o, slope], [L + o, slope]];
+  B.quad(P(L + o, W + o, top - 0.25), P(-L - o, W + o, top - 0.25), r2, r1, roof, tiles, fr);
+  B.quad(P(-L - o, -W - o, top - 0.25), P(L + o, -W - o, top - 0.25), r1, r2, roof, tiles, fr);
+  B.tri(P(L, W, top), P(L, 0, b.ridge), P(L, -W, top), wall, [[0, top], [W, b.ridge], [2 * W, top]], fw);
+  B.tri(P(-L, -W, top), P(-L, 0, b.ridge), P(-L, W, top), wall, [[0, top], [W, b.ridge], [2 * W, top]], fw);
 }
 
-/** Every building in one mesh (vertex colours, flat shading). */
-export function buildings(w: WorldPayload): THREE.Mesh | null {
+/** Every building in one mesh (vertex colours, flat shading); with ``cinematic``, facades
+ * and roof tiles, and shadows. */
+export function buildings(w: WorldPayload, cinematic = false): THREE.Mesh | null {
   if (w.buildings.length === 0) return null;
   const B = new Builder();
   for (const b of w.buildings) addBuilding(B, b);
-  return new THREE.Mesh(
+  const mesh = new THREE.Mesh(
     B.geometry(),
-    new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, side: THREE.DoubleSide }),
+    cinematic
+      ? buildingMaterial()
+      : new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, side: THREE.DoubleSide }),
   );
+  mesh.castShadow = mesh.receiveShadow = cinematic;
+  return mesh;
+}
+
+/** Water as surfaces, rippled and reflecting the sky: each water cover (river, branch, lake)
+ * filled on a grid, level at its lowest shore nearby, so it runs bank to bank and steps down
+ * with the river; the cells reach a little under the banks, which hide the edge. */
+export function waterSurfaces(w: WorldPayload, ground: Ground): THREE.Mesh | null {
+  const water = w.plots.filter((p) => p.kind === "water");
+  if (water.length === 0) return null;
+  const CELL = 6;
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
+  for (const p of water) {
+    const rings = [p.outer, ...p.holes];
+    const level = shoreLevel(rings, ground);
+    // Rows of cells: where each row's lines cross the shore, inside is between pairs.
+    const ns = p.outer.map(([n]) => n);
+    const es = p.outer.map(([, e]) => e);
+    const n0 = Math.floor(Math.min(...ns) / CELL) * CELL;
+    const e0 = Math.floor(Math.min(...es) / CELL) * CELL;
+    const n1 = Math.max(...ns);
+    const vertex = new Map<number, number>();
+    const at = (i: number, j: number) => {
+      const key = i * 1_000_003 + j;
+      let k = vertex.get(key);
+      if (k === undefined) {
+        const [n, e] = [n0 + i * CELL, e0 + j * CELL];
+        pos.push(e, level(n, e), -n);
+        uv.push(e, n);
+        k = pos.length / 3 - 1;
+        vertex.set(key, k);
+      }
+      return k;
+    };
+    for (let i = 0; n0 + i * CELL < n1; i++) {
+      const spans = [0, 0.5, 1].flatMap((f) => insideSpans(rings, n0 + (i + f) * CELL));
+      const cells = new Set<number>();
+      for (const [a, b] of spans) {
+        for (let j = Math.floor((a - 3 - e0) / CELL); e0 + j * CELL < b + 3; j++) cells.add(j);
+      }
+      for (const j of cells) {
+        const [a, b, c, d] = [at(i, j), at(i, j + 1), at(i + 1, j + 1), at(i + 1, j)];
+        idx.push(a, b, c, a, c, d); // facing up
+      }
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  const mesh = new THREE.Mesh(g, waterMaterial());
+  mesh.receiveShadow = true;
+  mesh.name = "water";
+  return mesh;
+}
+
+/** Where a line of constant north crosses into and out of the rings: [from, to] east spans. */
+function insideSpans(rings: [number, number][][], n: number): [number, number][] {
+  const xs: number[] = [];
+  for (const r of rings) {
+    for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+      const [ni, ei] = r[i]!;
+      const [nj, ej] = r[j]!;
+      if (ni > n !== nj > n) xs.push(ei + ((n - ni) * (ej - ei)) / (nj - ni));
+    }
+  }
+  xs.sort((a, b) => a - b);
+  const spans: [number, number][] = [];
+  for (let k = 0; k + 1 < xs.length; k += 2) spans.push([xs[k]!, xs[k + 1]!]);
+  return spans;
+}
+
+/** The water's level at a point: a little below the lowest shore within ~40 m (further out
+ * on a lake, until some shore is found). */
+function shoreLevel(rings: [number, number][][], ground: Ground): (n: number, e: number) => number {
+  const B = 40;
+  const buckets = new Map<string, number[]>(); // (n, e, height) triples by 40 m square
+  for (const r of rings) {
+    r.forEach(([n, e], i) => {
+      const [pn, pe] = r[(i + 1) % r.length]!;
+      const steps = Math.max(1, Math.ceil(Math.hypot(pn - n, pe - e) / 5));
+      for (let s = 0; s < steps; s++) {
+        const [sn, se] = [n + ((pn - n) * s) / steps, e + ((pe - e) * s) / steps];
+        const key = `${Math.floor(sn / B)},${Math.floor(se / B)}`;
+        const list = buckets.get(key) ?? [];
+        list.push(sn, se, ground.at(sn, se));
+        buckets.set(key, list);
+      }
+    });
+  }
+  return (n, e) => {
+    for (let reach = 1; reach < 64; reach *= 2) {
+      let low = Infinity;
+      const [bi, bj] = [Math.floor(n / B), Math.floor(e / B)];
+      for (let di = -reach; di <= reach; di++) {
+        for (let dj = -reach; dj <= reach; dj++) {
+          const list = buckets.get(`${bi + di},${bj + dj}`);
+          if (!list) continue;
+          for (let k = 0; k < list.length; k += 3) {
+            if (Math.hypot(list[k]! - n, list[k + 1]! - e) <= reach * B) low = Math.min(low, list[k + 2]!);
+          }
+        }
+      }
+      if (low < Infinity) return low - 0.3;
+    }
+    return ground.at(n, e);
+  };
+}
+
+/** Roads as surfaces of their own (cinematic): sharp edges, tarmac grain and centre lines
+ * close up, where the painted ground is too coarse; they fade into the painted roads with
+ * distance. ``aRoad``: metres along, metres across, half width, kind (0 plain, 1 centre
+ * line, 2 track). */
+export function roadSurfaces(w: WorldPayload, ground: Ground): THREE.Mesh | null {
+  if (w.roads.length === 0) return null;
+  const pos: number[] = [];
+  const col: number[] = [];
+  const attr: number[] = [];
+  const idx: number[] = [];
+  const c = new THREE.Color();
+  const LIFT = 0.25;
+  const vertex = (n: number, e: number, along: number, across: number, hw: number, kind: number) => {
+    pos.push(e, ground.at(n, e) + LIFT, -n);
+    col.push(c.r, c.g, c.b);
+    attr.push(along, across, hw, kind);
+    return pos.length / 3 - 1;
+  };
+  for (const rd of w.roads) {
+    const hw = rd.width / 2;
+    const kind = rd.kind === "road" ? 1 : rd.kind === "track" ? 2 : 0;
+    c.set(ROAD[rd.kind]);
+    // Resample every 4 m so the surface follows the ground.
+    const pts: [number, number][] = [];
+    rd.points.forEach(([n, e], i) => {
+      if (i === 0) return void pts.push([n, e]);
+      const [pn, pe] = rd.points[i - 1]!;
+      const steps = Math.max(1, Math.ceil(Math.hypot(n - pn, e - pe) / 4));
+      for (let s = 1; s <= steps; s++) pts.push([pn + ((n - pn) * s) / steps, pe + ((e - pe) * s) / steps]);
+    });
+    if (pts.length < 2) continue;
+    let along = 0;
+    let prev = -1;
+    pts.forEach(([n, e], i) => {
+      if (i > 0) along += Math.hypot(n - pts[i - 1]![0], e - pts[i - 1]![1]);
+      const [an, ae] = pts[Math.max(i - 1, 0)]!;
+      const [bn, be] = pts[Math.min(i + 1, pts.length - 1)]!;
+      const len = Math.hypot(bn - an, be - ae) || 1;
+      const [pn, pe] = [-(be - ae) / len, (bn - an) / len]; // across, to the left
+      const l = vertex(n + pn * hw, e + pe * hw, along, -hw, hw, kind);
+      vertex(n - pn * hw, e - pe * hw, along, hw, hw, kind);
+      if (prev >= 0) idx.push(prev, l, prev + 1, prev + 1, l, l + 1); // facing up
+      prev = l;
+    });
+    // Round ends, so roads that meet join without notches.
+    for (const [i, total] of [
+      [0, 0],
+      [pts.length - 1, along],
+    ] as const) {
+      const [n, e] = pts[i]!;
+      const centre = vertex(n, e, total, 0, hw, kind);
+      const SIDES = 12;
+      for (let s = 0; s <= SIDES; s++) {
+        const a = (s / SIDES) * 2 * Math.PI;
+        const v = vertex(n + Math.cos(a) * hw, e + Math.sin(a) * hw, total, Math.sin(a) * hw, hw, kind);
+        if (s > 0) idx.push(centre, v, v - 1);
+      }
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  g.setAttribute("aRoad", new THREE.Float32BufferAttribute(attr, 4));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  const mesh = new THREE.Mesh(g, roadMaterial());
+  mesh.receiveShadow = true;
+  mesh.name = "roads";
+  return mesh;
 }
 
 /** A wind turbine: a tapering white tower, the nacelle, the hub and three blades, the rotor
@@ -265,12 +497,17 @@ function turbine(s: Structure): THREE.Group {
   const blade = new THREE.ShapeGeometry(new THREE.Shape(outline));
   const bladeMat = new THREE.MeshLambertMaterial({ color: "#f6f7f8", side: THREE.DoubleSide });
   const phase = ((s.n * 7.13 + s.e * 3.71) % 120) * (Math.PI / 180);
+  const spinner = new THREE.Group(); // the view turns it (about 15 rpm)
+  spinner.userData.spin = phase;
   for (let k = 0; k < 3; k++) {
     const b = new THREE.Mesh(blade, bladeMat);
-    b.rotation.z = phase + (k * 2 * Math.PI) / 3;
-    rotor.add(b);
+    b.rotation.z = (k * 2 * Math.PI) / 3;
+    b.castShadow = true;
+    spinner.add(b);
   }
-  rotor.add(new THREE.Mesh(new THREE.SphereGeometry(1.6, 10, 8), white));
+  spinner.rotation.z = phase;
+  rotor.add(spinner, new THREE.Mesh(new THREE.SphereGeometry(1.6, 10, 8), white));
+  tower.castShadow = nacelle.castShadow = true;
   g.add(tower, nacelle, rotor);
   g.position.set(s.e, s.base, -s.n);
   return g;

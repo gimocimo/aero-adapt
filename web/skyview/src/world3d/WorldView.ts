@@ -15,8 +15,11 @@ import type { Replay } from "../replay/types";
 import { CATEGORIES, categoryOf } from "../scene/categories";
 import type { Layers } from "../state/store";
 import { rWorldFromModel } from "./frame";
-import { buildings, hedges, skirt, structures, terrainGeometry, trees, wires } from "./meshes";
-import { type OverlayState, paintGround, paintOverlay } from "./paint";
+import { HAZE, Look } from "./look";
+import { groundMaterial } from "./materials";
+import { buildings, hedges, roadSurfaces, skirt, structures, terrainGeometry, trees, waterSurfaces, wires } from "./meshes";
+import { type OverlayState, paintClasses, paintGround, paintOverlay } from "./paint";
+import { TreeField } from "./trees3d";
 import { flatWorld, Ground, type WorldPayload } from "./payload";
 
 export type ChaseMode = "chase" | "orbit" | "free";
@@ -51,6 +54,7 @@ interface Label {
 
 function line(colour: string, width: number, dashed = false): Line2 {
   const mat = new LineMaterial({ color: colour, linewidth: width, dashed, dashSize: 14, gapSize: 9, worldUnits: false });
+  mat.toneMapped = false; // symbols keep their colours under the cinematic look's grading
   const l = new Line2(new LineGeometry(), mat);
   l.frustumCulled = false;
   l.visible = false;
@@ -129,19 +133,36 @@ export class WorldView {
   private modelUri = "";
   private worldKey = "";
   readonly thin: number;
+  /** The cinematic look (docs/07 §15): sky, sunlight and shadows, haze, detailed trees,
+   * facades, water. Off for slow machines (``?quality=low``). */
+  readonly cinematic: boolean;
+  /** Film mode (``&film=1``): the picture alone, no map overlay, labels or route lines. */
+  readonly film: boolean;
+  private look: Look | null = null;
+  private treeField: TreeField | null = null;
+  private spinners: THREE.Object3D[] = [];
+  private water: THREE.Mesh | null = null;
+  private shot: { eye: THREE.Vector3; at: THREE.Vector3 } | null = null;
   last: Sample | null = null;
   private showGrid = true;
 
-  constructor(canvas: HTMLCanvasElement, opts: { thin?: number } = {}) {
+  constructor(canvas: HTMLCanvasElement, opts: { thin?: number; film?: boolean } = {}) {
     this.thin = opts.thin ?? 1;
+    this.film = opts.film ?? false;
+    this.cinematic = this.thin <= 1;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.thin > 1 ? 1 : 2));
     this.renderer.setClearColor(SKY);
     this.scene.background = SKY;
-    this.scene.add(new THREE.HemisphereLight("#eaf4ff", "#5d6e45", 1.15));
-    const sun = new THREE.DirectionalLight("#fff4df", 1.6);
-    sun.position.set(-0.6, 1.0, 0.45).multiplyScalar(1000);
-    this.scene.add(sun, this.worldGroup);
+    if (this.cinematic) {
+      this.look = new Look(this.renderer, this.scene);
+    } else {
+      this.scene.add(new THREE.HemisphereLight("#eaf4ff", "#5d6e45", 1.15));
+      const sun = new THREE.DirectionalLight("#fff4df", 1.6);
+      sun.position.set(-0.6, 1.0, 0.45).multiplyScalar(1000);
+      this.scene.add(sun);
+    }
+    this.scene.add(this.worldGroup);
     this.chaseCam.layers.enable(LAYER_CHASE);
     this.topCam.layers.enable(LAYER_TOP);
     this.topCam.up.set(0, 0, -1); // north up
@@ -155,7 +176,7 @@ export class WorldView {
     ]);
     const ag = new THREE.ShapeGeometry(arrow);
     ag.rotateX(-Math.PI / 2); // in the ground plane, pointing north (−z)
-    this.marker = new THREE.Mesh(ag, new THREE.MeshBasicMaterial({ color: "#ffb24c", depthTest: false }));
+    this.marker = new THREE.Mesh(ag, new THREE.MeshBasicMaterial({ color: "#ffb24c", depthTest: false, toneMapped: false }));
     const outline = new THREE.LineLoop(
       new THREE.BufferGeometry().setFromPoints(arrow.getPoints().map((p) => new THREE.Vector3(p.x, 0.01, -p.y))),
       new THREE.LineBasicMaterial({ color: "#000000", depthTest: false }),
@@ -212,6 +233,7 @@ export class WorldView {
     this.freeControls?.dispose();
     this.topControls?.dispose();
     this.clearWorld();
+    this.look?.dispose();
     for (const l of this.labels) for (const el of Object.values(l.els)) el?.remove();
     this.renderer.dispose();
   }
@@ -229,6 +251,9 @@ export class WorldView {
     });
     this.worldGroup.clear();
     this.overlay = null;
+    this.treeField = null;
+    this.spinners = [];
+    this.water = null;
   }
 
   /** The world to draw; ``null`` with an extent draws open ground (a site without a world). */
@@ -241,13 +266,23 @@ export class WorldView {
     this.world = world;
     this.ground = new Ground(world.dtm);
     const size = w ? 4096 : 2048;
-    const ground = paintGround(world, size);
+    // With water surfaces, the painted water is only seen at the edges: as shallows.
+    const ground = paintGround(world, size, this.cinematic ? "#46696f" : undefined);
     if (!w) this.paintGrid(ground, world);
     const tex = new THREE.CanvasTexture(ground);
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
     const geo = terrainGeometry(world);
-    this.worldGroup.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: tex })));
+    let groundMat: THREE.Material = new THREE.MeshLambertMaterial({ map: tex });
+    if (this.cinematic && w) {
+      const classes = new THREE.CanvasTexture(paintClasses(world, 2048));
+      classes.magFilter = classes.minFilter = THREE.NearestFilter;
+      classes.generateMipmaps = false;
+      groundMat = groundMaterial(tex, classes);
+    }
+    const terrain = new THREE.Mesh(geo, groundMat);
+    terrain.receiveShadow = this.cinematic;
+    this.worldGroup.add(terrain);
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = 2048;
     const otex = new THREE.CanvasTexture(canvas);
@@ -257,6 +292,7 @@ export class WorldView {
       new THREE.MeshBasicMaterial({
         map: otex,
         transparent: true,
+        toneMapped: false,
         depthWrite: false,
         polygonOffset: true,
         polygonOffsetFactor: -4,
@@ -264,17 +300,37 @@ export class WorldView {
       }),
     );
     over.renderOrder = 1;
+    over.userData.overlay = true;
     this.worldGroup.add(over);
     this.overlay = { canvas, tex: otex, key: "" };
     this.worldGroup.add(skirt(world, "#9bc078"));
     const h = hedges(world, this.ground);
-    if (h) this.worldGroup.add(h);
-    if (world.trees.length) this.worldGroup.add(trees(world, this.thin));
-    const b = buildings(world);
+    if (h) {
+      h.receiveShadow = this.cinematic;
+      this.worldGroup.add(h);
+    }
+    if (world.trees.length) {
+      if (this.cinematic) {
+        this.treeField = new TreeField(world);
+        this.worldGroup.add(this.treeField.group);
+      } else this.worldGroup.add(trees(world, this.thin));
+    }
+    const b = buildings(world, this.cinematic);
     if (b) this.worldGroup.add(b);
-    this.worldGroup.add(structures(world));
+    const st = structures(world);
+    st.traverse((o) => {
+      if (this.cinematic && (o as THREE.Mesh).isMesh) o.castShadow = o.receiveShadow = true;
+      if (o.userData.spin !== undefined) this.spinners.push(o);
+    });
+    this.worldGroup.add(st);
     const lines = wires(world);
     if (lines) this.worldGroup.add(lines);
+    if (this.cinematic) {
+      this.water = waterSurfaces(world, this.ground);
+      if (this.water) this.worldGroup.add(this.water);
+      const roads = roadSurfaces(world, this.ground);
+      if (roads) this.worldGroup.add(roads);
+    }
     this.scene.fog = null;
     this.fitKey = "";
     this.rebuildLabels();
@@ -573,8 +629,19 @@ export class WorldView {
     return s;
   }
 
+  /** A set shot for stills and video: the camera at ``eye`` (n, e, height above the datum)
+   * looking at ``at``; ``null`` gives the follow view back. */
+  setShot(eye: [number, number, number] | null, at?: [number, number, number]): void {
+    this.shot = eye && at ? { eye: new THREE.Vector3(eye[1], eye[2], -eye[0]), at: new THREE.Vector3(at[1], at[2], -at[0]) } : null;
+  }
+
   private chaseCamera(pos: THREE.Vector3, s: Sample, mode: ChaseMode, time: number): void {
     const cam = this.chaseCam;
+    if (this.shot) {
+      cam.position.copy(this.shot.eye);
+      cam.lookAt(this.shot.at);
+      return;
+    }
     if (this.freeControls) this.freeControls.enabled = mode === "free";
     if (mode === "free" && this.freeControls) {
       // The mouse orbits the aircraft; the camera follows it.
@@ -649,6 +716,12 @@ export class WorldView {
     r.setScissorTest(true);
     r.setClearColor(SKY);
     const lines = [this.trail, this.ghostTrail, this.mission, this.proposal, this.active];
+    if (this.film) {
+      for (const l of lines) l.visible = false;
+      this.worldGroup.children.forEach((o) => {
+        if (o.userData.overlay) o.visible = false;
+      });
+    }
     const view = (rect: DOMRect, cam: THREE.Camera, name: "chase" | "top") => {
       const x = rect.left - box.left;
       const y = box.bottom - rect.bottom;
@@ -656,13 +729,24 @@ export class WorldView {
       r.setScissor(x, y, rect.width, rect.height);
       r.clear();
       for (const l of lines) (l.material as LineMaterial).resolution.set(rect.width, rect.height);
-      this.placeLabels(name, cam, rect.width, rect.height);
+      if (!this.film) this.placeLabels(name, cam, rect.width, rect.height);
       r.render(this.scene, cam);
     };
+    // Moving parts: the turbines turn (about 15 rpm), the water flows.
+    const now = performance.now() / 1000;
+    for (const sp of this.spinners) sp.rotation.z = (sp.userData.spin as number) - 1.6 * now;
+    const flow = (this.water?.material as THREE.MeshStandardMaterial | undefined)?.userData.flow as THREE.Texture | undefined;
+    if (flow) flow.offset.set(0.004 * now, 0.0025 * now);
     if (chase && chase.width > 0) {
       this.chaseCam.aspect = chase.width / chase.height;
       this.chaseCam.updateProjectionMatrix();
-      this.scene.fog = new THREE.Fog(SKY, 1800, 9000);
+      if (this.look) {
+        const target = this.shot ? this.shot.at : this.freeControls?.enabled ? this.freeControls.target : this.aircraft.position;
+        this.look.follow(target);
+        this.treeField?.update(this.chaseCam.position);
+        r.shadowMap.autoUpdate = true;
+        this.scene.fog = new THREE.Fog(HAZE, 900, 16000);
+      } else this.scene.fog = new THREE.Fog(SKY, 1800, 9000);
       view(chase, this.chaseCam, "chase");
     }
     if (top && top.width > 0) {
@@ -673,6 +757,7 @@ export class WorldView {
       this.marker.scale.setScalar(12 * perPx);
       this.ghostMarker.scale.setScalar(12 * perPx);
       this.scene.fog = null;
+      r.shadowMap.autoUpdate = false; // the chase view's shadows serve here too
       view(top, this.topCam, "top");
     }
     r.setScissorTest(false);

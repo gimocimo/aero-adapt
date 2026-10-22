@@ -766,6 +766,24 @@ dd {
   border-radius: 10px;
   overflow: hidden;
 }
+/* &film=1: the follow view alone, filling the window (for video). */
+.quad.film {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+  padding: 0;
+}
+.quad.film .q-top,
+.quad.film .q-inst,
+.quad.film .q-deck,
+.quad.film .q-title,
+.quad.film .lbl,
+.quad.film .windbadge {
+  display: none;
+}
+.quad.film .q-chase {
+  border: none;
+  border-radius: 0;
+}
 .quad .q-chase,
 .quad .q-top {
   border: 1px solid rgba(255, 255, 255, 0.18);

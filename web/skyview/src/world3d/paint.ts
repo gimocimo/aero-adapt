@@ -30,7 +30,7 @@ export const CROP: Record<string, string> = {
 };
 const ARABLE = new Set(["wheat", "barley", "oilseed", "ploughed", "stubble"]);
 const WOOD_FLOOR = { broadleaf: "#3f6f37", conifer: "#2f5a35" };
-const ROAD = { road: "#5c5f64", lane: "#686b70", street: "#6c6e72", track: "#b39f7a" };
+export const ROAD = { road: "#5c5f64", lane: "#686b70", street: "#6c6e72", track: "#b39f7a" };
 const WATER = "#4389cf";
 const BANK = "#6f9a52";
 const HEDGE = "#356a2f";
@@ -118,13 +118,13 @@ function rows(ctx: CanvasRenderingContext2D, colour: string, spacing: number): C
 }
 
 /** Land cover, once per world. */
-export function paintGround(w: WorldPayload, size: number): HTMLCanvasElement {
+export function paintGround(w: WorldPayload, size: number, shallows?: string): HTMLCanvasElement {
   const m = new Mapping(w.bounds, size);
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d")!;
-  // Open ground, tinted by height (lowland green to upland khaki); fields paint over it.
+  // Open ground, tinted by height (lowland green to upland moor); fields paint over it.
   const tint = elevationTint(w);
   if (tint) {
     ctx.imageSmoothingEnabled = true;
@@ -136,7 +136,7 @@ export function paintGround(w: WorldPayload, size: number): HTMLCanvasElement {
   const px = m.scale;
 
   for (const p of w.plots) {
-    const colour = CROP[p.cover] ?? CROP.rough!;
+    const colour = (p.cover === "water" && shallows) || (CROP[p.cover] ?? CROP.rough!);
     const shape = path(m, p);
     if (ARABLE.has(p.cover)) {
       const pat = rows(ctx, colour, 6 * px);
@@ -219,6 +219,50 @@ export function paintGround(w: WorldPayload, size: number): HTMLCanvasElement {
   return canvas;
 }
 
+// Land-cover classes for the ground's detail (docs/07 §15), coded in a map's red channel.
+export const CLASS_STEP = 40;
+const CLASS = { grass: 0, crop: 1, soil: 2, paved: 3, forest: 4, water: 5 } as const;
+const COVER_CLASS: Record<string, number> = {
+  wheat: CLASS.crop,
+  barley: CLASS.crop,
+  oilseed: CLASS.crop,
+  stubble: CLASS.crop,
+  ploughed: CLASS.soil,
+  settlement: CLASS.paved,
+  paved: CLASS.paved,
+  gravel: CLASS.paved,
+  marker: CLASS.paved,
+  yard: CLASS.paved,
+  water: CLASS.water,
+};
+
+/** Which kind of ground is where (red = class × CLASS_STEP), for the ground's detail. */
+export function paintClasses(w: WorldPayload, size: number): HTMLCanvasElement {
+  const m = new Mapping(w.bounds, size);
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const code = (c: number) => `rgb(${c * CLASS_STEP},0,0)`;
+  ctx.fillStyle = code(CLASS.grass);
+  ctx.fillRect(0, 0, size, size);
+  for (const p of w.plots) {
+    const c = COVER_CLASS[p.cover] ?? (p.kind === "water" ? CLASS.water : CLASS.grass);
+    if (c === CLASS.grass) continue;
+    ctx.fillStyle = code(c);
+    ctx.fill(path(m, p), "evenodd");
+  }
+  ctx.fillStyle = code(CLASS.forest);
+  for (const wd of w.woods) ctx.fill(path(m, wd), "evenodd");
+  ctx.strokeStyle = code(CLASS.paved);
+  ctx.lineCap = "round";
+  for (const rd of w.roads) {
+    if (rd.kind === "track") continue;
+    ctx.lineWidth = Math.max(rd.width * m.scale, 1);
+    ctx.stroke(line(m, rd.points));
+  }
+  return canvas;
+}
+
 /** Shaded relief of the terrain grid, as on maps: lit from the north-west, 45° up; mid-grey
  * where the ground is level (soft-light leaves those colours as they are). Null for flat
  * ground. */
@@ -254,8 +298,8 @@ export function hillshade(w: WorldPayload): HTMLCanvasElement | null {
 const TINT_STOPS: [number, [number, number, number]][] = [
   [0.0, [150, 196, 112]],
   [0.35, [178, 202, 122]],
-  [0.65, [204, 192, 132]],
-  [1.0, [190, 160, 112]],
+  [0.65, [178, 184, 118]],
+  [1.0, [160, 152, 106]],
 ];
 
 /** The terrain grid coloured by height (null for flat ground). */

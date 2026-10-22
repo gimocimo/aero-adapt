@@ -163,7 +163,10 @@ class WorldSpec(_Strict):
     description: str
     seed: int
     bounds_ne_m: tuple[NE, NE]  # (south-west corner, north-east corner)
-    terrain: TerrainSpec
+    # A world built elsewhere and saved whole (``configs/worlds/<file>``, docs/07 §14): its
+    # features, landing grounds and places are read from the file, not generated.
+    baked: str | None = None
+    terrain: TerrainSpec = Field(default_factory=TerrainSpec)
     river: RiverSpec | None = None
     roads: list[RoadSpec] = Field(default_factory=list)
     woods: list[WoodSpec] = Field(default_factory=list)

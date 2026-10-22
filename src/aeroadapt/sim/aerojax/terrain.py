@@ -4,7 +4,7 @@ Two grids, both in site NE metres:
 
 * the **terrain**: ground height above the site datum, bilinear between grid points (10 m);
 * the **obstacles**: the height of whatever stands on the ground (trees, hedges, buildings,
-  masts) above it, per 2 m cell, in quanta (uint8).
+  masts, turbines, wires) above it, per 2 m cell, in quanta (uint16).
 
 A flat site has a 2 × 2 grid of zeros and no obstacles: every lookup returns exactly 0, so
 flat-site flights are unchanged to the bit.
@@ -28,7 +28,7 @@ class Terrain(NamedTuple):
     obs_origin: Grid  # (2,) NE of the centre of cell (0, 0)
     obs_cell: Grid  # () m
     obs_quantum: Grid  # () m per unit
-    obs: Grid  # (rows, cols) uint8 obstacle height above the ground, in quanta
+    obs: Grid  # (rows, cols) uint16 obstacle height above the ground, in quanta
 
 
 def flat_terrain() -> Terrain:
@@ -39,7 +39,7 @@ def flat_terrain() -> Terrain:
         obs_origin=np.zeros(2),
         obs_cell=np.array(1.0),
         obs_quantum=np.array(0.25),
-        obs=np.zeros((1, 1), np.uint8),
+        obs=np.zeros((1, 1), np.uint16),
     )
 
 

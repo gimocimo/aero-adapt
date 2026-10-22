@@ -153,14 +153,42 @@ def test_flat_terrain_is_exactly_zero() -> None:
     assert np.all(np.asarray(obstacle_height(t, pts)) == 0.0)
 
 
-def test_the_test_map_step_1() -> None:
-    """The owner's test map so far: 5 km square, open ground, a plain with hills to the east."""
+def test_the_test_map_baked() -> None:
+    """The owner's test map, baked from the locked sketch (docs/07 §14): read whole, with the
+    tall things the simulator must see (taller than the old 8-bit raster could hold)."""
     w = load_world("testmap")
+    assert w.spec.baked == "testmap.world.npz"
     assert w.bounds == (-2500.0, -2500.0, 2500.0, 2500.0)
-    assert not w.plots and not w.hedges and not len(w.trees) and not w.buildings
-    h, e = w.dtm.h, w.dtm.e0 + w.dtm.cell * np.arange(w.dtm.h.shape[1])
-    west, east = h[:, e < 500.0], h[:, e > 1200.0]
-    assert float(np.ptp(west)) < 10.0  # the plain: a few metres of gentle rise and ripple
-    assert 70.0 < float(east.max()) < 85.0  # the hills
-    assert float(w.dtm.at(0.0, 0.0)) == pytest.approx(0.0, abs=1e-9)
-    assert not load_site("testmap").safe_zones
+    assert float(w.dtm.at(0.0, 0.0)) == pytest.approx(
+        0.0, abs=1e-6
+    )  # the datum: the ground at the centre
+    assert len(w.buildings) > 5000 and len(w.trees) > 90_000 and len(w.wires) > 50
+    kinds = {s.kind for s in w.structures}
+    assert {"turbine", "pylon", "cooling_tower", "mast"} <= kinds
+    obs = w.obstacles()
+    assert obs.agl.dtype == np.uint16
+    spire = next(b for b in w.buildings if b.name == "The Spire")
+    assert float(obs.at(spire.n, spire.e)) > 240.0  # 250 m to its roof
+    turbine = next(s for s in w.structures if s.kind == "turbine")
+    # The rotor is a wall across the wind up to the blade tips (through the tower), the
+    # nacelle's length off it is clear.
+    assert float(obs.at(turbine.n, turbine.e)) == pytest.approx(turbine.height, abs=0.5)
+    across = np.array([-math.sin(turbine.heading), math.cos(turbine.heading)]) * turbine.rotor * 0.4
+    assert float(obs.at(turbine.n + across[0], turbine.e + across[1])) > turbine.height - 15.0
+    along = np.array([math.cos(turbine.heading), math.sin(turbine.heading)]) * 6.0
+    assert float(obs.at(turbine.n + along[0], turbine.e + along[1])) < 1.0
+    mast = next(s for s in w.structures if s.kind == "mast")
+    # (The summit falls away a little within the mast's 2 m cell.)
+    assert mast.height <= float(obs.at(mast.n, mast.e)) < mast.height + 3.0
+    site = load_site("testmap")
+    assert [z.id for z in site.safe_zones][:2] == ["A", "L1"] and len(site.safe_zones) == 23
+    ops = site.operations
+    assert (
+        ops is not None
+        and ops.ceiling_alt_m == 500.0
+        and ops.home_ne_m == pytest.approx(site.safe_zones[0].polygon_ne_m[0], abs=400)
+    )
+    centre = next(a for a in ops.no_fly if a.name.startswith("city centre"))
+    assert centre.ceiling_m is None  # closed at all heights
+    cylinders = [a for a in ops.no_fly if a.name == "wind turbines"]
+    assert len(cylinders) == 22 and all(a.ceiling_from == "centre" for a in cylinders)

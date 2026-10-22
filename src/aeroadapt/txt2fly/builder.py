@@ -882,7 +882,9 @@ class _Ctx:
             home=home,
             loop=False,
             fence=[tuple(v) for v in self.gaz.geofence],
-            fence_alt=self.ops.ceiling_agl_m + self.ops.fence_alt_margin_m,
+            fence_alt=self.ops.ceiling_alt_m
+            if self.ops.ceiling_alt_m is not None
+            else self.ops.ceiling_agl_m + self.ops.fence_alt_margin_m,
             rtl_mah=model.capacity_mah * (1.0 - RESERVE),
         )
 

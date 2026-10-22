@@ -1,17 +1,32 @@
-# The test map, step 1: a 3 km square circuit at 120 m above home, over the plain and across
-# the eastern hills. No faults.
+# The owner's test map (docs/07 §14): a tour from the airstrip at 150 m above home, round the
+# map's features, checked clear of every no-fly zone at its height and at least 89 m above the
+# ground and whatever stands on it. No faults (inject them live from the Faults tab).
+#
+# From the airstrip south-west over the fields, west past the south-western hills and their
+# woods, north by the west village, round the south side of the power station, across the
+# north of the city (above its 100 m zone), past the arena, along the foot of the wind farm
+# and back to the airstrip: 8.6 km a lap.
 schema_version: 1
 id: testmap-nominal
 description: >-
-  Test map: a 3 km square circuit at 120 m above home, over the plain and the eastern hills.
+  Test map: a tour from the airstrip at 150 m, over the fields, past the hills, the west
+  village and the power station, across the north of the city and along the wind farm.
 site: testmap
 airframe: aerosonde_bm
 seed: 5000
 duration_s: 1800
-initial: {pos_ne_m: [0, 0], alt_agl_m: 120, heading_deg: 0, airspeed_mps: 25}
+initial: {pos_ne_m: [-1103, 520], alt_agl_m: 150, heading_deg: 256, airspeed_mps: 25}
 mission:
-  alt_agl_m: 120
-  waypoints_ne_m: [[1500, -1500], [1500, 1500], [-1500, 1500], [-1500, -1500]]
+  alt_agl_m: 150
+  waypoints_ne_m:
+    - [-1350, -500]   # south-west of the city, over the fields
+    - [-700, -1600]   # by the south-western hills
+    - [500, -2000]    # by the west village
+    - [1150, -1000]   # south of the power station
+    - [700, -300]     # over the north of the city
+    - [750, 450]      # past the arena
+    - [150, 1050]     # along the foot of the wind farm
+    - [-650, 950]     # back towards the airstrip
   on_complete: loop
 environment:
   wind: {from_deg: 250, speed_mps: 5}

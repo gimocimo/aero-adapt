@@ -332,3 +332,28 @@ The world is synthetic. Wrenfold is not a real place, and its origin only sets t
     - **Geofence:** 150 m inside the map's edge, with a flat ceiling at 500 m.
   - **Drawing.** `tools/sketch_map.py` draws the map sheet, the city close-up and the operations map, and `--lock` saves what is not yet locked. `tools/sketch_iso.py` draws isometric views. `tools/sketch_8k.py` draws an 8K isometric picture at true heights: a ray cast over the heightfield, every building, turbine, pylon and tree standing, shadows, and with `--zones` the no-fly zones as volumes. It takes about 40 s.
   - **Cost.** Building the whole map from the locks takes about 6 s and 0.9 GB.
+- **22 Oct 2026, the test map flies.** The locked sketch is baked into a world (§14) and flown: `testmap-nominal` is a tour from its airstrip at 150 m. A headless 30-minute run is clean: no collision, at least 87 m above the ground and everything on it, never inside a zone closed at all heights, never out of the geofence.
+
+## 14. Baked worlds: the test map
+
+The owner's test map is not generated from a spec. It was drawn with the sketch tools, a layer at a time, and locked (§13, 22 Oct). `tools/sketch_bake.py` writes it out whole, and `aeroadapt.world.baked` reads it back, as exactly as a generated world:
+
+- **The world file.** `configs/worlds/testmap.world.npz` holds the bulk arrays (terrain, about 104,000 trees, hedges, building boxes) and gzipped JSON for everything else: land cover, woods, roads, structures, wires, landing grounds and places. `configs/worlds/testmap.yaml` names it (`baked:`). Heights are above the site datum, the ground at the map's centre.
+- **Buildings.** Each part of a sketch building becomes a box from the ground to its top, keeping its roof: gable, flat, or a hipped or spired top. The towers, the cathedral's spire and the arena's stands become stacks of boxes.
+- **New things the world holds.**
+  - Wind turbines (tower to the hub, and the rotor), lattice pylons, cooling towers, and guyed masts (as before).
+  - Wires: conductors and mast stays, as 3D polylines.
+- **The obstacle grid.**
+  - It now stores heights as uint16 (the old uint8 topped out at 63.75 m; The Spire is 250 m, the masts 200 m).
+  - A wire is a wall up to the wire, and a rotor a wall across the wind up to its blade tips. The grid holds one height per cell, so neither can be flown under. That is conservative, and in practice no one would.
+- **Landing grounds.**
+  - Zone A is the airstrip; L1 to L22 are the landing fields.
+  - As in every world (§3), a landing ground keeps no tree within 20 m of its edge or in its approach funnels: 7,211 hedgerow, scrub and fringe trees go. The woods stay whole.
+  - Even so, by the survey's thresholds (§5), only the airstrip (from the west) and 8 of the fields leave at least 120 m of field past the earliest aim point on a 1:15 approach. The others are too short, or are hemmed in by woods, rising ground or a pylon. The contingency weighs them as it finds them.
+  - The site's limit on safe zones went from 16 to 24 to hold them all.
+- **Operations** (`configs/sites/testmap.yaml`, written by the bake).
+  - Home is at the airstrip; the geofence sits 150 m inside the map's edge.
+  - `ceiling_alt_m`, new, is a flat ceiling above the datum (500 m). It is the altitude fence, and the planner's roof wherever it is lower than the ceiling above the ground.
+  - The 30 no-fly zones carry their heights (`ceiling_m`; `ceiling_from: centre` for the flat-topped cylinders round the turbines and masts).
+  - **The planner does not use those heights yet:** it keeps out of every zone at all heights, so Txt2Fly routes round the city rather than over it. Fixed-waypoint missions (`testmap-nominal`) were checked against the heights by hand.
+- **Skyview** draws the turbines (rotors facing the wind), pylons, cooling towers and wires; buildings in their own colours; the water as land cover; and the town's streets, squares and parks.

@@ -16,6 +16,17 @@ export const CROP: Record<string, string> = {
   yard: "#b3ab9c",
   green: "#8ccf68",
   airstrip: "#79bd58",
+  // Baked worlds (docs/07 §14): the town's ground, its places, and more crops.
+  park: "#95c972",
+  garden: "#b9d39a",
+  paved: "#cfcac0",
+  gravel: "#d3c6a4",
+  pitch: "#7dbf5a",
+  runway: "#a5d080",
+  marker: "#f4f4ef",
+  orchard: "#a6cf7c",
+  solar: "#2f3c54",
+  water: "#4389cf",
 };
 const ARABLE = new Set(["wheat", "barley", "oilseed", "ploughed", "stubble"]);
 const WOOD_FLOOR = { broadleaf: "#3f6f37", conifer: "#2f5a35" };
@@ -153,7 +164,8 @@ export function paintGround(w: WorldPayload, size: number): HTMLCanvasElement {
     ctx.fillStyle = WOOD_FLOOR[wd.kind];
     ctx.fill(path(m, wd), "evenodd");
   }
-  if (w.river) {
+  // A world that draws its water as land cover (baked worlds) needs no river line.
+  if (w.river && !w.plots.some((p) => p.kind === "water")) {
     const r = line(m, w.river.points);
     ctx.lineJoin = "round";
     ctx.lineCap = "round";

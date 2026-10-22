@@ -209,6 +209,8 @@ def _k4_height(built: Built, gaz: Gazetteer) -> Check:
     assert pv is not None
     floor = rel.floor(pv.ne, ops.min_agl_m)
     roof = rel.ceiling(pv.ne, ops.ceiling_agl_m)
+    if ops.ceiling_alt_m is not None:
+        roof = np.minimum(roof, ops.ceiling_alt_m)
     low, high = pv.alt < floor - 1.0, pv.alt > roof + 1.0
     if low.any():
         k = int(np.argmax(floor - pv.alt))

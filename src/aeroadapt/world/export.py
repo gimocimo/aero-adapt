@@ -90,6 +90,7 @@ def viewer_payload(world: World) -> dict:
                 "roof": b.roof,
                 "variant": b.variant,
                 "name": b.name,
+                "colours": list(b.colours) if b.colours else None,
             }
             for b in world.buildings
         ],
@@ -102,9 +103,14 @@ def viewer_payload(world: World) -> dict:
                 "base": round(s.base, 2),
                 "height": s.height,
                 "radius": s.radius,
+                "heading": round(s.heading, 4),
+                "hub": s.hub,
+                "rotor": s.rotor,
             }
             for s in world.structures
         ],
+        # Each wire's points (n, e, height above the datum).
+        "wires": [{"kind": w.kind, "points": np.round(w.points, 2).tolist()} for w in world.wires],
     }
 
 

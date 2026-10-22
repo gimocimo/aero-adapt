@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from aeroadapt.world.generate import Building, Dtm, Plot, Trees, World, generate
+from aeroadapt.world.generate import Building, Dtm, Plot, Structure, Trees, Wire, World, generate
 from aeroadapt.world.schema import WORLD_DIR, WorldSpec, load_world_spec
 
 __all__ = [
@@ -13,7 +13,9 @@ __all__ = [
     "Building",
     "Dtm",
     "Plot",
+    "Structure",
     "Trees",
+    "Wire",
     "World",
     "WorldSpec",
     "generate",
@@ -24,5 +26,10 @@ __all__ = [
 
 @lru_cache(maxsize=8)
 def load_world(world_id: str) -> World:
-    """The world ``configs/worlds/<id>.yaml``, generated once per process."""
-    return generate(load_world_spec(world_id))
+    """The world ``configs/worlds/<id>.yaml``, generated (or, if baked, read) once per process."""
+    spec = load_world_spec(world_id)
+    if spec.baked is not None:
+        from aeroadapt.world.baked import load_baked
+
+        return load_baked(spec)
+    return generate(spec)

@@ -1,10 +1,14 @@
 """Obstacle raster (docs/07 §4): the height of whatever stands on the ground (trees, hedges,
-buildings, masts) above the terrain, on a 2 m grid.
+buildings, masts, turbines, pylons, cooling towers, wires) above the terrain, on a 2 m grid.
 
 Rasterisation is conservative: a cell is marked when its centre lies within half a cell
 diagonal of a feature, so every point of every feature falls in a marked cell (the raster
 over-states footprints by at most one cell). Heights are rounded up to the next 0.25 m and
-stored as uint8 (0 to 63.75 m), small enough to sit on the GPU next to the terrain grid.
+stored as uint16 (to 16 km), small enough to sit on the GPU next to the terrain grid.
+
+The grid holds one height per cell, so what stands in the air is taken down to the ground:
+a wire is a wall up to the wire, a turbine's rotor a wall up to its blade tips, across the
+wind. The aircraft cannot pass under either here (it would not in practice, either).
 """
 
 from __future__ import annotations
@@ -106,11 +110,55 @@ def rasterise(world: World) -> Obstacles:
         else:
             z = np.full_like(x, bd.ridge)
         c.put(sl, mask, bd.base + z - c.dtm.at(nn, ee))
-    # Masts and silos.
+    # Masts, silos, pylons and cooling towers (cylinders on their foot), turbines (the tower
+    # to its hub, the rotor a wall across the wind up to the blade tips).
     for s in world.structures:
+        top = s.hub if s.kind == "turbine" else s.height
         r = s.radius + HALF_DIAG
         sl, nn, ee = c.window(s.n - r, s.e - r, s.n + r, s.e + r)
         mask = (nn - s.n) ** 2 + (ee - s.e) ** 2 <= r * r
-        c.put(sl, mask, s.base + s.height - c.dtm.at(nn, ee))
-    q = np.ceil(np.clip(c.top, 0.0, 255 * QUANTUM_M) / QUANTUM_M).astype(np.uint8)
+        c.put(sl, mask, s.base + top - c.dtm.at(nn, ee))
+        if s.kind == "turbine":
+            across = np.array([-math.sin(s.heading), math.cos(s.heading)]) * s.rotor / 2
+            a, b = np.array([s.n, s.e]) - across, np.array([s.n, s.e]) + across
+            _wall(c, a, b, 1.5, lambda nn, ee, s=s: s.base + s.height - c.dtm.at(nn, ee))
+    # Wires: walls up to the wire.
+    for w in world.wires:
+        p = w.points
+        for k in range(len(p) - 1):
+            a, b = p[k], p[k + 1]
+            _wall(
+                c,
+                a[:2],
+                b[:2],
+                0.5,
+                lambda nn, ee, a=a, b=b: _along(a, b, nn, ee) - c.dtm.at(nn, ee),
+            )
+    q = np.ceil(np.clip(c.top, 0.0, 65535 * QUANTUM_M) / QUANTUM_M).astype(np.uint16)
     return Obstacles(float(c.n[0]), float(c.e[0]), CELL_M, QUANTUM_M, q)
+
+
+def _along(a: np.ndarray, b: np.ndarray, nn: np.ndarray, ee: np.ndarray) -> np.ndarray:
+    """The height of the segment a → b (n, e, z) over each point: the higher end's within a
+    cell's reach of it, else linear between them."""
+    ab = b[:2] - a[:2]
+    t = np.clip(((nn - a[0]) * ab[0] + (ee - a[1]) * ab[1]) / max(float(ab @ ab), 1e-9), 0, 1)
+    return (
+        a[2]
+        + t * (b[2] - a[2])
+        + abs(b[2] - a[2]) * min(1.0, 2 * HALF_DIAG / max(float(np.hypot(*ab)), 1e-9))
+    )
+
+
+def _wall(c: _Canvas, a: np.ndarray, b: np.ndarray, half_width: float, height) -> None:
+    """Mark the cells within ``half_width`` (and half a diagonal) of the segment a → b (n, e)
+    with ``height(nn, ee)`` above the ground."""
+    reach = half_width + HALF_DIAG
+    sl, nn, ee = c.window(min(a[0], b[0]) - reach, min(a[1], b[1]) - reach,
+                          max(a[0], b[0]) + reach, max(a[1], b[1]) + reach)  # fmt: skip
+    ab = b - a
+    t = np.clip(((nn - a[0]) * ab[0] + (ee - a[1]) * ab[1]) / max(float(ab @ ab), 1e-9), 0, 1)
+    d2 = (nn - a[0] - t * ab[0]) ** 2 + (ee - a[1] - t * ab[1]) ** 2
+    mask = d2 <= reach * reach
+    if mask.any():
+        c.put(sl, mask, np.where(mask, height(nn, ee), 0.0))

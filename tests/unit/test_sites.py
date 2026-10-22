@@ -7,6 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from aeroadapt.scenarios import SITE_DIR, Site, load_site
+from aeroadapt.scenarios.site import MAX_SAFE_ZONES
 
 
 @pytest.mark.parametrize("path", sorted(SITE_DIR.glob("*.yaml")), ids=lambda p: p.stem)
@@ -46,7 +47,7 @@ def test_rejects_inconsistent_magnetic_field() -> None:
 def test_rejects_too_many_safe_zones() -> None:
     data = load_site("cambridge_west").model_dump(mode="json")
     zone = {"id": "z", "polygon_ne_m": [[0, 0], [0, 50], [50, 0]], "surface": "grass", "quality": 1}
-    data["safe_zones"] = [dict(zone, id=f"z{i}") for i in range(17)]
+    data["safe_zones"] = [dict(zone, id=f"z{i}") for i in range(MAX_SAFE_ZONES + 1)]
     with pytest.raises(ValidationError):
         Site.model_validate(data)
 

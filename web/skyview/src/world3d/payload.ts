@@ -11,7 +11,7 @@ export interface Ring {
 }
 
 export interface Plot extends Ring {
-  kind: "field" | "rough" | "settlement" | "yard" | "green" | "airstrip";
+  kind: "field" | "rough" | "settlement" | "yard" | "green" | "airstrip" | "water" | "paved";
   cover: string;
   zone: string | null;
   name: string | null;
@@ -45,16 +45,29 @@ export interface Building {
   roof: "gable" | "flat" | "spire";
   variant: number;
   name: string | null;
+  /** (walls, roof) when the world gives a building its own colours. */
+  colours?: [string, string] | null;
 }
 
 export interface Structure {
-  kind: "mast" | "silo";
+  kind: "mast" | "silo" | "turbine" | "pylon" | "cooling_tower";
   name: string;
   n: number;
   e: number;
   base: number;
+  /** Its top above the base (a turbine: its blade tips). */
   height: number;
   radius: number;
+  /** rad: a pylon's line; the way a turbine's rotor faces. */
+  heading?: number;
+  hub?: number;
+  rotor?: number;
+}
+
+/** A conductor, earth wire or mast stay: (n, e, height above the datum) along it. */
+export interface WireLine {
+  kind: "conductor" | "earth" | "stay";
+  points: [number, number, number][];
 }
 
 export interface WorldPayload {
@@ -74,6 +87,7 @@ export interface WorldPayload {
   trees: Float32Array;
   buildings: Building[];
   structures: Structure[];
+  wires?: WireLine[];
 }
 
 interface Wire extends Omit<WorldPayload, "dtm" | "hedges" | "trees"> {

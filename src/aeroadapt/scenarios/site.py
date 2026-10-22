@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from aeroadapt.core.geodesy import GeodeticOrigin
 
 SITE_DIR = Path(__file__).resolve().parents[3] / "configs" / "sites"
-MAX_SAFE_ZONES = 16  # fixed so that contingency logic stays jit-able (spec §5.4)
+MAX_SAFE_ZONES = 24  # fixed so that contingency logic stays jit-able (spec §5.4)
 
 
 class _Strict(BaseModel):
@@ -102,6 +102,12 @@ class NoFly(_Strict):
     osm_area: str | None = None
     world_area: str | None = None
     polygons_ne_m: list[list[tuple[float, float]]] = Field(default_factory=list)
+    # How high it reaches (None: all heights): metres above the ground under each point, or
+    # (``ceiling_from: centre``) above the ground at ``centre_ne_m``, a flat top. The planner
+    # keeps out of every area at all heights for now (docs/07 §14).
+    ceiling_m: float | None = Field(default=None, gt=0)
+    ceiling_from: Literal["ground", "centre"] = "ground"
+    centre_ground_m: float | None = None  # the ground at its centre, for a flat top
 
     @model_validator(mode="after")
     def _one_source(self) -> NoFly:
@@ -130,6 +136,9 @@ class Operations(_Strict):
     home_ne_m: tuple[float, float]  # RTL loiter centre for planned missions
     geofence_ne_m: list[tuple[float, float]] = Field(min_length=3, max_length=16)
     ceiling_agl_m: float = Field(gt=0)
+    # A flat ceiling besides, metres above the site datum: the altitude fence, and the
+    # planner's roof wherever it is lower than ``ceiling_agl_m`` above the ground.
+    ceiling_alt_m: float | None = Field(default=None, gt=0)
     min_agl_m: float = Field(gt=0)
     fence_alt_margin_m: float = Field(default=20.0, ge=0)  # altitude fence = ceiling + this
     no_fly: list[NoFly] = Field(default_factory=list)

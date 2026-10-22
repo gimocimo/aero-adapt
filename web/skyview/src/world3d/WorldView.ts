@@ -15,7 +15,7 @@ import type { Replay } from "../replay/types";
 import { CATEGORIES, categoryOf } from "../scene/categories";
 import type { Layers } from "../state/store";
 import { rWorldFromModel } from "./frame";
-import { buildings, hedges, skirt, structures, terrainGeometry, trees } from "./meshes";
+import { buildings, hedges, skirt, structures, terrainGeometry, trees, wires } from "./meshes";
 import { type OverlayState, paintGround, paintOverlay } from "./paint";
 import { flatWorld, Ground, type WorldPayload } from "./payload";
 
@@ -27,7 +27,10 @@ const TRAIL_STRIDE = 5; // 50 Hz → 10 Hz
 const SKY = new THREE.Color("#bcd7ee");
 const GAP = new THREE.Color("#0b0e12"); // between the panels
 // Places named on the map (the rest stay in the gazetteer, for plans).
-const MAP_LABEL_KINDS = new Set(["home", "village", "wood", "farm", "church", "mast", "airstrip", "river", "campus"]);
+const MAP_LABEL_KINDS = new Set([
+  ...["home", "village", "wood", "farm", "church", "mast", "airstrip", "river", "campus"],
+  ...["town", "landmark", "power station", "solar farm", "wind farm"], // baked worlds (docs/07 §14)
+]);
 const LAYER_CHASE = 1; // the aircraft at its real size: chase view only
 const LAYER_TOP = 2; // symbols sized in pixels: top view only
 
@@ -270,6 +273,8 @@ export class WorldView {
     const b = buildings(world);
     if (b) this.worldGroup.add(b);
     this.worldGroup.add(structures(world));
+    const lines = wires(world);
+    if (lines) this.worldGroup.add(lines);
     this.scene.fog = null;
     this.fitKey = "";
     this.rebuildLabels();
@@ -417,7 +422,7 @@ export class WorldView {
       const centre = (ring: [number, number][]) =>
         ring.reduce(([a, b], [n, e]) => [a + n / ring.length, b + e / ring.length], [0, 0]) as [number, number];
       const named: [string, [number, number]][] = [
-        ...this.world.woods.map((w) => [w.name, centre(w.outer)] as [string, [number, number]]),
+        ...this.world.woods.filter((w) => w.name).map((w) => [w.name, centre(w.outer)] as [string, [number, number]]),
         ...this.world.plots
           .filter((p) => p.name && (p.kind === "settlement" || p.kind === "yard" || p.kind === "airstrip"))
           .map((p) => [p.name!, centre(p.outer)] as [string, [number, number]]),
@@ -436,9 +441,11 @@ export class WorldView {
         if (v > e0) this.labels.push({ text: fmt(v, "E", "W"), cls: "lbl-grid lbl-grid-e", pos: new THREE.Vector3(v, 0, -n0 - 15), views: ["top"], els: {}, grid: true });
       }
     }
+    const named = new Set<string>();
     for (const a of this.site?.no_fly ?? []) {
       const ring = a.polygons[0];
-      if (!ring) continue;
+      if (!ring || named.has(a.name)) continue; // one label for a group (the wind turbines)
+      named.add(a.name);
       const n = Math.max(...ring.map((p) => p[0]));
       const e = ring.reduce((s, p) => s + p[1], 0) / ring.length;
       add(`${a.name} · no-fly`, "lbl-nofly", n, e, this.groundAt(n, e) + 30, ["top"]);

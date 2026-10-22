@@ -1,7 +1,7 @@
 // Stylised meshes of a world (docs/07 §8): terrain draped with the painted land cover,
 // hedges, trees, buildings and masts, each exactly where the simulator has them.
 import * as THREE from "three";
-import { Ground, type Building, type WorldPayload } from "./payload";
+import { Ground, type Building, type Structure, type WorldPayload } from "./payload";
 
 /** Terrain grid → mesh in the three.js world (x east, y up, z south), UVs over the bounds. */
 export function terrainGeometry(w: WorldPayload, step = 1): THREE.BufferGeometry {
@@ -187,8 +187,8 @@ function addBuilding(B: Builder, b: Building): void {
     new THREE.Vector3(b.e + a * u.y + c * v.y, b.base + y, -(b.n + a * u.x + c * v.x));
   const L = b.length / 2;
   const W = b.width / 2;
-  const wall = KIND_WALL[b.kind] ?? WALLS[b.variant % WALLS.length]!;
-  const roof = KIND_ROOF[b.kind] ?? ROOFS[b.variant % ROOFS.length]!;
+  const wall = b.colours?.[0] ?? KIND_WALL[b.kind] ?? WALLS[b.variant % WALLS.length]!;
+  const roof = b.colours?.[1] ?? KIND_ROOF[b.kind] ?? ROOFS[b.variant % ROOFS.length]!;
   const top = b.roof === "flat" ? b.ridge : b.eaves;
   const sink = -0.6; // walls start a little below the ground (slopes)
   const corners: [number, number][] = [
@@ -237,14 +237,107 @@ export function buildings(w: WorldPayload): THREE.Mesh | null {
   );
 }
 
-/** Masts (a slender lattice with a warning light) and silos. */
+/** A wind turbine: a tapering white tower, the nacelle, the hub and three blades, the rotor
+ * facing the wind (``heading``). */
+function turbine(s: Structure): THREE.Group {
+  const g = new THREE.Group();
+  const white = new THREE.MeshLambertMaterial({ color: "#eef0f2" });
+  const hub = s.hub ?? s.height * 0.65;
+  const r = (s.rotor ?? 90) / 2;
+  const tower = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 2.3, hub, 12), white);
+  tower.position.set(0, hub / 2, 0);
+  const facing = s.heading ?? 0;
+  const f = new THREE.Vector3(Math.sin(facing), 0, -Math.cos(facing)); // (n, e) → (x = e, z = -n)
+  const nacelle = new THREE.Mesh(new THREE.BoxGeometry(3.4, 3.6, 11), white);
+  nacelle.position.set(-f.x * 2, hub, -f.z * 2);
+  nacelle.lookAt(new THREE.Vector3(f.x * 10, hub, f.z * 10));
+  const rotor = new THREE.Group();
+  rotor.position.set(f.x * 4.5, hub, f.z * 4.5);
+  rotor.lookAt(new THREE.Vector3(f.x * 20, hub, f.z * 20));
+  const outline = [[-1.6, 1.5], [1.6, 1.5], [0.4, r], [-0.4, r]].map(([x, y]) => new THREE.Vector2(x, y));
+  const blade = new THREE.ShapeGeometry(new THREE.Shape(outline));
+  const bladeMat = new THREE.MeshLambertMaterial({ color: "#f6f7f8", side: THREE.DoubleSide });
+  const phase = ((s.n * 7.13 + s.e * 3.71) % 120) * (Math.PI / 180);
+  for (let k = 0; k < 3; k++) {
+    const b = new THREE.Mesh(blade, bladeMat);
+    b.rotation.z = phase + (k * 2 * Math.PI) / 3;
+    rotor.add(b);
+  }
+  rotor.add(new THREE.Mesh(new THREE.SphereGeometry(1.6, 10, 8), white));
+  g.add(tower, nacelle, rotor);
+  g.position.set(s.e, s.base, -s.n);
+  return g;
+}
+
+/** A lattice pylon: a tapering four-sided tower with three cross-arms a side and a peak. */
+function pylon(s: Structure): THREE.Group {
+  const g = new THREE.Group();
+  const steel = new THREE.MeshLambertMaterial({ color: "#8e939a", wireframe: true });
+  const solid = new THREE.MeshLambertMaterial({ color: "#8e939a" });
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(1.6 * Math.SQRT2, s.radius * Math.SQRT2, 45, 4, 6, true), steel);
+  body.rotation.y = Math.PI / 4;
+  body.position.y = 22.5;
+  const peak = new THREE.Mesh(new THREE.ConeGeometry(1.6 * Math.SQRT2, s.height - 45, 4, 1, true), steel);
+  peak.rotation.y = Math.PI / 4;
+  peak.position.y = 45 + (s.height - 45) / 2;
+  g.add(body, peak);
+  for (const [z, half] of [[29, 10.5], [37, 11.5], [45, 9.5]] as const) {
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(2 * half, 0.6, 1.2), solid);
+    arm.position.y = z;
+    g.add(arm);
+  }
+  g.rotation.y = -(s.heading ?? 0) + Math.PI / 2; // arms across the line
+  g.position.set(s.e, s.base, -s.n);
+  return g;
+}
+
+/** A natural-draught cooling tower: a concrete hyperboloid shell, open at the top. */
+function coolingTower(s: Structure): THREE.Mesh {
+  const [H, rb] = [s.height, s.radius];
+  const [rt, zt] = [0.63 * rb, 0.78 * H];
+  const c = zt / Math.sqrt((rb / rt) ** 2 - 1);
+  const pts = Array.from({ length: 25 }, (_, k) => {
+    const z = (k / 24) * H;
+    return new THREE.Vector2(rt * Math.sqrt(1 + ((z - zt) / c) ** 2), z);
+  });
+  const m = new THREE.Mesh(new THREE.LatheGeometry(pts, 40), new THREE.MeshLambertMaterial({ color: "#d9d6cf", side: THREE.DoubleSide }));
+  m.position.set(s.e, s.base, -s.n);
+  return m;
+}
+
+/** Every wire (conductors and mast stays) as thin lines. */
+export function wires(w: WorldPayload): THREE.LineSegments | null {
+  const ws = w.wires ?? [];
+  if (ws.length === 0) return null;
+  const pos: number[] = [];
+  for (const x of ws) {
+    for (let k = 0; k + 1 < x.points.length; k++) {
+      const [na, ea, za] = x.points[k]!;
+      const [nb, eb, zb] = x.points[k + 1]!;
+      pos.push(ea, za, -na, eb, zb, -nb);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  return new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: "#3d4146" }));
+}
+
+/** Masts (a slender lattice with a warning light), silos, wind turbines, pylons and cooling
+ * towers. */
 export function structures(w: WorldPayload): THREE.Group {
   const g = new THREE.Group();
   for (const s of w.structures) {
-    if (s.kind === "mast") {
+    if (s.kind === "turbine") {
+      g.add(turbine(s));
+    } else if (s.kind === "pylon") {
+      g.add(pylon(s));
+    } else if (s.kind === "cooling_tower") {
+      g.add(coolingTower(s));
+    } else if (s.kind === "mast") {
       const mast = new THREE.Mesh(
         new THREE.CylinderGeometry(0.35, 0.9, s.height, 4, 8),
-        new THREE.MeshLambertMaterial({ color: "#c9ccd0", wireframe: false }),
+        // A tall guyed mast is a red and white lattice; a farm mast a plain pole.
+        new THREE.MeshLambertMaterial({ color: s.height > 100 ? "#d9473b" : "#c9ccd0", wireframe: s.height > 100 }),
       );
       mast.position.set(s.e, s.base + s.height / 2, -s.n);
       const bands = new THREE.Mesh(

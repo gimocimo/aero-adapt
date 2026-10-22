@@ -73,6 +73,7 @@ class Building:
     roof: str  # gable | flat | spire
     variant: int  # colour scheme
     name: str | None = None
+    colours: tuple[str, str] | None = None  # (walls, roof) when not the kind's or variant's
 
     def footprint(self) -> Polygon:
         return _rect(self.n, self.e, self.length, self.width, self.heading)
@@ -117,7 +118,7 @@ class Plot:
     """A field (fenced by hedges) or another patch of land cover."""
 
     id: str
-    kind: str  # field | rough | settlement | yard | green | airstrip
+    kind: str  # field | rough | settlement | yard | green | airstrip | water | paved
     cover: str  # wheat, pasture, …; for other kinds the kind itself
     polygon: Polygon
     zone: str | None = None  # safe zone id, when it is one
@@ -128,12 +129,24 @@ class Plot:
 class Structure:
     id: str
     name: str
-    kind: str  # mast | silo
+    kind: str  # mast | silo | turbine | pylon | cooling_tower
     n: float
     e: float
     base: float
-    height: float
-    radius: float
+    height: float  # of its top above the base (a turbine: its blade tips)
+    radius: float  # of its foot (a cooling tower: at its base)
+    heading: float = 0.0  # rad: a pylon's line, the way a turbine's rotor faces
+    hub: float = 0.0  # a turbine's hub height above the base
+    rotor: float = 0.0  # a turbine's rotor diameter
+
+
+@dataclass(frozen=True)
+class Wire:
+    """A conductor, earth wire or mast stay: points (north, east, height above the datum),
+    sagging between its ends."""
+
+    kind: str  # conductor | earth | stay
+    points: np.ndarray  # (k, 3)
 
 
 @dataclass(frozen=True)
@@ -162,6 +175,7 @@ class World:
     trees: Trees
     buildings: list[Building]
     structures: list[Structure]
+    wires: list[Wire] = field(default_factory=list)
     _cache: dict = field(default_factory=dict, repr=False, compare=False)
 
     @property

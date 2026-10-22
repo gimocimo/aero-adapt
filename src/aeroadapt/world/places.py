@@ -5,7 +5,7 @@ so the Txt2Fly gazetteer reads either."""
 from __future__ import annotations
 
 import numpy as np
-from shapely.geometry import Point
+from shapely.geometry import LineString, Point
 from shapely.ops import unary_union
 
 from aeroadapt.world.generate import World
@@ -98,6 +98,8 @@ def world_gazetteer(world: World) -> dict:
             }
         )
     for w in world.woods:
+        if not w.name:
+            continue  # a copse with no name of its own
         feats.append(
             {
                 "id": w.id,
@@ -187,8 +189,13 @@ def what_is_at(world: World, n: float, e: float) -> str:
         if b.footprint().buffer(4.0).contains(p):
             return b.name or f"a {b.kind}"
     for s in world.structures:
-        if p.distance(Point(s.n, s.e)) <= s.radius + 4.0:
+        if p.distance(Point(s.n, s.e)) <= max(s.radius, s.rotor / 2) + 4.0:
             return s.name
+    for w in world.wires:
+        if LineString(w.points[:, :2]).distance(p) <= 4.0:
+            return {"stay": "a mast's stay wire", "earth": "a power line"}.get(
+                w.kind, "a power line"
+            )
     for w in world.woods:
         if w.polygon.buffer(4.0).contains(p):
             return f"{w.name} (trees)"

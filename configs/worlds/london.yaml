@@ -1,0 +1,16 @@
+# London (docs/08), baked by tools/london_bake.py from data/london
+# (tools/london_fetch.py).
+# Derived from OpenStreetMap (ODbL) and Environment Agency LiDAR (OGL): see
+# LICENCE-london.md. Bake again; do not edit this.
+schema_version: 1
+id: london
+name: 'London: the City and Bankside'
+description: 'Central London from Blackfriars to Tower Bridge, Liverpool Street to the Shard (docs/08):
+  ground, buildings, trees and bridges from Environment Agency LiDAR and OpenStreetMap, baked by tools/london_bake.py.'
+seed: 0
+bounds_ne_m:
+- - -1040.0
+  - -1360.0
+- - 1040.0
+  - 1360.0
+baked: london.world.npz

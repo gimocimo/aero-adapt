@@ -16,3 +16,12 @@ configs/sites/cambridge_west.osm.json is an extract of OpenStreetMap data
 (© OpenStreetMap contributors), made with tools/fetch_gazetteer.py. It is available
 under the Open Database License 1.0 (https://opendatacommons.org/licenses/odbl/1-0/);
 see https://www.openstreetmap.org/copyright. The extract stays under the ODbL.
+
+configs/worlds/london.world.npz (with configs/worlds/london.yaml and the operations in
+configs/sites/london.yaml) is a database derived from OpenStreetMap data (© OpenStreetMap
+contributors) and from Environment Agency LIDAR Composite DSM and DTM (1 m), made with
+tools/london_bake.py. It is available under the Open Database License 1.0; see
+configs/worlds/LICENCE-london.md for the attributions and terms.
+
+web/skyview/public/textures/ holds photographs under CC0 1.0 (ambientCG, Poly Haven); see
+the README there.

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import shapely
@@ -21,6 +21,9 @@ from shapely.ops import unary_union
 
 from aeroadapt.core.polygons import principal_chords
 from aeroadapt.world.schema import BuildingSpec, FieldSpec, WorldSpec
+
+if TYPE_CHECKING:
+    from aeroadapt.world.raster import Obstacles
 
 FIELD_MIN_AREA_M2 = 12_000.0  # smaller leftovers are rough grass, without hedges
 ZONE_INSET_M = 15.0  # a safe zone keeps this far inside its field's hedges
@@ -70,12 +73,20 @@ class Building:
     base: float  # ground height (lowest under the footprint)
     eaves: float  # above the base
     ridge: float  # above the base (spire top for a tower)
-    roof: str  # gable | flat | spire
+    roof: str  # gable | flat | spire | dome | skillion (dome, skillion: footprint buildings)
     variant: int  # colour scheme
     name: str | None = None
     colours: tuple[str, str] | None = None  # (walls, roof) when not the kind's or variant's
+    # A real building's own footprint (n, e rings; a baked world from survey data), in place
+    # of the box (n, e, length, width, heading then give its minimum rotated rectangle).
+    outline: tuple[tuple[float, float], ...] | None = None
+    holes: tuple[tuple[tuple[float, float], ...], ...] = ()
+    bottom: float = 0.0  # above the base: a part that stands clear of the ground (drawn only)
+    slope: float = 0.0  # a skillion roof's downslope heading (rad from north): ridge to eaves
 
     def footprint(self) -> Polygon:
+        if self.outline is not None:
+            return Polygon(self.outline, list(self.holes))
         return _rect(self.n, self.e, self.length, self.width, self.heading)
 
 
@@ -176,6 +187,9 @@ class World:
     buildings: list[Building]
     structures: list[Structure]
     wires: list[Wire] = field(default_factory=list)
+    # Obstacle heights measured on the ground (a baked world from survey data: LiDAR surface
+    # minus ground), merged into the obstacle raster, which then takes their cell size.
+    measured: Obstacles | None = None
     _cache: dict = field(default_factory=dict, repr=False, compare=False)
 
     @property

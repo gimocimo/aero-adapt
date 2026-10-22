@@ -5,6 +5,12 @@ The file is a NumPy archive: the bulk arrays (terrain, trees, hedges, building b
 arrays, and everything else (land cover, woods, roads, structures, wires, landing grounds,
 places) as gzipped JSON in ``meta``. Coordinates are site NE metres; heights are metres above
 the site datum, the ground at the origin.
+
+A world from survey data (London, docs/08) also has buildings with their own footprints
+(``outline``, ``holes``, ``bottom`` and a skillion roof's ``slope`` in each building's meta)
+and the obstacles measured on the ground (``measured``: uint16 heights above the terrain, in
+quanta, on the obstacle grid given by ``meta["measured"]``: centre of cell (0, 0), cell and
+quantum).
 """
 
 from __future__ import annotations
@@ -32,7 +38,7 @@ from aeroadapt.world.generate import (
 from aeroadapt.world.schema import WORLD_DIR, PlaceSpec, WorldSpec, ZoneSpec
 
 BAKED_VERSION = 1
-ROOFS = ("gable", "flat", "spire")
+ROOFS = ("gable", "flat", "spire", "dome", "skillion")
 
 
 def _poly(d: dict) -> Polygon:
@@ -52,6 +58,14 @@ def load_baked(spec: WorldSpec) -> World:
         tr = z["trees"].astype(np.float64)
         hd = z["hedges"].astype(np.float64)
         bx = z["buildings"].astype(np.float64)
+        measured = None
+        if "measured" in meta:
+            from aeroadapt.world.raster import Obstacles
+
+            mn0, me0, mcell, mq = meta["measured"]
+            measured = Obstacles(
+                float(mn0), float(me0), float(mcell), float(mq), z["measured"].astype(np.uint16)
+            )
     n0, e0, cell = meta["dtm"]
     dtm = Dtm(float(n0), float(e0), float(cell), h)
     spec = spec.model_copy(
@@ -101,6 +115,10 @@ def load_baked(spec: WorldSpec) -> World:
             int(variant),
             b["name"],
             tuple(b["colours"]) if b["colours"] else None,
+            tuple(map(tuple, b["outline"])) if b.get("outline") else None,
+            tuple(tuple(map(tuple, h)) for h in b.get("holes", [])),
+            float(b.get("bottom", 0.0)),
+            float(b.get("slope", 0.0)),
         )
         for b, (n, e, length, width, heading, base, eaves, ridge, roof, variant) in zip(
             meta["buildings"], bx, strict=True
@@ -108,7 +126,9 @@ def load_baked(spec: WorldSpec) -> World:
     ]
     structures = [Structure(**x) for x in meta["structures"]]
     wires = [Wire(x["kind"], np.asarray(x["points"], float)) for x in meta["wires"]]
-    return World(spec, dtm, river, roads, woods, plots, hedges, trees, buildings, structures, wires)
+    return World(
+        spec, dtm, river, roads, woods, plots, hedges, trees, buildings, structures, wires, measured
+    )
 
 
 def save_baked(
@@ -119,12 +139,18 @@ def save_baked(
     hedges: np.ndarray,
     buildings: np.ndarray,
     meta: dict,
+    measured=None,  # raster.Obstacles | None
 ) -> Path:
     """Write a baked world (the inverse of :func:`load_baked`). ``trees``: (k, 6) n, e, height,
     crown, kind, wood; ``hedges``: (k, 6) n_a, e_a, n_b, e_b, height, width; ``buildings``:
     (k, 10) n, e, length, width, heading, base, eaves, ridge, roof (index into ROOFS),
-    variant, with ``meta["buildings"]`` holding each one's kind, name and colours."""
+    variant, with ``meta["buildings"]`` holding each one's kind, name and colours (and a
+    footprint building's ``outline``, ``holes`` and ``bottom``)."""
     meta = {**meta, "version": BAKED_VERSION, "dtm": [dtm.n0, dtm.e0, dtm.cell]}
+    arrays = {}
+    if measured is not None:
+        meta["measured"] = [measured.n0, measured.e0, measured.cell, measured.quantum]
+        arrays["measured"] = measured.agl.astype(np.uint16)
     blob = np.frombuffer(
         gzip.compress(json.dumps(meta, separators=(",", ":")).encode(), 6), np.uint8
     )
@@ -135,5 +161,6 @@ def save_baked(
         trees=trees.astype(np.float32),
         hedges=hedges.astype(np.float32),
         buildings=buildings.astype(np.float64),
+        **arrays,
     )
     return path

@@ -1,0 +1,37 @@
+# London (docs/08): low along the Thames, for the view. At 90-100 m above home (Potters Fields
+# Park) from Tower Bridge up the river to Blackfriars, under the skyline: past HMS Belfast,
+# London Bridge and the Shard, Southwark and the Millennium Bridge, Tate Modern and St Paul's.
+# Then north, climbing to 190 m, east along the City's northern edge clear of its towers, and
+# back down to the river east of the Tower. The Aerosonde until the small airframe exists.
+#
+# Checked against the measured obstacles: at least 36 m clear of everything within 80 m either
+# side of the track (the least over Tower Bridge's towers), never within 120 m of a zone.
+schema_version: 1
+id: london-river
+description: >-
+  London: low along the Thames at 90 m from Tower Bridge to Blackfriars, past the Shard and
+  St Paul's, then round the north of the City at 190 m.
+site: london
+airframe: aerosonde_bm
+seed: 2
+duration_s: 1800
+initial: {pos_ne_m: [-650, 1260], alt_agl_m: 100, heading_deg: 287, airspeed_mps: 25}
+mission:
+  alt_agl_m: 90
+  waypoints_ne_m:
+    - [-480, 700, 100]    # over Tower Bridge, past HMS Belfast
+    - [-340, 250]         # London Bridge, the Shard to the south
+    - [-240, -150]        # Southwark Bridge and Cannon Street
+    - [-130, -600]        # the Millennium Bridge: Tate Modern and St Paul's
+    - [-110, -1050, 100]  # Blackfriars
+    - [250, -1200, 160]   # north, climbing
+    - [750, -800, 190]    # north of St Paul's
+    - [780, -200, 190]    # along the City's northern edge
+    - [800, 900, 190]     # north of the towers, to Aldgate
+    - [150, 1220, 150]    # south, east of the Tower
+    - [-650, 1260, 100]   # down to the river
+  on_complete: loop
+environment:
+  wind: {from_deg: 240, speed_mps: 4}
+  turbulence: {model: dryden_low_alt, intensity: light}
+stack: {autopilot: stock, contingency: classical_v0, estimator: navigator}

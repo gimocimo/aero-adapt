@@ -1,0 +1,34 @@
+# London (docs/08): a first tour at 150 m above home (Potters Fields Park), with the Aerosonde
+# until the small airframe exists (docs/08 §5). Checked against the measured obstacles: at
+# least 37 m clear of everything within 60 m either side of the track.
+#
+# West up the Thames from HMS Belfast, under the City's skyline, past the Millennium Bridge
+# and Tate Modern to Blackfriars; north behind St Paul's (its zone kept to the east), east
+# along the City's northern edge clear of its towers, south past the Tower and back over the
+# river by Tower Bridge: 6.6 km a lap.
+schema_version: 1
+id: london-tour
+description: >-
+  London: a tour at 150 m, up the Thames to Blackfriars, round the north of the City and
+  back by the Tower and Tower Bridge.
+site: london
+airframe: aerosonde_bm
+seed: 1
+duration_s: 1800
+initial: {pos_ne_m: [-440, 600], alt_agl_m: 150, heading_deg: 283, airspeed_mps: 25}
+mission:
+  alt_agl_m: 150
+  waypoints_ne_m:
+    - [-285, -100]    # up the river by Southwark Bridge
+    - [-110, -900]    # by the Millennium Bridge and Tate Modern, on to Blackfriars
+    - [200, -1150]    # north over Blackfriars
+    - [700, -900]     # north of St Paul's
+    - [780, -200]     # along the City's northern edge
+    - [800, 900]      # north of the towers, to Aldgate
+    - [100, 1180]     # south, east of the Tower
+    - [-700, 1180]    # over the river by Tower Bridge
+  on_complete: loop
+environment:
+  wind: {from_deg: 240, speed_mps: 5}
+  turbulence: {model: dryden_low_alt, intensity: light}
+stack: {autopilot: stock, contingency: classical_v0, estimator: navigator}

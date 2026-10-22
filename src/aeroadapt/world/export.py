@@ -91,6 +91,16 @@ def viewer_payload(world: World) -> dict:
                 "variant": b.variant,
                 "name": b.name,
                 "colours": list(b.colours) if b.colours else None,
+                **(
+                    {
+                        "outline": np.round(np.asarray(b.outline), 2).tolist(),
+                        "holes": [np.round(np.asarray(h), 2).tolist() for h in b.holes],
+                        "bottom": round(b.bottom, 2),
+                        "slope": round(b.slope, 4),
+                    }
+                    if b.outline is not None
+                    else {}
+                ),
             }
             for b in world.buildings
         ],

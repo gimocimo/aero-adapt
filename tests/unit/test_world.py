@@ -192,3 +192,94 @@ def test_the_test_map_baked() -> None:
     assert centre.ceiling_m is None  # closed at all heights
     cylinders = [a for a in ops.no_fly if a.name == "wind turbines"]
     assert len(cylinders) == 22 and all(a.ceiling_from == "centre" for a in cylinders)
+
+
+def test_footprint_buildings_and_measured_obstacles(tmp_path) -> None:
+    """A world from survey data (docs/08): buildings on their own footprints (flat, skillion
+    and domed roofs, a part clear of the ground), obstacles measured on the ground merged in
+    at their own cell size, and both through a baked file and back."""
+    from aeroadapt.world.baked import ROOFS, load_baked, save_baked
+    from aeroadapt.world.generate import Dtm
+    from aeroadapt.world.raster import QUANTUM_M, Obstacles
+
+    spec = load_world_spec("testmap").model_copy(
+        update={"bounds_ne_m": ((-50.0, -50.0), (50.0, 50.0)), "baked": None}
+    )
+    dtm = Dtm(-50.0, -50.0, 2.0, np.zeros((51, 51)))
+    square = [[-10.0, -10.0], [-10.0, 10.0], [10.0, 10.0], [10.0, -10.0]]
+    shifted = [[n + 30.0, e] for n, e in square]
+    measured = np.zeros((100, 100), np.uint16)
+    measured[0, 0] = int(7.0 / QUANTUM_M)  # a crane in the south-west corner
+    rows = [
+        # flat, 30 m; a skillion falling to the north from 40 m to 10 m; a dome
+        [0, 0, 20, 20, 0, 0, 30, 30, ROOFS.index("flat"), 0],
+        [30, 0, 20, 20, 0, 0, 10, 40, ROOFS.index("skillion"), 0],
+        [0, 30, 20, 20, 0, 0, 20, 35, ROOFS.index("dome"), 0],
+    ]
+    domed = [[n, e + 30.0] for n, e in square]
+    meta = {
+        "plots": [], "woods": [], "roads": [], "structures": [], "wires": [], "zones": [],
+        "places": [], "river": None,
+        "buildings": [
+            {"kind": "modern", "name": None, "colours": None, "outline": square, "holes": [],
+             "bottom": 0.0},
+            {"kind": "tower", "name": None, "colours": None, "outline": shifted, "holes": [],
+             "bottom": 0.0, "slope": 0.0},
+            {"kind": "landmark", "name": None, "colours": None, "outline": domed, "holes": [],
+             "bottom": 5.0},
+        ],
+    }  # fmt: skip
+    path = save_baked(
+        tmp_path / "survey.world.npz",
+        dtm=dtm,
+        trees=np.zeros((0, 6)),
+        hedges=np.zeros((0, 6)),
+        buildings=np.asarray(rows, float),
+        meta=meta,
+        measured=Obstacles(-49.5, -49.5, 1.0, QUANTUM_M, measured),
+    )
+    w = load_baked(spec.model_copy(update={"baked": str(path)}))
+    flat, skillion, dome = w.buildings
+    assert flat.outline is not None and flat.footprint().area == pytest.approx(400.0)
+    assert skillion.roof == "skillion" and dome.roof == "dome" and dome.bottom == 5.0
+    obs = w.obstacles()
+    assert obs.cell == 1.0 and obs.agl.shape == (100, 100)
+    assert float(obs.at(0.0, 0.0)) == pytest.approx(30.0)
+    assert float(obs.at(-49.5, -49.5)) == pytest.approx(7.0)  # measured, merged in
+    # The skillion: high at its southern edge, low at its northern one (conservatively).
+    assert float(obs.at(21.0, 0.0)) > 37.0 and 10.0 <= float(obs.at(39.5, 0.0)) < 13.0
+    # The dome: its top over the centre, falling to its eaves at the footprint's corners.
+    assert float(obs.at(0.0, 30.0)) == pytest.approx(35.0, abs=0.5)
+    assert 20.0 <= float(obs.at(9.5, 39.5)) < 30.0
+    assert float(obs.at(0.0, 15.0)) == 0.0  # between the buildings
+
+
+def test_london_baked() -> None:
+    """London (docs/08): the City and Bankside from LiDAR and OpenStreetMap, the obstacles
+    measured on a 1 m grid, the landmarks at their heights, home at Potters Fields Park."""
+    w = load_world("london")
+    assert w.bounds == (-1040.0, -1360.0, 1040.0, 1360.0)
+    assert float(w.dtm.at(0.0, 0.0)) == pytest.approx(0.0, abs=1e-6)
+    assert len(w.buildings) > 6000 and len(w.trees) > 5000 and len(w.roads) > 3000
+    assert sum(b.outline is not None for b in w.buildings) > 5500
+    assert w.measured is not None and w.measured.cell == 1.0
+    obs = w.obstacles()
+    assert obs.cell == 1.0 and obs.agl.shape == (2080, 2720) and obs.agl.dtype == np.uint16
+    places = {p.id: p for p in w.spec.places}
+    assert {"the-shard", "st-pauls", "tower-bridge", "the-gherkin", "the-thames"} <= set(places)
+    # The Shard: 310 m in OSM, as tall in the drawing; the LiDAR sees its top near 290 m.
+    shard = max(w.buildings, key=lambda b: b.ridge)
+    assert shard.ridge == pytest.approx(310.0, abs=1.0)  # above its base
+    sn, se = places["the-shard"].point_ne_m
+    near = obs.agl[
+        int(sn - obs.n0) - 30 : int(sn - obs.n0) + 30, int(se - obs.e0) - 30 : int(se - obs.e0) + 30
+    ]
+    assert 270.0 < float(near.max()) * obs.quantum < 320.0
+    # The Thames is level, and open water has nothing on it.
+    tn, te = places["the-thames"].point_ne_m
+    assert float(obs.at(tn, te)) < 2.0
+    site = load_site("london")
+    assert [z.id for z in site.safe_zones] == ["A"]
+    ops = site.operations
+    assert ops is not None and ops.ceiling_alt_m == 400.0
+    assert {a.id for a in ops.no_fly} == {"tower-of-london", "st-pauls"}

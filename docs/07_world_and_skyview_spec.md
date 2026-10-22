@@ -334,6 +334,7 @@ The world is synthetic. Wrenfold is not a real place, and its origin only sets t
   - **Cost.** Building the whole map from the locks takes about 6 s and 0.9 GB.
 - **22 Oct 2026, the test map flies.** The locked sketch is baked into a world (§14) and flown: `testmap-nominal` is a tour from its airstrip at 150 m. A headless 30-minute run is clean: no collision, at least 87 m above the ground and everything on it, never inside a zone closed at all heights, never out of the geofence.
 - **22 Oct 2026, the cinematic look.** Skyview's chase view gets a look for demo videos (§15): sunlight with soft shadows, a sky, haze and filmic grading; tree models up close; ground grain by land cover; roads, water and building facades of their own; turning turbines; and a film mode (`&film=1`) with nothing but the picture.
+- **23 Oct 2026, London** (docs/08). A second world, real: the City and Bankside from Environment Agency LiDAR and OpenStreetMap. Buildings on their own footprints and measured obstacles join the baked-world format; the cinematic look gains ambient occlusion, clouds, aerial haze, richer facades, rooftop plant, traffic, boats and a city beyond the map's edge.
 
 ## 14. Baked worlds: the test map
 
@@ -375,9 +376,10 @@ For demo videos, Skyview's chase view has a look of its own. It is on by default
 
 - **Light.**
   - The sun is in the west-south-west, 32° up, as in the sketches.
-  - Soft shadows fall within 320 m of what the camera follows.
-  - A sky dome runs from deep blue overhead to the haze at the horizon, with the sun's glow. Its light falls on every surface, and water and glass reflect it.
-  - Haze thickens with distance, and the picture is graded with ACES filmic tone mapping.
+  - Soft shadows fall within 320 m of what the camera follows. For a distant shot the shadowed box grows (to 1.4 km), between the camera and what it looks at.
+  - A sky dome runs from deep blue overhead to the haze at the horizon, with the sun's glow and fair-weather cumulus 1.5 km up. Its light falls on every surface, and water and glass reflect it.
+  - Haze thickens with distance (exponentially: a few per cent at a kilometre, a quarter at three, half at five).
+  - Ambient occlusion (GTAO, reaching about 5 m) darkens streets between buildings, eaves and the feet of trees. The picture is multisampled, then graded with ACES filmic tone mapping. The ground's colours are a fifth less saturated than the map's.
 - **Trees.**
   - Within 340 m of the camera, each tree is a model of its kind (broadleaf, conifer, willow or shrub): a trunk and a lobed crown, casting a shadow.
   - Beyond that, the simple instanced shapes stand in. The near set is refreshed every 30 m the camera moves.
@@ -389,17 +391,24 @@ For demo videos, Skyview's chase view has a look of its own. It is on by default
   - High open ground is moorland olive (it was khaki).
 - **Roads** are surfaces of their own, with sharp edges and tarmac grain. Roads have a dashed centre line and edge lines; tracks have wheel ruts with grass between. They fade into the painted roads beyond about a kilometre.
 - **Buildings.**
-  - Homes, offices and industrial buildings have windows on every floor above the ground floor; towers have glass curtain walls that reflect the sky.
-  - Churches and landmarks are stone. Pitched roofs are tiled, flat roofs gravelled.
+  - Homes, offices and industrial buildings have windows on every floor, each pane a little different (dark, catching the sky, or with its blinds drawn), recessed under its head. Offices have shop fronts at street level, homes and stone buildings lintels.
+  - Towers have glass curtain walls: panels between mullions, an opaque band at each floor, each panel catching the sky differently up close.
+  - Landmarks are stone with tall windows; churches plain stone. Pitched roofs are tiled, flat roofs gravelled and stained, and big flat roofs carry plant rooms and air-handling units, placed at random.
+  - Each building has its own shade, and walls darken towards the street.
   - All of it is drawn in the shader from each wall's own coordinates, with no image textures.
+  - Buildings on their own footprints (a survey world such as London, docs/08) are drawn with flat, skillion, pyramidal and domed roofs, and parts that stand clear of the ground.
 - **Water** fills each water cover bank to bank, rippled and reflecting the sky. It is level at its lowest shore nearby, so a river steps down as it falls. The painted water at its edge reads as shallows.
-- **Turbines** turn at about 15 rpm, by the wall clock: in a replay at 4×, they still turn at 1×.
+- **Turbines** turn at about 15 rpm, by the wall clock: in a replay at 4×, they still turn at 1×. `__view.setClock(t)` fixes the clock (for a recording, frame by frame); `setClock(null)` gives the wall clock back.
+- **Traffic.** Cars, black cabs and red buses drive the roads (a vehicle every 35 m of main road and 60 m of street, both ways, keeping left), and boats and barges ply a river with a centre line.
+- **Round a city** (a world whose ground is a city's, such as London), the ground runs on from the map's edge without a cliff, the river carries on past both ends, and an ordinary city of blocks and the odd tower fills the rest out to 3.5 km, fading into the haze.
 - **Set shots.** `__view.setShot([n, e, h], [n, e, h])` in the dev console puts the camera at one point looking at another, for stills; `setShot(null)` gives the follow view back. `web/skyview/scripts/stills.mjs <out-dir> <shots.json>` takes a list of them at 1920×1080, headless (the pictures above).
-- **Cost.** About 12.6 million triangles a frame; 118 fps at 1600×1000 on the development Mac.
+- **Fly-by videos.** `tools/flyby_path.py` turns camera keyframes into a smooth path checked clear of everything; `web/skyview/scripts/flyby.mjs` renders it and encodes an MP4 (docs/08 §7).
+- **Cost.** About 12.6 million triangles a frame on the test map; 118 fps at 1600×1000 on the development Mac, before ambient occlusion.
 
 **Fidelity.** None of this changes the simulator; the views draw the same payload, at the same positions and heights. The look is a drawing:
 
 - the ground's grain is three photographs, each repeating every few to few tens of metres, and noise for crops; from 100 m up, most of what reads is the broad patches, which are noise;
 - windows are patterns on the walls, not modelled;
 - the river's surface is drawn level at its banks, while the simulator has the channel's ground;
-- the rotors turn for the eye only. The simulator keeps each rotor as a wall across the wind (§14).
+- the rotors turn for the eye only. The simulator keeps each rotor as a wall across the wind (§14);
+- the traffic, the boats, the rooftop plant, the clouds and the city beyond a map's edge are drawn only.

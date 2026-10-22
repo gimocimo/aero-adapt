@@ -16,8 +16,10 @@ import { CATEGORIES, categoryOf } from "../scene/categories";
 import type { Layers } from "../state/store";
 import { rWorldFromModel } from "./frame";
 import { HAZE, Look } from "./look";
+import { Post } from "./post";
+import { type LevelAt, Traffic } from "./traffic";
 import { groundMaterial } from "./materials";
-import { buildings, hedges, roadSurfaces, skirt, structures, terrainGeometry, trees, waterSurfaces, wires } from "./meshes";
+import { buildings, hedges, outskirts, roadSurfaces, skirt, structures, terrainGeometry, trees, waterSurfaces, wires } from "./meshes";
 import { type OverlayState, paintClasses, paintGround, paintOverlay } from "./paint";
 import { TreeField } from "./trees3d";
 import { flatWorld, Ground, type WorldPayload } from "./payload";
@@ -139,10 +141,13 @@ export class WorldView {
   /** Film mode (``&film=1``): the picture alone, no map overlay, labels or route lines. */
   readonly film: boolean;
   private look: Look | null = null;
+  private post: Post | null = null;
   private treeField: TreeField | null = null;
   private spinners: THREE.Object3D[] = [];
   private water: THREE.Mesh | null = null;
   private shot: { eye: THREE.Vector3; at: THREE.Vector3 } | null = null;
+  private traffic: Traffic | null = null;
+  private clock: number | null = null;
   last: Sample | null = null;
   private showGrid = true;
 
@@ -156,6 +161,7 @@ export class WorldView {
     this.scene.background = SKY;
     if (this.cinematic) {
       this.look = new Look(this.renderer, this.scene);
+      this.post = new Post(this.renderer, this.scene, this.chaseCam);
     } else {
       this.scene.add(new THREE.HemisphereLight("#eaf4ff", "#5d6e45", 1.15));
       const sun = new THREE.DirectionalLight("#fff4df", 1.6);
@@ -234,6 +240,7 @@ export class WorldView {
     this.topControls?.dispose();
     this.clearWorld();
     this.look?.dispose();
+    this.post?.dispose();
     for (const l of this.labels) for (const el of Object.values(l.els)) el?.remove();
     this.renderer.dispose();
   }
@@ -252,6 +259,7 @@ export class WorldView {
     this.worldGroup.clear();
     this.overlay = null;
     this.treeField = null;
+    this.traffic = null; // its meshes went with the group
     this.spinners = [];
     this.water = null;
   }
@@ -303,7 +311,9 @@ export class WorldView {
     over.userData.overlay = true;
     this.worldGroup.add(over);
     this.overlay = { canvas, tex: otex, key: "" };
-    this.worldGroup.add(skirt(world, "#9bc078"));
+    // The ground past the map's edge (a city: the outskirts, once the water is known).
+    const city = world.plots[0]?.kind === "settlement";
+    if (!(city && this.cinematic)) this.worldGroup.add(skirt(world, city ? "#a2a5a7" : "#9bc078"));
     const h = hedges(world, this.ground);
     if (h) {
       h.traverse((o) => (o.receiveShadow = this.cinematic));
@@ -330,6 +340,10 @@ export class WorldView {
       if (this.water) this.worldGroup.add(this.water);
       const roads = roadSurfaces(world, this.ground);
       if (roads) this.worldGroup.add(roads);
+      const levelAt = (this.water?.userData.levelAt as LevelAt | undefined) ?? null;
+      if (city) this.worldGroup.add(outskirts(world, this.ground, levelAt));
+      this.traffic = new Traffic(world, this.ground, levelAt);
+      this.worldGroup.add(this.traffic.group);
     }
     this.scene.fog = null;
     this.fitKey = "";
@@ -629,6 +643,12 @@ export class WorldView {
     return s;
   }
 
+  /** The clock for what moves on its own (traffic, boats, turbines, water), in seconds:
+   * ``null`` follows the wall clock; a recording sets it frame by frame. */
+  setClock(t: number | null): void {
+    this.clock = t;
+  }
+
   /** A set shot for stills and video: the camera at ``eye`` (n, e, height above the datum)
    * looking at ``at``; ``null`` gives the follow view back. */
   setShot(eye: [number, number, number] | null, at?: [number, number, number]): void {
@@ -730,10 +750,12 @@ export class WorldView {
       r.clear();
       for (const l of lines) (l.material as LineMaterial).resolution.set(rect.width, rect.height);
       if (!this.film) this.placeLabels(name, cam, rect.width, rect.height);
-      r.render(this.scene, cam);
+      if (name === "chase" && this.post) this.post.render(rect.width, rect.height);
+      else r.render(this.scene, cam);
     };
-    // Moving parts: the turbines turn (about 15 rpm), the water flows.
-    const now = performance.now() / 1000;
+    // Moving parts: the turbines turn (about 15 rpm), the water flows, the traffic drives.
+    const now = this.clock ?? performance.now() / 1000;
+    this.traffic?.update(now);
     for (const sp of this.spinners) sp.rotation.z = (sp.userData.spin as number) - 1.6 * now;
     const flow = (this.water?.material as THREE.MeshStandardMaterial | undefined)?.userData.flow as THREE.Texture | undefined;
     if (flow) flow.offset.set(0.004 * now, 0.0025 * now);
@@ -742,10 +764,11 @@ export class WorldView {
       this.chaseCam.updateProjectionMatrix();
       if (this.look) {
         const target = this.shot ? this.shot.at : this.freeControls?.enabled ? this.freeControls.target : this.aircraft.position;
-        this.look.follow(target);
+        this.look.follow(target, this.chaseCam.position);
         this.treeField?.update(this.chaseCam.position);
         r.shadowMap.autoUpdate = true;
-        this.scene.fog = new THREE.Fog(HAZE, 900, 16000);
+        // Aerial perspective: a few per cent at a kilometre, a quarter at three, half at five.
+        this.scene.fog = new THREE.FogExp2(HAZE, 0.00017);
       } else this.scene.fog = new THREE.Fog(SKY, 1800, 9000);
       view(chase, this.chaseCam, "chase");
     }

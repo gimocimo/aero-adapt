@@ -55,6 +55,8 @@ uniform sampler2D uClass, uGrass, uCrop, uSoil, uPaved, uForest, uMottle;`,
   diffuseColor.rgb *= 1.0 + (cls < 2.5 ? 1.3 : 0.5) * midNear * (mid - 0.5);
   float broad = texture2D(uMottle, w / 260.0).r * 0.6 + texture2D(uMottle, w / 900.0).g * 0.4;
   diffuseColor.rgb *= 1.0 + 0.6 * (broad - 0.5);
+  // A map's colours are brighter than land's: take a fifth of the saturation out.
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114))), 0.22);
 }`,
       );
   };
@@ -62,7 +64,7 @@ uniform sampler2D uClass, uGrass, uCrop, uSoil, uPaved, uForest, uMottle;`,
 }
 
 /** Facade and roof kinds, per vertex (``aFacade.z``). */
-export const FACADE = { none: 0, homes: 1, offices: 2, glass: 3, industry: 4, tiles: 5, flat: 6, stone: 7 } as const;
+export const FACADE = { none: 0, homes: 1, offices: 2, glass: 3, industry: 4, tiles: 5, flat: 6, stone: 7, civic: 8 } as const;
 
 /** Buildings: vertex colours (walls and roofs) with windows, glass and tiles drawn from each
  * surface's coordinates (``aFacade``: metres along, metres up, kind). */
@@ -78,15 +80,17 @@ export function buildingMaterial(): THREE.MeshStandardMaterial {
   mat.onBeforeCompile = (sh) => {
     sh.uniforms.uNoise = { value: d.grain };
     sh.vertexShader = sh.vertexShader
-      .replace("#include <common>", "#include <common>\nattribute vec3 aFacade;\nvarying vec3 vFacade;")
-      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvFacade = aFacade;");
+      .replace("#include <common>", "#include <common>\nattribute vec3 aFacade;\nvarying vec3 vFacade;\nvarying vec3 vSpot;")
+      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvFacade = aFacade;\nvSpot = (modelMatrix * vec4(transformed, 1.0)).xyz;");
     sh.fragmentShader = sh.fragmentShader
       .replace(
         "#include <common>",
         `#include <common>
 varying vec3 vFacade;
+varying vec3 vSpot;
 uniform sampler2D uNoise;
 float vFacadeGlass = 0.0;
+float hash2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 // A soft-edged box pattern (antialiased with screen-space derivatives).
 float boxes(vec2 p, vec2 period, vec2 size) {
   vec2 q = abs(fract(p / period) - 0.5) * period;
@@ -103,15 +107,50 @@ float boxes(vec2 p, vec2 period, vec2 size) {
   float kind = floor(vFacade.z + 0.5);
   vec2 uv = vFacade.xy;
   float grain = texture2D(uNoise, uv / 6.0).r;
-  if (kind > 0.5 && kind < 4.5) {
-    // Walls: windows on every floor above the ground floor (shop fronts below on offices).
-    vec2 period = kind < 1.5 ? vec2(3.2, 2.9) : kind < 2.5 ? vec2(3.0, 3.6) : vec2(1.5, 3.8);
-    vec2 size = kind < 1.5 ? vec2(1.2, 1.4) : kind < 2.5 ? vec2(1.9, 2.0) : vec2(1.38, 3.55);
-    if (kind > 3.5) { period = vec2(6.0, 4.5); size = vec2(2.2, 1.0); }
-    float w = boxes(uv - vec2(0.0, 0.9), period, size) * step(1.2, uv.y);
-    vec3 pane = kind > 2.5 && kind < 3.5 ? vec3(0.22, 0.32, 0.42) : vec3(0.10, 0.13, 0.17);
-    diffuseColor.rgb = mix(diffuseColor.rgb * (0.92 + 0.16 * grain), pane, w * (kind > 2.5 && kind < 3.5 ? 0.9 : 0.78));
-    vFacadeGlass = w * (kind > 2.5 && kind < 3.5 ? 1.0 : 0.55);
+  // Each building its own scatter of panes (a seed from where it stands), and its own shade:
+  // a little lighter or darker, warmer or cooler, as weathered stone and render are.
+  vec2 seed = floor(vSpot.xz / 41.0);
+  float tone = hash2(seed * 3.1);
+  diffuseColor.rgb *= (0.86 + 0.16 * tone) * vec3(1.0 + 0.03 * (tone - 0.5), 1.0, 1.0 - 0.04 * (tone - 0.5));
+  bool walls = (kind > 0.5 && kind < 4.5) || kind > 7.5;
+  if (kind > 2.5 && kind < 3.5) {
+    // A curtain wall: glass panels between mullions, an opaque band at each floor's slab,
+    // each panel catching the sky a little differently.
+    vec2 cell = floor(uv / vec2(1.5, 3.8));
+    vec2 fw = fwidth(uv) + 1e-4;
+    // Panel to panel variation, fading out where panels are a few pixels (it would sparkle).
+    float h = mix(0.5, hash2(cell + seed * 7.0), 1.0 - smoothstep(0.08, 0.25, fw.x / 1.5));
+    float mullion = 1.0 - smoothstep(0.05 - fw.x, 0.05 + fw.x, abs(fract(uv.x / 1.5) - 0.5) * 1.5 - 0.7);
+    float slab = 1.0 - smoothstep(0.0, fw.y * 2.0 + 0.02, abs(fract(uv.y / 3.8) - 0.1) * 3.8 - 0.35);
+    float fade = 1.0 - smoothstep(0.2, 0.6, fw.x / 1.5);
+    vec3 pane = mix(vec3(0.17, 0.25, 0.33), vec3(0.33, 0.42, 0.50), h) * (0.9 + 0.2 * grain);
+    vec3 frame = diffuseColor.rgb * 0.75;
+    vec3 col = mix(pane, frame, max(mullion * 0.6, slab * 0.85) * fade);
+    diffuseColor.rgb = mix(diffuseColor.rgb, col, 0.92);
+    vFacadeGlass = 0.95 - 0.5 * slab * fade;
+  } else if (walls) {
+    // Windows on every floor; offices have shop fronts at street level.
+    vec2 period = kind < 1.5 ? vec2(3.2, 2.9) : kind < 2.5 ? vec2(3.0, 3.6) : vec2(6.0, 4.5);
+    vec2 size = kind < 1.5 ? vec2(1.1, 1.5) : kind < 2.5 ? vec2(2.2, 2.1) : vec2(2.2, 1.0);
+    if (kind > 7.5) { period = vec2(4.2, 5.0); size = vec2(1.4, 2.6); } // tall stone windows
+    float base = kind < 2.5 ? 4.4 : 1.2; // the ground floor
+    float w = boxes(uv - vec2(0.0, 0.9), period, size) * step(base, uv.y);
+    if (kind > 0.5 && kind < 2.5) {
+      float shop = boxes(uv - vec2(0.0, 2.2), vec2(6.0, 8.0), vec2(5.0, 3.0)) * (1.0 - step(4.2, uv.y));
+      w = max(w, shop);
+    }
+    vec2 cell = floor((uv - vec2(0.0, 0.9)) / period);
+    float h = hash2(cell + seed * 7.0);
+    vec3 pane = mix(vec3(0.07, 0.09, 0.12), vec3(0.20, 0.25, 0.31), h * h); // dark, or catching the sky
+    if (hash2(cell.yx + seed) > 0.93) pane = vec3(0.40, 0.38, 0.34); // blinds drawn
+    // The window's recess: the head of the opening in shadow.
+    float inWin = fract((uv.y - 0.9) / period.y + 0.5) * period.y - (period.y - size.y) * 0.5;
+    pane *= mix(1.0, 0.6, smoothstep(size.y * 0.75, size.y, inWin));
+    // A lintel over each window on homes and stone.
+    float lintel = (kind < 1.5 || kind > 7.5) ? boxes(uv - vec2(0.0, 0.9 + size.y * 0.5 + 0.18), period, vec2(size.x + 0.3, 0.22)) : 0.0;
+    vec3 wall = diffuseColor.rgb * (0.92 + 0.16 * grain) * (1.0 + 0.12 * lintel);
+    diffuseColor.rgb = mix(wall, pane, w * 0.85);
+    vFacadeGlass = w * 0.55;
   } else if (kind > 4.5 && kind < 5.5) {
     // Roof tiles: courses up the slope, each tile a little different.
     float course = fract(uv.y / 0.32);
@@ -119,10 +158,14 @@ float boxes(vec2 p, vec2 period, vec2 size) {
     float edge = smoothstep(0.0, 0.18, course) * (1.0 - 0.35 * smoothstep(0.82, 1.0, course));
     diffuseColor.rgb *= (0.78 + 0.22 * edge) * (0.9 + 0.2 * tile);
   } else if (kind > 5.5 && kind < 6.5) {
-    diffuseColor.rgb *= 0.86 + 0.24 * grain; // gravel and felt
+    // Gravel and felt, stained in patches.
+    float stain = texture2D(uNoise, uv / 37.0).r;
+    diffuseColor.rgb *= (0.74 + 0.22 * grain) * (0.85 + 0.3 * stain);
   } else if (kind > 6.5) {
     diffuseColor.rgb *= 0.88 + 0.2 * texture2D(uNoise, uv / 2.0).r; // stone
   }
+  // The street's shade: walls darken towards the ground.
+  if (walls || (kind > 6.5 && kind < 7.5)) diffuseColor.rgb *= mix(0.8, 1.0, smoothstep(0.0, 9.0, uv.y));
 }`,
       )
       .replace(

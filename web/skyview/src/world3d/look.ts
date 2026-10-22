@@ -42,6 +42,20 @@ void main() {
     fragmentShader: `uniform vec3 uZenith, uHorizon, uSun, uGlow;
 uniform float uGain;
 varying vec3 vDir;
+float vnoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  float a = fract(sin(dot(i, vec2(127.1, 311.7))) * 43758.5453);
+  float b = fract(sin(dot(i + vec2(1.0, 0.0), vec2(127.1, 311.7))) * 43758.5453);
+  float c = fract(sin(dot(i + vec2(0.0, 1.0), vec2(127.1, 311.7))) * 43758.5453);
+  float d = fract(sin(dot(i + vec2(1.0, 1.0), vec2(127.1, 311.7))) * 43758.5453);
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+float fbm(vec2 p) {
+  float v = 0.0, a = 0.5;
+  for (int k = 0; k < 5; k++) { v += a * vnoise(p); p = p * 2.03 + vec2(17.0, 9.0); a *= 0.5; }
+  return v;
+}
 void main() {
   vec3 d = normalize(vDir);
   float up = clamp(d.y, 0.0, 1.0);
@@ -49,6 +63,16 @@ void main() {
   col = mix(col, uHorizon * 0.92, smoothstep(0.0, -0.08, d.y)); // below the horizon: haze
   float s = max(dot(d, normalize(uSun)), 0.0);
   col += uGlow * (0.22 * pow(s, 10.0) + 0.5 * pow(s, 90.0)) + uGlow * smoothstep(0.9995, 0.99975, s) * 2.5;
+  // Fair-weather cumulus on a layer 1.5 km up: lit from the sun, greyer underneath, thinning
+  // into the haze towards the horizon.
+  if (d.y > 0.0) {
+    vec2 p = d.xz / max(d.y, 0.02) * 1.5;
+    float n = fbm(p * 0.9 + vec2(3.0, 1.0));
+    float cover = smoothstep(0.52, 0.72, n) * smoothstep(0.02, 0.18, d.y);
+    float lit = 0.75 + 0.35 * smoothstep(0.45, 0.85, fbm(p * 0.9 + normalize(uSun).xz * 0.08 + vec2(3.0, 1.0)));
+    vec3 cloud = mix(vec3(0.78, 0.80, 0.84), vec3(1.0, 0.98, 0.95), clamp(lit - 0.6, 0.0, 1.0)) * lit;
+    col = mix(col, cloud, cover * 0.92);
+  }
   gl_FragColor = vec4(col * uGain, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
@@ -104,15 +128,30 @@ export class Look {
     scene.add(this.hemi, this.sun, this.sun.target);
   }
 
-  /** Keep the sunlit, shadowed box over what the chase camera looks at. */
-  follow(target: THREE.Vector3): void {
+  /** Keep the sunlit, shadowed box over what the chase camera looks at: round its target
+   * when it is close (following the aircraft); for a distant shot, a larger box (coarser
+   * shadows) between the camera and its target, so the whole near view is shadowed. */
+  follow(target: THREE.Vector3, eye?: THREE.Vector3): void {
     const dir = sunDirection();
+    let half = SHADOW_HALF_M;
+    let centre = target;
+    const d = eye ? eye.distanceTo(target) : 0;
+    if (eye && d > 250) {
+      half = THREE.MathUtils.clamp(d * 0.75, SHADOW_HALF_M, 1400);
+      centre = eye.clone().lerp(target, Math.min(1, half / d));
+    }
+    const cam = this.sun.shadow.camera;
+    if (cam.right !== half) {
+      cam.left = cam.bottom = -half;
+      cam.right = cam.top = half;
+      cam.updateProjectionMatrix();
+    }
     // Snap to shadow-map texels so shadows do not shimmer as the box moves.
-    const texel = (2 * SHADOW_HALF_M) / this.sun.shadow.mapSize.x;
+    const texel = (2 * half) / this.sun.shadow.mapSize.x;
     const t = new THREE.Vector3(
-      Math.round(target.x / texel) * texel,
-      Math.round(target.y / texel) * texel,
-      Math.round(target.z / texel) * texel,
+      Math.round(centre.x / texel) * texel,
+      Math.round(centre.y / texel) * texel,
+      Math.round(centre.z / texel) * texel,
     );
     this.sun.target.position.copy(t);
     this.sun.position.copy(t).addScaledVector(dir, 2000);

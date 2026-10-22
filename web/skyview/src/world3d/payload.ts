@@ -42,11 +42,19 @@ export interface Building {
   base: number;
   eaves: number;
   ridge: number;
-  roof: "gable" | "flat" | "spire";
+  roof: "gable" | "flat" | "spire" | "dome" | "skillion";
   variant: number;
   name: string | null;
   /** (walls, roof) when the world gives a building its own colours. */
   colours?: [string, string] | null;
+  /** A real building's own footprint, [n, e] (worlds from survey data, docs/08); the box
+   * fields then give its minimum rotated rectangle. */
+  outline?: [number, number][];
+  holes?: [number, number][][];
+  /** Above the base: a part standing clear of the ground (an overhang, a bridge's deck). */
+  bottom?: number;
+  /** A skillion roof's downslope heading (rad from north), from its ridge to its eaves. */
+  slope?: number;
 }
 
 export interface Structure {

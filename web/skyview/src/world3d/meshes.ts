@@ -64,6 +64,138 @@ export function skirt(w: WorldPayload, colour: string): THREE.Mesh {
   return m;
 }
 
+/** Round a city (London): the ground running on from the map's edge (no cliff at it), the
+ * river carrying on beyond both ends, and an ordinary city filling the rest out to a few
+ * kilometres, fading into the haze. Drawn only: none of it is in the simulator. */
+export function outskirts(w: WorldPayload, ground: Ground, levelAt: ((n: number, e: number) => number | null) | null): THREE.Group {
+  const group = new THREE.Group();
+  const [n0, e0, n1, e1] = w.bounds;
+  const N = 480;
+  // A point at fraction t round a rectangle grown by d (anticlockwise from the south-west).
+  const around = (t: number, d: number): [number, number] => {
+    const [a0, b0, a1, b1] = [n0 - d, e0 - d, n1 + d, e1 + d];
+    const [h, wd] = [a1 - a0, b1 - b0];
+    let x = t * 2 * (h + wd);
+    if (x < wd) return [a0, b0 + x];
+    x -= wd;
+    if (x < h) return [a0 + x, b1];
+    x -= h;
+    if (x < wd) return [a1, b1 - x];
+    return [a1 - (x - wd), b0];
+  };
+  const inner = Array.from({ length: N }, (_, k) => around(k / N, 0));
+  const edge = inner.map(([n, e]) => ground.at(n, e));
+  const level = [...edge].sort((a, b) => a - b)[Math.floor(N / 2)]!;
+  const rings: [number, number][] = [[0, 0], [150, 0.5], [600, 0.9], [2500, 1], [30000, 1]];
+  const pos: number[] = [];
+  const idx: number[] = [];
+  rings.forEach(([d, wgt]) => {
+    for (let k = 0; k < N; k++) {
+      const [n, e] = d === 0 ? inner[k]! : around(k / N, d);
+      pos.push(e, edge[k]! * (1 - wgt) + level * wgt - 0.3, -n);
+    }
+  });
+  for (let r = 0; r + 1 < rings.length; r++) {
+    for (let k = 0; k < N; k++) {
+      const [a, b, c, d] = [r * N + k, r * N + ((k + 1) % N), (r + 1) * N + ((k + 1) % N), (r + 1) * N + k];
+      idx.push(a, d, b, b, d, c);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  const land = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: "#a2a5a7", side: THREE.DoubleSide }));
+  land.receiveShadow = true;
+  group.add(land);
+
+  // The river beyond both ends, straight on along its last reach.
+  const river = w.river;
+  const reaches: [[number, number], [number, number]][] = [];
+  if (river && river.points.length > 4) {
+    const pts = river.points;
+    for (const [a, b] of [[pts.length - 4, pts.length - 1], [3, 0]] as const) {
+      const [na, ea] = pts[a]!;
+      const [nb, eb] = pts[b]!;
+      const len = Math.hypot(nb - na, eb - ea) || 1;
+      const [un, ue] = [(nb - na) / len, (eb - ea) / len];
+      reaches.push([[nb - un * 40, eb - ue * 40], [nb + un * 4000, eb + ue * 4000]]);
+    }
+    const lv = levelAt?.(...pts[Math.floor(pts.length / 2)]!) ?? level - 3;
+    const half = river.width / 2;
+    const wpos: number[] = [];
+    const wuv: number[] = [];
+    const widx: number[] = [];
+    for (const [[na, ea], [nb, eb]] of reaches) {
+      const len = Math.hypot(nb - na, eb - ea);
+      const [un, ue] = [(nb - na) / len, (eb - ea) / len];
+      const [ln, le] = [-ue * half, un * half];
+      const base = wpos.length / 3;
+      for (const [n, e] of [[na + ln, ea + le], [na - ln, ea - le], [nb - ln, eb - le], [nb + ln, eb + le]] as const) {
+        wpos.push(e, lv, -n);
+        wuv.push(e, n);
+      }
+      widx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    }
+    const wg = new THREE.BufferGeometry();
+    wg.setAttribute("position", new THREE.Float32BufferAttribute(wpos, 3));
+    wg.setAttribute("uv", new THREE.Float32BufferAttribute(wuv, 2));
+    wg.setIndex(widx);
+    wg.computeVertexNormals();
+    const water = new THREE.Mesh(wg, waterMaterial());
+    water.material.side = THREE.DoubleSide;
+    water.name = "water-beyond";
+    group.add(water);
+  }
+  const offRiver = (n: number, e: number) =>
+    reaches.every(([[na, ea], [nb, eb]]) => {
+      const [dn, de] = [nb - na, eb - ea];
+      const t = Math.min(Math.max(((n - na) * dn + (e - ea) * de) / (dn * dn + de * de), 0), 1);
+      return Math.hypot(n - na - t * dn, e - ea - t * de) > (river?.width ?? 0) / 2 + 25;
+    });
+
+  // An ordinary city: blocks of a few buildings between streets, now and then a tower.
+  const rnd = seeded(20261023);
+  const BLOCK = 85;
+  const REACH = 3500;
+  const boxes: [number, number, number, number, number, number][] = []; // n, e, length, width, height, heading
+  for (let n = n0 - REACH; n < n1 + REACH; n += BLOCK) {
+    for (let e = e0 - REACH; e < e1 + REACH; e += BLOCK) {
+      const [cn, ce] = [n + BLOCK / 2 + (rnd() - 0.5) * 20, e + BLOCK / 2 + (rnd() - 0.5) * 20];
+      if (cn > n0 - 60 && cn < n1 + 60 && ce > e0 - 60 && ce < e1 + 60) continue;
+      if (!offRiver(cn, ce)) continue;
+      const far = Math.max(n0 - cn, cn - n1, e0 - ce, ce - e1);
+      const heading = (rnd() - 0.5) * 0.5;
+      const parts = 2 + Math.floor(rnd() * 3);
+      for (let k = 0; k < parts; k++) {
+        const r = rnd();
+        const height = r > 0.995 ? 90 + rnd() * 70 : r > 0.96 ? 35 + rnd() * 45 : 9 + 18 * rnd() * rnd() + 6 * rnd();
+        const l = 18 + rnd() * 30;
+        const wd = 14 + rnd() * 22;
+        const [on, oe] = [(rnd() - 0.5) * (BLOCK - 18 - l * 0.5), (rnd() - 0.5) * (BLOCK - 18 - wd * 0.5)];
+        boxes.push([cn + on, ce + oe, l, wd, height * (far > 2000 ? 0.85 : 1), heading]);
+      }
+    }
+  }
+  const unit = new THREE.BoxGeometry(1, 1, 1);
+  unit.translate(0, 0.5, 0);
+  const city = new THREE.InstancedMesh(unit, new THREE.MeshLambertMaterial(), boxes.length);
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const up = new THREE.Vector3(0, 1, 0);
+  const c = new THREE.Color();
+  const palette = ["#cfc9bc", "#b9b3a6", "#a5a29b", "#9a6b55", "#c6b89a", "#8f969d", "#d8d3c8", "#a9876b", "#7f8a96", "#bcb7ae"];
+  boxes.forEach(([n, e, l, wd, h, hd], k) => {
+    q.setFromAxisAngle(up, hd);
+    m.compose(new THREE.Vector3(e, level - 0.3, -n), q, new THREE.Vector3(wd, h, l));
+    city.setMatrixAt(k, m);
+    city.setColorAt(k, c.set(palette[k % palette.length]!));
+  });
+  city.name = "outskirts";
+  group.add(city);
+  return group;
+}
+
 /** Hedges: a row of overlapping, irregular bushes along each segment (from the segment's
  * height and width) over a dense core that fills the dips between them, as the eye sees a
  * hedgerow: one lumpy mass, never quite the same. */
@@ -231,6 +363,7 @@ function facades(b: Building): [number, number] {
       return [FACADE.homes, roof];
     case "landmark":
     case "castle":
+      return [FACADE.civic, roof];
     case "nave":
       return [FACADE.stone, roof];
     case "industrial":
@@ -244,7 +377,80 @@ function facades(b: Building): [number, number] {
   }
 }
 
+/** A building on its own footprint: walls round every ring (up to the roof's edge), and a
+ * flat, sloping (skillion), pyramidal or domed roof; a part clear of the ground is closed
+ * underneath. */
+function addFootprint(B: Builder, b: Building): void {
+  const outer = b.outline!;
+  const holes = b.holes ?? [];
+  const P = (n: number, e: number, y: number) => new THREE.Vector3(e, b.base + y, -n);
+  const wall = b.colours?.[0] ?? KIND_WALL[b.kind] ?? WALLS[b.variant % WALLS.length]!;
+  const roofC = b.colours?.[1] ?? KIND_ROOF[b.kind] ?? ROOFS[b.variant % ROOFS.length]!;
+  let [fw, fr] = facades(b);
+  const bottom = b.bottom ?? 0;
+  const foot = bottom > 0.5 ? bottom : -0.6; // walls start a little below the ground (slopes)
+  const rise = b.ridge - b.eaves;
+  // The roof's edge height at a point of the outline (above the base).
+  let edge = (_n: number, _e: number) => (b.roof === "flat" ? b.ridge : b.eaves);
+  if (b.roof === "skillion") {
+    const [c, s] = [Math.cos(b.slope ?? 0), Math.sin(b.slope ?? 0)];
+    const d = outer.map(([n, e]) => n * c + e * s);
+    const [d0, d1] = [Math.min(...d), Math.max(...d)];
+    edge = (n, e) => b.ridge - (rise * (n * c + e * s - d0)) / Math.max(d1 - d0, 1e-6);
+    // A steep one is a face of the building (the Shard's glass), not a roof.
+    if (rise > d1 - d0) fr = fw;
+  }
+  for (const ring of [outer, ...holes]) {
+    let along = 0;
+    ring.forEach(([n1, e1], k) => {
+      const [n2, e2] = ring[(k + 1) % ring.length]!;
+      const len = Math.hypot(n2 - n1, e2 - e1);
+      const [t1, t2] = [edge(n1, e1), edge(n2, e2)];
+      B.quad(P(n1, e1, foot), P(n2, e2, foot), P(n2, e2, t2), P(n1, e1, t1), wall,
+             [[along, foot], [along + len, foot], [along + len, t2], [along, t1]], fw); // prettier-ignore
+      along += len;
+    });
+  }
+  const v2 = (r: [number, number][]) => r.map(([n, e]) => new THREE.Vector2(e, n));
+  const flat = (y: (n: number, e: number) => number, colour: string, kind: number) => {
+    const pts = [...outer, ...holes.flat()];
+    const at = (k: number) => {
+      const [n, e] = pts[k]!;
+      return { p: P(n, e, y(n, e)), uv: [e, n] as UV };
+    };
+    for (const face of THREE.ShapeUtils.triangulateShape(v2(outer), holes.map(v2))) {
+      const [a, c, d] = face.map(at) as [ReturnType<typeof at>, ReturnType<typeof at>, ReturnType<typeof at>];
+      B.tri(a.p, c.p, d.p, colour, [a.uv, c.uv, d.uv], kind);
+    }
+  };
+  if (bottom > 0.5) flat(() => bottom, wall, FACADE.none);
+  if (b.roof === "flat" || b.roof === "skillion") {
+    flat(edge, roofC, fr);
+    return;
+  }
+  // A spire or a dome over the footprint, from its centroid.
+  const cn = outer.reduce((t, [n]) => t + n, 0) / outer.length;
+  const ce = outer.reduce((t, [, e]) => t + e, 0) / outer.length;
+  const rings = b.roof === "spire" ? 1 : 6;
+  for (let k = 0; k < rings; k++) {
+    const [a1, a2] = [(k / rings) * (Math.PI / 2), ((k + 1) / rings) * (Math.PI / 2)];
+    const [s1, s2] = b.roof === "spire" ? [1, 0] : [Math.cos(a1), Math.cos(a2)];
+    const [h1, h2] = b.roof === "spire" ? [b.eaves, b.ridge] : [b.eaves + rise * Math.sin(a1), b.eaves + rise * Math.sin(a2)];
+    outer.forEach(([n1, e1], j) => {
+      const [n2, e2] = outer[(j + 1) % outer.length]!;
+      const at = (n: number, e: number, sc: number, h: number) => P(cn + (n - cn) * sc, ce + (e - ce) * sc, h);
+      const len = Math.hypot(n2 - n1, e2 - e1);
+      B.quad(at(n1, e1, s1, h1), at(n2, e2, s1, h1), at(n2, e2, s2, h2), at(n1, e1, s2, h2), roofC,
+             [[0, h1], [len, h1], [len * s2, h2], [0, h2]], fr); // prettier-ignore
+    });
+  }
+}
+
 function addBuilding(B: Builder, b: Building): void {
+  if (b.outline) {
+    addFootprint(B, b);
+    return;
+  }
   const u = new THREE.Vector2(Math.cos(b.heading), Math.sin(b.heading)); // along (n, e)
   const v = new THREE.Vector2(-u.y, u.x); // across
   // Local (a along, c across, y up) → world.
@@ -298,12 +504,91 @@ function addBuilding(B: Builder, b: Building): void {
   B.tri(P(-L, -W, top), P(-L, 0, b.ridge), P(-L, W, top), wall, [[0, top], [W, b.ridge], [2 * W, top]], fw);
 }
 
+/** A small seeded generator (the same roofs every time). */
+function seeded(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function inside(ring: [number, number][], n: number, e: number): boolean {
+  let hit = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [ni, ei] = ring[i]!;
+    const [nj, ej] = ring[j]!;
+    if (ei > e !== ej > e && n < ((nj - ni) * (e - ei)) / (ej - ei) + ni) hit = !hit;
+  }
+  return hit;
+}
+
+/** A box on a roof: plant room or air-handling unit. */
+function addBox(B: Builder, n: number, e: number, l: number, w: number, heading: number, y0: number, h: number, colour: string): void {
+  const u = [Math.cos(heading), Math.sin(heading)];
+  const P = (a: number, c: number, y: number) =>
+    new THREE.Vector3(e + a * u[1]! + c * u[0]!, y, -(n + a * u[0]! - c * u[1]!));
+  const c4: [number, number][] = [[l / 2, w / 2], [-l / 2, w / 2], [-l / 2, -w / 2], [l / 2, -w / 2]];
+  for (let k = 0; k < 4; k++) {
+    const [a1, b1] = c4[k]!;
+    const [a2, b2] = c4[(k + 1) % 4]!;
+    B.quad(P(a1, b1, y0), P(a2, b2, y0), P(a2, b2, y0 + h), P(a1, b1, y0 + h), colour);
+  }
+  B.quad(P(l / 2, w / 2, y0 + h), P(-l / 2, w / 2, y0 + h), P(-l / 2, -w / 2, y0 + h), P(l / 2, -w / 2, y0 + h), colour,
+         [[0, 0], [l, 0], [l, w], [0, w]], FACADE.flat); // prettier-ignore
+}
+
+/** What stands on a big flat roof (drawn only; the simulator has the measured roofs): a plant
+ * room or two and air-handling units, placed inside the footprint. */
+function rooftop(B: Builder, b: Building, seed: number): void {
+  const ring = b.outline;
+  if (!ring || b.roof !== "flat" || b.ridge < 12 || (b.bottom ?? 0) > 0.5 || b.kind === "bridge") return;
+  let area = 0;
+  ring.forEach(([n1, e1], k) => {
+    const [n2, e2] = ring[(k + 1) % ring.length]!;
+    area += n1 * e2 - n2 * e1;
+  });
+  area = Math.abs(area) / 2;
+  if (area < 250) return;
+  const rnd = seeded(seed);
+  const ns = ring.map(([n]) => n);
+  const es = ring.map(([, e]) => e);
+  const [n0, n1, e0, e1] = [Math.min(...ns), Math.max(...ns), Math.min(...es), Math.max(...es)];
+  const top = b.base + b.ridge;
+  const fits = (n: number, e: number, l: number, w: number, hd: number) =>
+    [[1, 1], [-1, 1], [-1, -1], [1, -1], [0, 0]].every(([sa, sb]) => {
+      const a = (sa! * (l / 2 + 1.5)) as number;
+      const c = (sb! * (w / 2 + 1.5)) as number;
+      return inside(ring, n + a * Math.cos(hd) - c * Math.sin(hd), e + a * Math.sin(hd) + c * Math.cos(hd));
+    });
+  const place = (count: number, size: [number, number], height: [number, number], grey: string[]) => {
+    for (let k = 0, tries = 0; k < count && tries < count * 12; tries++) {
+      const n = n0 + rnd() * (n1 - n0);
+      const e = e0 + rnd() * (e1 - e0);
+      const l = size[0] + rnd() * (size[1] - size[0]);
+      const w = size[0] + rnd() * (size[1] - size[0]) * 0.6;
+      const hd = b.heading + (rnd() < 0.5 ? 0 : Math.PI / 2);
+      if (!fits(n, e, l, w, hd)) continue;
+      addBox(B, n, e, l, w, hd, top, height[0] + rnd() * (height[1] - height[0]), grey[Math.floor(rnd() * grey.length)]!);
+      k++;
+    }
+  };
+  place(Math.min(3, 1 + Math.floor(area / 1500)), [4, Math.min(16, Math.sqrt(area) * 0.3)], [2.6, 4.2], ["#a9abab", "#9b9e9f", "#b3b1aa"]);
+  place(Math.min(10, Math.floor(area / 300)), [1.2, 2.6], [0.9, 1.6], ["#c3c5c6", "#8d9194", "#b9bbbd"]);
+}
+
 /** Every building in one mesh (vertex colours, flat shading); with ``cinematic``, facades
- * and roof tiles, and shadows. */
+ * and roof tiles, plant on the flat roofs, and shadows. */
 export function buildings(w: WorldPayload, cinematic = false): THREE.Mesh | null {
   if (w.buildings.length === 0) return null;
   const B = new Builder();
-  for (const b of w.buildings) addBuilding(B, b);
+  w.buildings.forEach((b, k) => {
+    addBuilding(B, b);
+    if (cinematic) rooftop(B, b, k * 7919 + 13);
+  });
   const mesh = new THREE.Mesh(
     B.geometry(),
     cinematic
@@ -324,9 +609,11 @@ export function waterSurfaces(w: WorldPayload, ground: Ground): THREE.Mesh | nul
   const pos: number[] = [];
   const uv: number[] = [];
   const idx: number[] = [];
+  const levels: { outer: [number, number][]; level: (n: number, e: number) => number }[] = [];
   for (const p of water) {
     const rings = [p.outer, ...p.holes];
     const level = shoreLevel(rings, ground);
+    levels.push({ outer: p.outer, level });
     // Rows of cells: where each row's lines cross the shore, inside is between pairs.
     const ns = p.outer.map(([n]) => n);
     const es = p.outer.map(([, e]) => e);
@@ -366,6 +653,11 @@ export function waterSurfaces(w: WorldPayload, ground: Ground): THREE.Mesh | nul
   const mesh = new THREE.Mesh(g, waterMaterial());
   mesh.receiveShadow = true;
   mesh.name = "water";
+  // The water's level at a point (for what floats on it), or null off the water.
+  mesh.userData.levelAt = (n: number, e: number): number | null => {
+    for (const l of levels) if (inside(l.outer, n, e)) return l.level(n, e);
+    return null;
+  };
   return mesh;
 }
 

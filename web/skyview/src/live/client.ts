@@ -16,7 +16,15 @@ export interface SiteLayers {
   id: string;
   geofence: [number, number][];
   home: [number, number];
-  no_fly: { id: string; name: string; reason: string; polygons: [number, number][][] }[];
+  no_fly: {
+    id: string;
+    name: string;
+    reason: string;
+    polygons: [number, number][][];
+    /** How high it reaches above the ground (from the ground at its centre: a flat top); null: all heights. */
+    ceiling_m?: number | null;
+    ceiling_from?: "ground" | "centre";
+  }[];
   places: { id: string; name: string; kind: string; point: [number, number] }[];
   attribution: string | null;
 }

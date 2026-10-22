@@ -198,12 +198,20 @@ def site_layers(site: Site) -> dict | None:
         return None
     g = load_gazetteer(site)
     r = lambda a: np.round(np.asarray(a, float), 1).tolist()  # noqa: E731
+    heights = {z.id: z for z in site.operations.no_fly}  # how high each reaches (None: all heights)
     return {
         "id": site.id,
         "geofence": r(g.geofence),
         "home": r(g.home),
         "no_fly": [
-            {"id": a.id, "name": a.name, "reason": a.reason, "polygons": [r(p) for p in a.polygons]}
+            {
+                "id": a.id,
+                "name": a.name,
+                "reason": a.reason,
+                "polygons": [r(p) for p in a.polygons],
+                "ceiling_m": heights[a.id].ceiling_m,
+                "ceiling_from": heights[a.id].ceiling_from,
+            }
             for a in g.no_fly
         ],
         "places": [

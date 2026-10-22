@@ -448,7 +448,8 @@ export class WorldView {
       named.add(a.name);
       const n = Math.max(...ring.map((p) => p[0]));
       const e = ring.reduce((s, p) => s + p[1], 0) / ring.length;
-      add(`${a.name} · no-fly`, "lbl-nofly", n, e, this.groundAt(n, e) + 30, ["top"]);
+      const below = a.ceiling_m == null ? "" : ` below ${a.ceiling_m} m${a.ceiling_from === "centre" ? " over its foot" : ""}`;
+      add(`${a.name} · no-fly${below}`, a.ceiling_m == null ? "lbl-nofly" : "lbl-nofly lbl-nofly-low", n, e, this.groundAt(n, e) + 30, ["top"]);
     }
     for (const view of ["chase", "top"] as const) {
       const host = this.hosts[view];
@@ -504,7 +505,7 @@ export class WorldView {
         polygon: z.polygon_ne_m,
         state: s && s.zone === k ? "selected" : s && (s.reachMask & (1 << k)) !== 0 ? "reachable" : "unreachable",
       })),
-      noFly: (this.site?.no_fly ?? []).flatMap((a) => a.polygons),
+      noFly: (this.site?.no_fly ?? []).flatMap((a) => a.polygons.map((ring) => ({ ring, limited: a.ceiling_m != null }))),
       geofence: this.site?.geofence ?? null,
       proposal: this.plans.proposal?.preview.map(([n, e]) => [n, e] as [number, number]) ?? null,
       active: this.plans.active?.preview.map(([n, e]) => [n, e] as [number, number]) ?? null,

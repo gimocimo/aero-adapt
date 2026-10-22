@@ -339,6 +339,12 @@ The world is synthetic. Wrenfold is not a real place, and its origin only sets t
 The owner's test map is not generated from a spec. It was drawn with the sketch tools, a layer at a time, and locked (§13, 22 Oct). `tools/sketch_bake.py` writes it out whole, and `aeroadapt.world.baked` reads it back, as exactly as a generated world:
 
 - **The world file.** `configs/worlds/testmap.world.npz` holds the bulk arrays (terrain, about 104,000 trees, hedges, building boxes) and gzipped JSON for everything else: land cover, woods, roads, structures, wires, landing grounds and places. `configs/worlds/testmap.yaml` names it (`baked:`). Heights are above the site datum, the ground at the map's centre.
+- **Hedges.** Each field boundary has its own character:
+  - about one in five is a post-and-wire fence, with no hedge;
+  - the rest are trimmed low (1.3-1.9 m), typical (1.9-2.8 m) or overgrown (2.8-4 m), their height varying along them;
+  - a longer one has a 5 m gateway;
+  - round the landing grounds they are kept low (1.2-1.6 m).
+  Skyview draws them as rows of irregular bushes, not boxes.
 - **Buildings.** Each part of a sketch building becomes a box from the ground to its top, keeping its roof: gable, flat, or a hipped or spired top. The towers, the cathedral's spire and the arena's stands become stacks of boxes.
 - **New things the world holds.**
   - Wind turbines (tower to the hub, and the rotor), lattice pylons, cooling towers, and guyed masts (as before).
@@ -349,11 +355,11 @@ The owner's test map is not generated from a spec. It was drawn with the sketch 
 - **Landing grounds.**
   - Zone A is the airstrip; L1 to L22 are the landing fields.
   - As in every world (§3), a landing ground keeps no tree within 20 m of its edge or in its approach funnels: 7,211 hedgerow, scrub and fringe trees go. The woods stay whole.
-  - Even so, by the survey's thresholds (§5), only the airstrip (from the west) and 8 of the fields leave at least 120 m of field past the earliest aim point on a 1:15 approach. The others are too short, or are hemmed in by woods, rising ground or a pylon. The contingency weighs them as it finds them.
+  - Even so, by the survey's thresholds (§5), only the airstrip (from the west) and 10 of the fields leave at least 120 m of field past the earliest aim point on a 1:15 approach. The others are too short, or are hemmed in by woods, rising ground or a pylon. The contingency weighs them as it finds them.
   - The site's limit on safe zones went from 16 to 24 to hold them all.
 - **Operations** (`configs/sites/testmap.yaml`, written by the bake).
   - Home is at the airstrip; the geofence sits 150 m inside the map's edge.
   - `ceiling_alt_m`, new, is a flat ceiling above the datum (500 m). It is the altitude fence, and the planner's roof wherever it is lower than the ceiling above the ground.
   - The 30 no-fly zones carry their heights (`ceiling_m`; `ceiling_from: centre` for the flat-topped cylinders round the turbines and masts).
   - **The planner does not use those heights yet:** it keeps out of every zone at all heights, so Txt2Fly routes round the city rather than over it. Fixed-waypoint missions (`testmap-nominal`) were checked against the heights by hand.
-- **Skyview** draws the turbines (rotors facing the wind), pylons, cooling towers and wires; buildings in their own colours; the water as land cover; and the town's streets, squares and parks.
+- **Skyview** shows each zone's height: closed at all heights in red, up to a height in orange and dashed, labelled with how high it reaches. It also draws the turbines (rotors facing the wind), pylons, cooling towers and wires; buildings in their own colours; the water as land cover; and the town's streets, squares and parks.

@@ -62,33 +62,40 @@ export function skirt(w: WorldPayload, colour: string): THREE.Mesh {
   return m;
 }
 
-/** Hedges: one box per segment, standing on the ground. */
+/** Hedges: a row of overlapping, irregular bushes along each segment (from the segment's
+ * height and width), as the eye sees a hedgerow: lumpy, never quite the same. */
 export function hedges(w: WorldPayload, ground: Ground): THREE.InstancedMesh | null {
   const h = w.hedges;
   const n = h.length / 6;
   if (n === 0) return null;
-  const box = new THREE.BoxGeometry(1, 1, 1);
-  box.translate(0, 0.5, 0);
-  const mesh = new THREE.InstancedMesh(box, new THREE.MeshLambertMaterial({ color: "#3d7535" }), n);
+  const SPACING = 2.6;
+  const bushes: [number, number, number, number, number, number][] = []; // e, base, -n, radius, height, seed
+  for (let k = 0; k < n; k++) {
+    const [na, ea, nb, eb, height, width] = [h[6 * k]!, h[6 * k + 1]!, h[6 * k + 2]!, h[6 * k + 3]!, h[6 * k + 4]!, h[6 * k + 5]!];
+    const len = Math.hypot(nb - na, eb - ea);
+    const count = Math.max(1, Math.round(len / SPACING));
+    for (let i = 0; i < count; i++) {
+      const s = (i + 0.5) / count;
+      const seed = Math.sin((k * 131 + i) * 12.9898) * 43758.5453;
+      const j = seed - Math.floor(seed); // 0..1, fixed per bush
+      const nn = na + (nb - na) * s + (j - 0.5) * 0.6;
+      const ee = ea + (eb - ea) * s + (j - 0.5) * 0.6;
+      bushes.push([ee, ground.at(nn, ee) - 0.3, -nn, (width / 2) * (0.85 + 0.5 * j), height * (0.8 + 0.35 * j), j]);
+    }
+  }
+  const blob = new THREE.IcosahedronGeometry(1, 1);
+  blob.translate(0, 0.55, 0);
+  const mesh = new THREE.InstancedMesh(blob, new THREE.MeshLambertMaterial({ flatShading: true }), bushes.length);
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const up = new THREE.Vector3(0, 1, 0);
   const c = new THREE.Color();
-  for (let k = 0; k < n; k++) {
-    const [na, ea, nb, eb, height, width] = [h[6 * k]!, h[6 * k + 1]!, h[6 * k + 2]!, h[6 * k + 3]!, h[6 * k + 4]!, h[6 * k + 5]!];
-    const ga = ground.at(na, ea);
-    const gb = ground.at(nb, eb);
-    const len = Math.hypot(nb - na, eb - ea);
-    const base = Math.min(ga, gb) - 0.4;
-    q.setFromAxisAngle(up, Math.atan2(nb - na, eb - ea)); // box x along the segment
-    m.compose(
-      new THREE.Vector3((ea + eb) / 2, base, -(na + nb) / 2),
-      q,
-      new THREE.Vector3(len + width * 0.6, height + Math.abs(ga - gb) + 0.4, width),
-    );
+  bushes.forEach(([x, y, z, r, ht, j], k) => {
+    q.setFromAxisAngle(up, j * 6.283);
+    m.compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(r * 1.35, ht * 0.62, r * 1.15));
     mesh.setMatrixAt(k, m);
-    mesh.setColorAt(k, c.setHSL(0.29 + 0.03 * Math.sin(k * 1.7), 0.45, 0.3 + 0.03 * Math.cos(k)));
-  }
+    mesh.setColorAt(k, c.setHSL(0.27 + 0.05 * (j - 0.5), 0.42, 0.29 + 0.07 * j));
+  });
   return mesh;
 }
 

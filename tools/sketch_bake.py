@@ -28,7 +28,7 @@ import numpy as np
 import shapely
 import yaml
 from shapely.geometry import Polygon
-from shapely.ops import unary_union
+from shapely.ops import substring, unary_union
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import itertools
@@ -40,6 +40,7 @@ from sketch_map import CELL, prepare
 from sketch_power import FOOT, PEAK
 
 ROOT = Path(__file__).resolve().parents[1]
+HEDGE_SEED = 31
 WOOD_CANOPY_M = 24.0  # the woods' solid canopy for the simulator (their trees reach 13-27 m)
 TREE_KIND = {0: 0, 1: 1, 2: 0, 3: 2, 4: 0}  # sketch → world: shrub and fruit tree as broadleaf
 ROOF = {"gable": "gable", "flat": "flat", "hip": "spire"}
@@ -280,12 +281,37 @@ def bake(name: str) -> dict:
         "points": np.round(main.line[::4], 2).tolist(),
     }
 
-    # Hedges, in segments of 20 m at most.
+    # Hedges, in segments of 20 m at most. Each boundary has its own character: a fence (no
+    # hedge), or a hedge trimmed low, a typical one or an overgrown one, its height varying
+    # along it; a longer one has a gateway. Round the landing grounds they are kept low.
+    rng = np.random.default_rng(HEDGE_SEED)
+    kept_low = unary_union([z.exterior.buffer(3.0) for _, z, _, _ in zones])
     hedges = []
     for ln in city.hedges:
-        n = max(math.ceil(ln.length / 20.0), 1)
-        pts = [np.asarray(ln.interpolate(d).coords[0]) for d in np.linspace(0, ln.length, n + 1)]
-        hedges += [[*a, *b, 2.5, 2.0] for a, b in itertools.pairwise(pts)]
+        if ln.length < 4.0:
+            continue
+        r = rng.random()
+        if r < 0.18:
+            continue  # a post-and-wire fence
+        lo, hi = (1.3, 1.9) if r < 0.45 else (1.9, 2.8) if r < 0.82 else (2.8, 4.0)
+        if kept_low.contains(ln.interpolate(0.5, normalized=True)):
+            lo, hi = 1.2, 1.6
+        pieces = [ln]
+        if ln.length > 60.0:  # a gateway, 5 m wide, near one end
+            at = rng.uniform(10.0, 30.0)
+            at = at if rng.random() < 0.5 else ln.length - at - 5.0
+            pieces = [substring(ln, 0.0, at), substring(ln, at + 5.0, ln.length)]
+        for piece in pieces:
+            if piece.length < 2.0:
+                continue
+            n = max(math.ceil(piece.length / 20.0), 1)
+            pts = [
+                np.asarray(piece.interpolate(d).coords[0])
+                for d in np.linspace(0, piece.length, n + 1)
+            ]
+            for a, b in itertools.pairwise(pts):
+                height = float(rng.uniform(lo, hi))
+                hedges.append([*a, *b, round(height, 2), round(0.7 + 0.45 * height, 2)])
     hedges = np.asarray(hedges, float).reshape(-1, 6)
 
     # Buildings: each part a box from the ground to its top, with its roof.

@@ -853,6 +853,10 @@ dd {
   color: #ffd0d1;
   background: rgba(120, 20, 24, 0.6);
 }
+.lbl-nofly-low {
+  color: #ffe2c4;
+  background: rgba(120, 64, 14, 0.6);
+}
 .lbl-grid {
   background: none;
   color: rgba(255, 255, 255, 0.85);

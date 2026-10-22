@@ -194,17 +194,19 @@ export function paintGround(w: WorldPayload, size: number): HTMLCanvasElement {
       ctx.setLineDash([]);
     }
   }
-  // Hedge footprints (the 3D hedges stand on them).
+  // Hedge footprints (the 3D bushes stand on them): a soft shadow line, not a wall.
   const h = w.hedges;
   ctx.strokeStyle = HEDGE;
+  ctx.globalAlpha = 0.55;
   ctx.lineCap = "round";
   for (let k = 0; k < h.length; k += 6) {
-    ctx.lineWidth = Math.max(h[k + 5]! * px, 1);
+    ctx.lineWidth = Math.max(0.8 * h[k + 5]! * px, 1);
     ctx.beginPath();
     ctx.moveTo(m.x(h[k + 1]!), m.y(h[k]!));
     ctx.lineTo(m.x(h[k + 3]!), m.y(h[k + 2]!));
     ctx.stroke();
   }
+  ctx.globalAlpha = 1;
   // Shaded relief over everything, so slopes read even from straight above.
   const relief = hillshade(w);
   if (relief) {
@@ -300,7 +302,8 @@ export interface OverlayState {
   showZones: boolean;
   /** Reference grid: 100 m lines, every fifth stronger. */
   grid: boolean;
-  noFly: [number, number][][];
+  /** No-fly areas; ``limited`` ones only reach up to a height (the aircraft may fly over). */
+  noFly: { ring: [number, number][]; limited: boolean }[];
   geofence: [number, number][] | null;
   /** Ground tracks under the plans (proposal dashed, active solid). */
   proposal: [number, number][] | null;
@@ -334,13 +337,17 @@ export function paintOverlay(canvas: HTMLCanvasElement, w: WorldPayload, s: Over
       ctx.stroke();
     }
   }
-  for (const poly of s.noFly) {
-    const p = path(m, poly);
-    ctx.fillStyle = "rgba(229,72,77,0.28)";
+  // Closed at all heights in red; up to a height in orange, dashed (it may be flown over).
+  for (const { ring, limited } of [...s.noFly].sort((a, b) => Number(b.limited) - Number(a.limited))) {
+    const p = path(m, ring);
+    const c = limited ? "240,138,36" : "229,72,77";
+    ctx.fillStyle = `rgba(${c},${limited ? 0.18 : 0.28})`;
     ctx.fill(p);
-    ctx.strokeStyle = "rgba(229,72,77,0.95)";
+    if (limited) ctx.setLineDash([10 * px, 6 * px]);
+    ctx.strokeStyle = `rgba(${c},0.95)`;
     ctx.lineWidth = Math.max(2.5 * px, 2);
     ctx.stroke(p);
+    ctx.setLineDash([]);
   }
   if (s.geofence) {
     ctx.setLineDash([16 * px, 10 * px]);

@@ -20,6 +20,7 @@ export function groundMaterial(map: THREE.Texture, classes: THREE.Texture): THRE
       uSoil: { value: d.soil },
       uPaved: { value: d.paved },
       uForest: { value: d.forest },
+      uMottle: { value: d.mottle },
     });
     sh.vertexShader = sh.vertexShader
       .replace("#include <common>", "#include <common>\nvarying vec3 vWorld;")
@@ -29,7 +30,7 @@ export function groundMaterial(map: THREE.Texture, classes: THREE.Texture): THRE
         "#include <common>",
         `#include <common>
 varying vec3 vWorld;
-uniform sampler2D uClass, uGrass, uCrop, uSoil, uPaved, uForest;`,
+uniform sampler2D uClass, uGrass, uCrop, uSoil, uPaved, uForest, uMottle;`,
       )
       .replace(
         "#include <map_fragment>",
@@ -39,20 +40,20 @@ uniform sampler2D uClass, uGrass, uCrop, uSoil, uPaved, uForest;`,
   vec2 w = vec2(vWorld.x, -vWorld.z);
   float dist = length(vWorld - cameraPosition);
   float near = 1.0 - smoothstep(180.0, 1600.0, dist);
-  float g = 0.5;
-  if (cls < 0.5) g = 0.6 * texture2D(uGrass, w / 5.0).r + 0.4 * texture2D(uGrass, w / 23.0).r;
-  else if (cls < 1.5) g = 0.6 * texture2D(uCrop, w / 6.0).r + 0.4 * texture2D(uGrass, w / 29.0).r;
-  else if (cls < 2.5) g = 0.65 * texture2D(uSoil, w / 5.0).r + 0.35 * texture2D(uSoil, w / 27.0).r;
-  else if (cls < 3.5) g = 0.7 * texture2D(uPaved, w / 4.0).r + 0.3 * texture2D(uPaved, w / 31.0).r;
-  else if (cls < 4.5) g = 0.6 * texture2D(uForest, w / 4.0).r + 0.4 * texture2D(uForest, w / 19.0).r;
+  vec3 g = vec3(0.5);
+  if (cls < 0.5) g = 0.6 * texture2D(uGrass, w / 5.0).rgb + 0.4 * texture2D(uGrass, w / 23.0).rgb;
+  else if (cls < 1.5) g = 0.6 * texture2D(uCrop, w / 6.0).rgb + 0.4 * texture2D(uMottle, w / 29.0).rgb;
+  else if (cls < 2.5) g = 0.65 * texture2D(uSoil, w / 5.0).rgb + 0.35 * texture2D(uSoil, w / 27.0).rgb;
+  else if (cls < 3.5) g = 0.7 * texture2D(uPaved, w / 4.0).rgb + 0.3 * texture2D(uPaved, w / 31.0).rgb;
+  else if (cls < 4.5) g = 0.6 * texture2D(uForest, w / 4.0).rgb + 0.4 * texture2D(uForest, w / 19.0).rgb;
   float strength = cls > 4.5 ? 0.0 : (cls > 2.5 && cls < 3.5 ? 1.0 : 1.6);
   diffuseColor.rgb *= 1.0 + near * strength * (g - 0.5);
   // Patches a few tens of metres across (thinner and lusher grass, wetter soil), out to a few
   // kilometres, and broad mottling everywhere: no field is one flat colour.
-  float mid = 0.6 * texture2D(uGrass, w / 70.0).r + 0.4 * texture2D(uSoil, w / 150.0).r;
+  float mid = 0.6 * texture2D(uMottle, w / 70.0).r + 0.4 * texture2D(uMottle, w / 150.0).g;
   float midNear = 1.0 - smoothstep(400.0, 3500.0, dist);
   diffuseColor.rgb *= 1.0 + (cls < 2.5 ? 1.3 : 0.5) * midNear * (mid - 0.5);
-  float broad = texture2D(uGrass, w / 260.0).r * 0.6 + texture2D(uSoil, w / 900.0).r * 0.4;
+  float broad = texture2D(uMottle, w / 260.0).r * 0.6 + texture2D(uMottle, w / 900.0).g * 0.4;
   diffuseColor.rgb *= 1.0 + 0.6 * (broad - 0.5);
 }`,
       );
@@ -75,7 +76,7 @@ export function buildingMaterial(): THREE.MeshStandardMaterial {
     side: THREE.DoubleSide,
   });
   mat.onBeforeCompile = (sh) => {
-    sh.uniforms.uNoise = { value: d.paved };
+    sh.uniforms.uNoise = { value: d.grain };
     sh.vertexShader = sh.vertexShader
       .replace("#include <common>", "#include <common>\nattribute vec3 aFacade;\nvarying vec3 vFacade;")
       .replace("#include <begin_vertex>", "#include <begin_vertex>\nvFacade = aFacade;");

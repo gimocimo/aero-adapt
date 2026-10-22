@@ -306,7 +306,7 @@ export class WorldView {
     this.worldGroup.add(skirt(world, "#9bc078"));
     const h = hedges(world, this.ground);
     if (h) {
-      h.receiveShadow = this.cinematic;
+      h.traverse((o) => (o.receiveShadow = this.cinematic));
       this.worldGroup.add(h);
     }
     if (world.trees.length) {

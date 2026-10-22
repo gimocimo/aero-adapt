@@ -65,17 +65,22 @@ export function skirt(w: WorldPayload, colour: string): THREE.Mesh {
 }
 
 /** Hedges: a row of overlapping, irregular bushes along each segment (from the segment's
- * height and width), as the eye sees a hedgerow: lumpy, never quite the same. */
-export function hedges(w: WorldPayload, ground: Ground): THREE.InstancedMesh | null {
+ * height and width) over a dense core that fills the dips between them, as the eye sees a
+ * hedgerow: one lumpy mass, never quite the same. */
+export function hedges(w: WorldPayload, ground: Ground): THREE.Group | null {
   const h = w.hedges;
   const n = h.length / 6;
   if (n === 0) return null;
   const SPACING = 2.6;
   const bushes: [number, number, number, number, number, number, number][] = []; // e, base, -n, radius, height, seed, yaw
+  const cores: [number, number, number, number, number, number, number][] = []; // e, base, -n, length, height, width, yaw
   for (let k = 0; k < n; k++) {
     const [na, ea, nb, eb, height, width] = [h[6 * k]!, h[6 * k + 1]!, h[6 * k + 2]!, h[6 * k + 3]!, h[6 * k + 4]!, h[6 * k + 5]!];
     const len = Math.hypot(nb - na, eb - ea);
     const yaw = Math.atan2(nb - na, eb - ea); // the bush's long axis along the hedge
+    const [mn, me] = [(na + nb) / 2, (ea + eb) / 2];
+    const low = Math.min(ground.at(na, ea), ground.at(nb, eb), ground.at(mn, me));
+    cores.push([me, low - 0.3, -mn, len, height * 0.55 + 0.3, width * 0.7, yaw]);
     const count = Math.max(1, Math.round(len / SPACING));
     for (let i = 0; i < count; i++) {
       const s = (i + 0.5) / count;
@@ -98,9 +103,21 @@ export function hedges(w: WorldPayload, ground: Ground): THREE.InstancedMesh | n
     q.setFromAxisAngle(up, yaw + (j - 0.5) * 0.5);
     m.compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(Math.max(r * 1.9, 1.75), ht * 0.62, r * 1.1));
     mesh.setMatrixAt(k, m);
-    mesh.setColorAt(k, c.setHSL(0.27 + 0.05 * (j - 0.5), 0.42, 0.29 + 0.07 * j));
+    mesh.setColorAt(k, c.setHSL(0.27 + 0.03 * (j - 0.5), 0.42, 0.3 + 0.035 * j));
   });
-  return mesh;
+  // The core: a box per segment, a little lower and narrower than the bushes round it.
+  const box = new THREE.BoxGeometry(1, 1, 1);
+  box.translate(0, 0.5, 0);
+  const shade = new THREE.Color().setHSL(0.27, 0.42, 0.27); // the bushes' green, in their shadow
+  const core = new THREE.InstancedMesh(box, new THREE.MeshLambertMaterial({ color: shade }), cores.length);
+  cores.forEach(([x, y, z, len, ht, wd, yaw], k) => {
+    q.setFromAxisAngle(up, yaw);
+    m.compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(len, ht, wd));
+    core.setMatrixAt(k, m);
+  });
+  const group = new THREE.Group();
+  group.add(mesh, core);
+  return group;
 }
 
 /** Trees: crowns by kind (broadleaf, conifer, willow) and trunks, all instanced. ``thin``

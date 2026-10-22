@@ -1,7 +1,8 @@
-// Ground detail (docs/07 §15): tileable grey textures that give each kind of land its grain
-// (grass, crops in rows, ploughed soil, tarmac, a wood's floor), made here from noise so that
-// nothing need be downloaded, and a water normal map. The land's colour comes from the
-// painted cover; these only modulate it, up close.
+// Ground detail (docs/07 §15): tileable textures that give each kind of land its grain
+// (grass, crops in rows, ploughed soil, tarmac, a wood's floor), and a water normal map. They
+// start as noise made here; where there is a photograph (public/textures, CC0), it replaces
+// the noise once loaded. The land's colour comes from the painted cover: these only modulate
+// it, up close (each is scaled so that its mean is mid-grey in every channel).
 import * as THREE from "three";
 
 const N = 512;
@@ -51,6 +52,7 @@ function texture(fn: (x: number, y: number) => number): THREE.DataTexture {
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.magFilter = THREE.LinearFilter;
   t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.anisotropy = 8; // the ground is seen at grazing angles (three.js caps it at the GPU's limit)
   t.generateMipmaps = true;
   t.needsUpdate = true;
   return t;
@@ -63,6 +65,37 @@ export interface Detail {
   paved: THREE.DataTexture;
   forest: THREE.DataTexture;
   waterNormal: THREE.DataTexture;
+  /** Noise for broad patches and mottling (never a photograph: a photo would repeat). */
+  mottle: THREE.DataTexture;
+  /** Fine grain for walls and roofs. */
+  grain: THREE.DataTexture;
+}
+
+/** Photographs of the ground by class (CC0, see public/textures/README.md). */
+const PHOTOS: Partial<Record<"grass" | "soil" | "paved" | "forest", string>> = {
+  grass: "textures/ambientcg-Ground037.jpg",
+  forest: "textures/ambientcg-Ground037.jpg",
+};
+
+/** Write a photograph into a detail texture, scaled to a mid-grey mean per channel. */
+async function usePhoto(tex: THREE.DataTexture, url: string): Promise<void> {
+  const img = new Image();
+  img.src = url;
+  await img.decode();
+  const c = document.createElement("canvas");
+  c.width = c.height = N;
+  const ctx = c.getContext("2d", { willReadFrequently: true })!;
+  ctx.drawImage(img, 0, 0, N, N);
+  const px = ctx.getImageData(0, 0, N, N).data;
+  const mean = [0, 0, 0];
+  for (let k = 0; k < px.length; k += 4) for (let ch = 0; ch < 3; ch++) mean[ch]! += px[k + ch]!;
+  const gain = mean.map((m) => (128 * (N * N)) / Math.max(m, 1));
+  const data = tex.image.data as Uint8Array;
+  for (let k = 0; k < px.length; k += 4) {
+    for (let ch = 0; ch < 3; ch++) data[k + ch] = Math.min(255, Math.round(px[k + ch]! * gain[ch]!));
+    data[k + 3] = 255;
+  }
+  tex.needsUpdate = true;
 }
 
 let cached: Detail | null = null;
@@ -109,6 +142,13 @@ export function detailTextures(): Detail {
   waterNormal.minFilter = THREE.LinearMipmapLinearFilter;
   waterNormal.generateMipmaps = true;
   waterNormal.needsUpdate = true;
-  cached = { grass, crop, soil, paved, forest, waterNormal };
+  const mottle = texture((x, y) => 0.5 + 0.55 * (fine(x, y) - 0.5) + 0.35 * (tufts(x, y) - 0.5));
+  const grain = texture((x, y) => 0.5 + 0.35 * (speck(x, y) - 0.5) + 0.3 * (stain(x, y) - 0.5));
+  cached = { grass, crop, soil, paved, forest, waterNormal, mottle, grain };
+  for (const [key, path] of Object.entries(PHOTOS)) {
+    usePhoto(cached[key as keyof typeof PHOTOS], `${import.meta.env.BASE_URL}${path}`).catch((e: unknown) =>
+      console.warn(`ground photo ${path} not used:`, e),
+    );
+  }
   return cached;
 }

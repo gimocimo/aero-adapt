@@ -18,6 +18,7 @@ class Termination(IntEnum):
     OUT_OF_BOUNDS = 2
     NUMERICAL = 3
     TIME_LIMIT = 4
+    OBSTACLE = 5  # a tree, hedge, building or mast (world sites, docs/07)
 
 
 @dataclass(frozen=True)

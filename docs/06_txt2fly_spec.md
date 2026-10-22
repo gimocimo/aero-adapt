@@ -1,6 +1,6 @@
 # Txt2Fly Technical Specification: Tell It Where to Go
 
-*Status: draft · 21 Oct 2026 · Parent plan: [03 — AeroAdapt-UAV](03_uav_architecture_and_six_month_roadmap.md) §7.2 (weeks 9–10, inserted on 21 Oct 2026) · Previous milestone: [05 — M2](05_m2_technical_spec.md)*
+*Status: draft · 21 Oct 2026 · Parent plan: [03 — AeroAdapt-UAV](03_uav_architecture_and_six_month_roadmap.md) §7.2 (weeks 9 and 11, inserted on 21 Oct 2026; week 10 became the synthetic world, [07](07_world_and_skyview_spec.md)) · Previous milestone: [05 — M2](05_m2_technical_spec.md)*
 
 **Goal.** Let an operator say where the aircraft should go and what it should do, in plain words:
 
@@ -13,11 +13,14 @@ actually blowing. It shows the plan on the map, says plainly what it cannot do a
 once the operator confirms, flies it. A follow-up ("make it wider", "now go to B") changes the
 plan in flight, and the autopilot brings the aircraft onto the new path.
 
-**Weeks 9–10, about 30 h/week (~60 h).** M3 starts in week 11, with M2's two carry-overs:
-auto-configuration at 90 % (D6) and the Rascal (D4).
+**Weeks 9 and 11, about 30 h/week (~60 h).** Week 10 went to the synthetic world and the
+four-panel Skyview ([07](07_world_and_skyview_spec.md)). M3 starts in week 12, with M2's two
+carry-overs: auto-configuration at 90 % (D6) and the Rascal (D4).
 
 **Out of scope** (later milestones):
-- terrain: the ground is flat, so altitudes are above flat ground (M5);
+- terrain following: heights are above home. On a world site ([07](07_world_and_skyview_spec.md) §7)
+  the planner keeps the whole track clear of the ground and of trees and buildings, raising legs
+  where needed; on a flat site the ground is flat;
 - obstacle avoidance beyond fixed polygons;
 - powered take-off and landing (the stock stack has neither; `land` here is a glide landing);
 - several aircraft at once;
@@ -326,7 +329,7 @@ change only in the site and stack configuration files.
 | K1 | Every target resolves; the plan expands to ≤ 32 items | Hard | "There is no place called 'the old mill' on this site." |
 | K2 | Every circle and turn is at least r_min (§6) for the commanded speed and the current wind | Hard | "A 30 m circle needs 73° of bank at 25 m/s in this wind; this aircraft is limited to 45°. The tightest circle now is about 120 m." |
 | K3 | The preview stays 30 m (the tracking margin) inside the geofence and away from every no-fly area | Hard | "The circle would cross the M11 corridor (no-fly)." |
-| K4 | min_agl ≤ altitude ≤ ceiling; at least 30 m above any known feature height under the path | Hard | "120 m is the ceiling here." |
+| K4 | min_agl ≤ altitude ≤ ceiling; at least 30 m above any known feature height under the path. On a world site, along the whole preview: at least min_agl above the ground, at most the ceiling above it, 30 m above every tree and building (docs/07 §7) | Hard | "'Circle Hanger Wood' would pass 12 m above Hanger Wood; keep 30 m clear." |
 | K5 | Airspeeds within the airframe's configured range | Hard | "This aircraft cannot fly slower than 11 m/s." |
 | K6 | Predicted energy ≤ remaining energy − reserve (30 % of capacity); open-ended plans must be bounded (`until_reserve`) | Hard | "This plan needs about 140 % of the remaining battery." |
 | K7 | Glide reach: every 50 m along the path, at least one safe zone is reachable in the current wind, by the contingency's own test (`assess_zones`) | **Soft** | "From the far side of the circle, no field is within glide." Uncovered stretches are drawn in amber |
@@ -530,12 +533,12 @@ On confirmation the proposed path replaces the white mission line.
 
 ---
 
-## 13. Work plan (weeks 9–10, about 30 h/week)
+## 13. Work plan (weeks 9 and 11, about 30 h/week)
 
 | Week | Work (hours) | Exit criterion |
 |---|---|---|
 | **9 · Deterministic core** | Plan types + YAML + `aeroadapt plan check/fly` (4) · Mission v2 in the stack: items, fly-over, loiters, jump, legacy mapping, goldens (8) · Builder: r_min, passes, patrols, energy, preview path (5) · Checker K1–K8 + geofence RTL (5) · Site geofence, no-fly and places; OSM extract (Should) (3) · Live propose/confirm + Skyview preview overlay (5) | A typed "circle the church at 80 m" plan is checked, previewed and flown live; V24, V25 and V28 pass |
-| **10 · Language layer and proof** | Translator: structured output, caching, clarify/refuse, failures (6) · Conversation state and follow-ups (3) · Eval set + runner + grader (7) · Eval runs, prompt work on dev, test report V27 (4) · V26 (3) · Skyview Txt2Fly panel + Playwright (4) · Demo clip, `docs/demo/txt2fly.md`, log (3) | Definition of Done (§1) |
+| **11 · Language layer and proof** (was week 10) | Translator: structured output, caching, clarify/refuse, failures (6) · Conversation state and follow-ups (3) · Eval set + runner + grader (7) · Eval runs, prompt work on dev, test report V27 (4) · V26 (3) · Skyview Txt2Fly panel + Playwright (4) · Demo clip, `docs/demo/txt2fly.md`, log (3) | Definition of Done (§1) |
 
 **If behind**, slip in this order:
 1. `survey`.
@@ -574,8 +577,12 @@ Never cut the checker, the confirm step, the safety invariant or replay determin
    spend is small (about $0.30 per eval). The Opus reference pass (about $8) gets a go-ahead first.
 2. **Model** (resolved 21 Oct 2026). Haiku 5.5, for latency. If it misses the accuracy targets, the
    eval shows by how much and on which categories, and moving up a model is then the owner's choice.
-3. **"Above the church".** Proposed: above the ground at the church, stated as an assumption, with
-   clearance over its height enforced by K4. The alternative is above the top of the church.
+3. **"Above the church"** (resolved 22 Oct 2026 for now). Plan heights are above home, the frame
+   the autopilot flies; on a world site the planner keeps 40 m above the ground and 30 m above
+   the church (and everything else) along the track, and says when it had to fly higher. "80 m
+   above the church" is the model's to turn into a height above home (the gazetteer gives the
+   church's ground and height). Heights above the ground below need terrain following, a later
+   step ([07](07_world_and_skyview_spec.md) §12).
 
 ---
 
@@ -738,3 +745,23 @@ request*), and says what it changed.
   reading for tests.
 - §6: the preview banks 5° short of the roll limit (conservative), and V26 now checks
   clearance in flight rather than the distance from the preview.
+
+### Week 10 (22 Oct 2026): the synthetic world reaches the planner
+
+Week 10 went to the synthetic world and the four-panel Skyview ([07](07_world_and_skyview_spec.md));
+the language layer moves to week 11. For Txt2Fly:
+
+- `txt2fly-demo` now flies over **Wrenfold Vale**, whose gazetteer and no-fly areas (the
+  village, the farmyards, the radio mast) come from the world. The Cambridge demo is kept as
+  `txt2fly-cambridge`, and V24–V28 run there unchanged. Example plans live per site,
+  `configs/txt2fly/plans/<site>/`; Skyview's example buttons follow the site.
+- **Heights over terrain.** The builder raises legs that would pass under 40 m above the ground
+  or 30 m above trees and buildings (within the 30 m margin), to the lowest multiple of 5 m that
+  clears, and explains it ("circle Hanger Wood: at 80 m (heights are above home) to keep 30 m
+  above Hanger Wood"). K4 checks the whole preview on a world site. V31: a circle of Hanger
+  Wood asked at 50 m is lifted and passes; built literally it fails K4 with the wood named;
+  flown, three plans keep more than 20 m above every obstacle and 35 m above the ground.
+- **Bug fixed.** A turn point the builder inserts before a return-home circle took height 0 m
+  when the leg before it was a circle, so the aircraft dived on the way home (unnoticed on flat
+  Cambridge). It now keeps the circle's height.
+

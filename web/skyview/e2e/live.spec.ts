@@ -1,8 +1,9 @@
 import { expect, type Page, test } from "@playwright/test";
 
 // Live mode end to end (M2 spec D10): Skyview against `aeroadapt serve` (started by the
-// Playwright config on port 8799). A sensor fault is injected and cleared in normal flight,
-// then a motor cut is injected, logged and detected.
+// Playwright config on port 8799), in the four-panel view over Wrenfold Vale (docs/07). A
+// sensor fault is injected and cleared in normal flight, then a motor cut is injected, logged
+// and detected.
 
 /** Click a fault button until the active-faults list shows it (a click that lands just
  * before a dev-server reload is lost with the page). */
@@ -24,10 +25,13 @@ test("live mode: a sensor fault is injected and cleared; a motor cut is logged a
   });
   page.on("pageerror", (err) => errors.push(err.message));
 
-  await page.goto("/?live=ws://localhost:8799&tiles=0");
+  await page.goto("/?live=ws://localhost:8799&quality=low");
   await expect(page.getByTestId("clock")).toContainText("LIVE", { timeout: 60_000 });
+  await expect(page.getByTestId("view-map")).toContainText("Wrenfold Vale");
+  await expect(page.getByTestId("gauge-clearance")).toBeVisible();
+  await page.getByTestId("faults-tab").click();
   const active = page.getByTestId("active-faults");
-  const log = page.locator(".eventlog"); // the HUD also badges active faults
+  const log = page.getByTestId("ticker"); // the latest events, whichever tab is open
   try {
     await inject(page, "GNSS", "GNSS dropout");
     await active.getByRole("button", { name: "clear" }).click();
@@ -55,7 +59,7 @@ test("live mode: a sensor fault is injected and cleared; a motor cut is logged a
 test("txt2fly: a typed plan is checked, confirmed and flown", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (err) => errors.push(err.message));
-  await page.goto("/?live=ws://localhost:8799&tiles=0");
+  await page.goto("/?live=ws://localhost:8799&quality=low");
   await expect(page.getByTestId("clock")).toContainText("LIVE", { timeout: 60_000 });
   await page.getByTestId("scenario-picker").selectOption("txt2fly-demo");
   await expect(page.getByTestId("scenario-picker")).toHaveValue("txt2fly-demo", { timeout: 30_000 });
@@ -67,13 +71,13 @@ test("txt2fly: a typed plan is checked, confirmed and flown", async ({ page }) =
   await page.getByRole("button", { name: "Church, 30 m circle" }).click();
   await page.getByTestId("plan-check").click();
   await expect(page.getByTestId("plan-notes")).toContainText("the tightest it can", { timeout: 30_000 });
-  await expect(page.getByTestId("plan-notes")).toContainText("within Coton village (no-fly)");
+  await expect(page.getByTestId("plan-notes")).toContainText("within Wrenfold village (no-fly)");
 
   await page.getByRole("button", { name: "Patrol A, B, C" }).click();
   await page.getByTestId("plan-check").click();
   await expect(page.getByTestId("plan-verdict")).toHaveText("Can fly", { timeout: 30_000 });
   await page.getByTestId("plan-confirm").click();
   await expect(page.getByTestId("active-plan")).toContainText("Patrol fields A, B and C", { timeout: 20_000 });
-  await expect(page.locator(".eventlog").getByText("Mode AUTO")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("ticker").getByText("Mode AUTO")).toBeVisible({ timeout: 20_000 });
   expect(errors).toEqual([]);
 });

@@ -1,0 +1,5 @@
+summary: Patrol fields A, B and C at 110 m, lap after lap, until the battery reserve.
+steps:
+  - do: patrol
+    targets: [{kind: place, id: field A}, {kind: place, id: field B}, {kind: place, id: field C}]
+    alt_m: 110

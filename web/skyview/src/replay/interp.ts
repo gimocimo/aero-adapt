@@ -71,7 +71,12 @@ export interface Sample {
   index: number;
   n: number;
   e: number;
+  /** Height above the site datum (the ground at home). */
   altAgl: number;
+  /** Height above the ground below, and above whatever stands there (world sites). */
+  hagl: number;
+  clearance: number;
+  course: number;
   quat: Quat;
   roll: number;
   pitch: number;
@@ -88,6 +93,9 @@ export interface Sample {
   windN: number;
   windE: number;
   throttle: number;
+  rpm: number;
+  batteryV: number;
+  soc: number;
   rollDem: number;
   pitchDem: number;
   altTarget: number;
@@ -119,6 +127,9 @@ export function sample(r: Replay, time: number): Sample {
     n: L("truth.pos_n"),
     e: L("truth.pos_e"),
     altAgl: L("truth.alt_agl"),
+    hagl: c["truth.hagl"] ? L("truth.hagl") : L("truth.alt_agl"),
+    clearance: c["truth.clearance"] ? L("truth.clearance") : L("truth.alt_agl"),
+    course: c["truth.vel_n"] ? Math.atan2(L("truth.vel_e"), L("truth.vel_n")) : Number.NaN,
     quat: slerp(q(i), q(j), f),
     roll: L("truth.roll"),
     pitch: L("truth.pitch"),
@@ -135,6 +146,9 @@ export function sample(r: Replay, time: number): Sample {
     windN: L("truth.wind_n"),
     windE: L("truth.wind_e"),
     throttle: L("actual.throttle"),
+    rpm: L("truth.prop_rpm"),
+    batteryV: L("truth.battery_v"),
+    soc: L("truth.soc"),
     rollDem: L("demands.roll"),
     pitchDem: L("demands.pitch"),
     altTarget: L("demands.alt_target"),

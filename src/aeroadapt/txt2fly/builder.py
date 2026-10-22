@@ -67,6 +67,7 @@ from aeroadapt.txt2fly.plan import (
     SetSpeed,
 )
 from aeroadapt.txt2fly.routing import ClearanceMap, clearance_map
+from aeroadapt.txt2fly.terrain import CLEARANCE_M, ceil5, landmark, relief
 
 G0 = 9.806_65
 BANK_MARGIN_DEG = 5.0
@@ -777,7 +778,8 @@ class _Ctx:
         where: list[int] = []
         sides: list[str] = []
         prev = np.asarray(start, float)
-        prev_alt, prev_speed = 0.0, 0.0
+        first = next((it for it in items if it.kind not in (ITEM_JUMP, ITEM_RTL)), None)
+        prev_alt, prev_speed = (first.alt, first.speed) if first is not None else (0.0, 0.0)
         for i, it in enumerate(items):
             where.append(len(out))
             if it.kind in loiters or it.kind == ITEM_RTL:
@@ -801,6 +803,8 @@ class _Ctx:
                     out.append(self.item(ITEM_WAYPOINT, best[1], alt, spd))
                 out.append(it)
                 prev = c
+                if it.kind != ITEM_RTL:  # the way on from a circle keeps its height and speed
+                    prev_alt, prev_speed = it.alt, it.speed
                 continue
             out.append(it)
             if it.kind not in (ITEM_WAYPOINT, ITEM_FLYOVER):
@@ -1195,6 +1199,62 @@ def _final_clear(ctx: _Ctx, pv: Preview) -> float:
     return least
 
 
+def _lift(
+    ctx: _Ctx, items: list[Item], pv: Preview, home_alt: float, steps: list[StepGeom]
+) -> tuple[list[Item], float, Preview, list[str]]:
+    """On a world site, raise the legs that would pass too low over the ground or what stands
+    on it (docs/07 §7): each to the lowest multiple of 5 m that keeps ``min_agl`` above the
+    ground and 30 m above every obstacle, within the tracking margin. A leg flown on the
+    climb from a lower one may need that one raised too: up to four passes."""
+    rel = relief(ctx.gaz.site)
+    if rel is None or not ctx.adapt:
+        return items, home_alt, pv, []
+    ops = ctx.ops
+    items = list(items)
+    raised: dict[int, tuple[float, np.ndarray]] = {}  # item → (new height, binding point)
+    for _ in range(4):
+        floor = rel.floor(pv.ne, ops.min_agl_m)
+        short = pv.alt < floor - 0.5
+        if not short.any():
+            break
+        rtl = pv.mode == MODE_RTL
+        for k in np.unique(pv.item[short & ~rtl]):
+            leg = short & (pv.item == k) & ~rtl
+            j = int(np.argmax(np.where(leg, floor, -np.inf)))
+            need = ceil5(float(floor[j]))
+            k = int(k)
+            # Already high enough: the climb from the leg before starts too low.
+            k = k if items[k].alt < need - 0.5 or k == 0 else k - 1
+            while k > 0 and items[k].kind in (ITEM_JUMP, ITEM_RTL):
+                k -= 1
+            if items[k].alt < need:
+                items[k] = items[k]._replace(alt=need)
+                raised[k] = (need, pv.ne[j])
+        if (short & rtl).any():
+            j = int(np.argmax(np.where(short & rtl, floor, -np.inf)))
+            if home_alt < ceil5(float(floor[j])):
+                home_alt = ceil5(float(floor[j]))
+                raised[-1] = (home_alt, pv.ne[j])
+        pv = _preview(ctx, items, ctx.mission(items, home_alt))
+    by_label: dict[str, tuple[float, np.ndarray]] = {}
+    for k, (alt, p) in sorted(raised.items()):
+        g = next((g for g in steps if g.items[0] <= k < g.items[1]), None)
+        label = "the way home" if k < 0 else (g.label if g is not None else "the route")
+        if g is not None:
+            g.alt = max(g.alt or 0.0, alt)
+        if label not in by_label or alt > by_label[label][0]:
+            by_label[label] = (alt, p)
+    notes = []
+    for label, (alt, p) in by_label.items():
+        what = landmark(ctx.gaz, p)
+        if rel.by_obstacle(p[None], ops.min_agl_m)[0]:
+            why = f"{CLEARANCE_M:g} m above {what or 'the trees and hedges'}"
+        else:
+            why = f"{ops.min_agl_m:g} m above the rising ground" + (f" at {what}" if what else "")
+        notes.append(f"{label}: at {alt:g} m (heights are above home) to keep {why}")
+    return items, home_alt, pv, notes
+
+
 ROOMS = (1.0, 2.0, 3.0)  # searches with more and more room to turn, while none keeps clear
 
 
@@ -1279,6 +1339,10 @@ def _assemble(ctx: _Ctx, best: _Node, errors: list[str]) -> Built:
     available = model.capacity_mah * (1.0 - RESERVE) - ac.used_mah
     mission = ctx.mission(items, last_alt)
     pv = _preview(ctx, items, mission)
+    items, last_alt, pv, lifted = _lift(ctx, items, pv, last_alt, steps)
+    if lifted:
+        notes += lifted
+        mission = ctx.mission(items, last_alt)
     laps = lap_mah = None
     st: _Laps | None = None
     if jump is not None and (st := _lap_stats(ctx, items, jump, pv)) is not None:

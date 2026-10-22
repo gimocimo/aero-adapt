@@ -4,8 +4,9 @@ Places come from three sources, in this order of precedence:
 
 1. the site's hand-made ``operations.places`` (home, …);
 2. its safe zones, as fields ("field A");
-3. the OpenStreetMap extract ``<site>.osm.json`` (``tools/fetch_gazetteer.py``), for
-   features inside the geofence or near it.
+3. the site's map, for features inside the geofence or near it: the OpenStreetMap extract
+   ``<site>.osm.json`` (``tools/fetch_gazetteer.py``), or, on a world site, the world's own
+   features (docs/07 §6).
 
 OSM names are third-party text: they are data for the planner and, later, for the language
 model, never instructions.
@@ -111,8 +112,23 @@ class Gazetteer:
 
 
 def _osm(site: Site) -> dict:
+    """The site's map: its world's gazetteer, or its OpenStreetMap extract."""
+    if site.world is not None:
+        from aeroadapt.world import load_world
+        from aeroadapt.world.places import world_gazetteer
+
+        return world_gazetteer(load_world(site.world))
     path = SITE_DIR / f"{site.id}.osm.json"
     return json.loads(path.read_text()) if path.exists() else {"features": [], "areas": []}
+
+
+def _zone_names(site: Site) -> dict[str, str]:
+    """A world's names for its landing grounds ("Mill Meadow" for zone A)."""
+    if site.world is None:
+        return {}
+    from aeroadapt.world import load_world_spec
+
+    return {z.id: z.name for z in load_world_spec(site.world).zones if z.name}
 
 
 def _load(site: Site) -> Gazetteer:
@@ -125,12 +141,14 @@ def _load(site: Site) -> Gazetteer:
     for p in ops.places:
         places[p.id] = Place(p.id, p.name, p.kind, np.asarray(p.point_ne_m, float),
                              aliases=tuple(p.aliases))  # fmt: skip
+    names = _zone_names(site)
     for z in site.safe_zones:
         poly = np.asarray(z.polygon_ne_m, float)
         pid = f"zone-{z.id.lower()}"
+        aliases = (f"zone {z.id}", f"safe zone {z.id}", z.id)
+        aliases += (names[z.id],) if z.id in names else ()
         places[pid] = Place(pid, f"field {z.id}", "safe zone", geo.centroid(poly), poly,
-                            source="site safe zone",
-                            aliases=(f"zone {z.id}", f"safe zone {z.id}", z.id))  # fmt: skip
+                            source="site safe zone", aliases=aliases)  # fmt: skip
     for f in osm["features"]:
         point = np.asarray(f["point_ne_m"], float)
         if not geo.inside(point, fence)[0] and geo.distance_to_boundary(point, fence)[0] > (
@@ -138,15 +156,17 @@ def _load(site: Site) -> Gazetteer:
         ):
             continue
         poly = np.asarray(f["polygon_ne_m"], float) if "polygon_ne_m" in f else None
+        source = "world" if site.world is not None else "OpenStreetMap"
         places.setdefault(f["id"], Place(f["id"], f["name"], f["kind"], point, poly,
-                                         f.get("height_m"), "OpenStreetMap"))  # fmt: skip
+                                         f.get("height_m"), source))  # fmt: skip
     areas = {a["id"]: a for a in osm.get("areas", [])}
     no_fly = []
     for z in ops.no_fly:
-        if z.osm_area is not None:
-            if z.osm_area not in areas:
-                raise ValueError(f"no-fly {z.id}: no area {z.osm_area} in the OSM extract")
-            polys = areas[z.osm_area]["polygons_ne_m"]
+        area = z.osm_area or z.world_area
+        if area is not None:
+            if area not in areas:
+                raise ValueError(f"no-fly {z.id}: no area {area} in the site's map")
+            polys = areas[area]["polygons_ne_m"]
         else:
             polys = z.polygons_ne_m
         no_fly.append(NoFlyArea(z.id, z.name, z.reason,
@@ -179,6 +199,7 @@ def site_layers(site: Site) -> dict | None:
     g = load_gazetteer(site)
     r = lambda a: np.round(np.asarray(a, float), 1).tolist()  # noqa: E731
     return {
+        "id": site.id,
         "geofence": r(g.geofence),
         "home": r(g.home),
         "no_fly": [

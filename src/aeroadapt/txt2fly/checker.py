@@ -24,9 +24,9 @@ from aeroadapt.txt2fly import geometry as geo
 from aeroadapt.txt2fly.builder import Built, StepGeom, bank_for, r_min, stack_params
 from aeroadapt.txt2fly.energy import RESERVE
 from aeroadapt.txt2fly.gazetteer import Gazetteer
+from aeroadapt.txt2fly.terrain import CLEARANCE_M, ceil5, landmark, relief
 
 TRACK_MARGIN_M = 30.0  # the flown track may stray this far from the preview
-CLEARANCE_M = 30.0  # above any known feature height under the path
 GLIDE_STEP_M = 50.0
 
 RULES = {
@@ -169,6 +169,7 @@ def _k3_k8_areas(built: Built, gaz: Gazetteer) -> tuple[Check, Check]:
 def _k4_height(built: Built, gaz: Gazetteer) -> Check:
     ops = gaz.site.operations
     assert ops is not None
+    rel = relief(gaz.site)
     for g in built.steps:
         if g.alt is None:
             continue
@@ -187,7 +188,8 @@ def _k4_height(built: Built, gaz: Gazetteer) -> Check:
                 f"({g.label} asks for {g.alt:g} m).",
                 suggestion=f"fly at {ops.min_agl_m:g} m",
             )
-        h = g.target.height_m if g.target is not None else None
+        # (On a world site the whole track is checked against every obstacle, below.)
+        h = g.target.height_m if g.target is not None and rel is None else None
         if h is not None and g.target is not None and g.alt < h + CLEARANCE_M:
             return Check(
                 "K4",
@@ -196,10 +198,61 @@ def _k4_height(built: Built, gaz: Gazetteer) -> Check:
                 f"{g.target.name} ({h:g} m tall); keep {CLEARANCE_M:g} m clear.",
                 suggestion=f"fly at {math.ceil(h + CLEARANCE_M):g} m",
             )
+    pv = built.preview
+    if rel is None or pv is None:
+        return Check(
+            "K4",
+            True,
+            f"Every height is between {ops.min_agl_m:g} m and the {ops.ceiling_agl_m:g} m ceiling.",
+        )
+    # A world site (docs/07 §7): the whole track, over the ground and what stands on it.
+    assert pv is not None
+    floor = rel.floor(pv.ne, ops.min_agl_m)
+    roof = rel.ceiling(pv.ne, ops.ceiling_agl_m)
+    low, high = pv.alt < floor - 1.0, pv.alt > roof + 1.0
+    if low.any():
+        k = int(np.argmax(floor - pv.alt))
+        g = _step_of(built, int(pv.item[k]))
+        part = g.label if g is not None else "the return home"
+        what = landmark(gaz, pv.ne[k])
+        leg = pv.item == pv.item[k]
+        fix = f"fly at {ceil5(float(floor[leg].max())):g} m"
+        if rel.by_obstacle(pv.ne[k][None], ops.min_agl_m)[0]:
+            top = float(rel.hi_surface[rel._idx(pv.ne[k])][0])
+            return Check(
+                "K4",
+                False,
+                f"'{part}' would pass {pv.alt[k] - top:.0f} m above "
+                f"{what or 'the trees and buildings'}; keep {CLEARANCE_M:g} m clear.",
+                suggestion=fix,
+                where=_where(pv.ne, low),
+            )
+        ground = float(rel.ground(pv.ne[k])[0])
+        return Check(
+            "K4",
+            False,
+            f"'{part}' would pass {pv.alt[k] - ground:.0f} m above the rising ground"
+            f"{f' at {what}' if what else ''}; {ops.min_agl_m:g} m is the lowest allowed.",
+            suggestion=fix,
+            where=_where(pv.ne, low),
+        )
+    if high.any():
+        k = int(np.argmax(pv.alt - roof))
+        g = _step_of(built, int(pv.item[k]))
+        part = g.label if g is not None else "the return home"
+        return Check(
+            "K4",
+            False,
+            f"'{part}' would be {pv.alt[k] - roof[k] + ops.ceiling_agl_m:.0f} m above the low "
+            f"ground there; {ops.ceiling_agl_m:g} m is the ceiling.",
+            suggestion=f"fly at {math.floor(float(roof[pv.item == pv.item[k]].min())):g} m",
+            where=_where(pv.ne, high),
+        )
     return Check(
         "K4",
         True,
-        f"Every height is between {ops.min_agl_m:g} m and the {ops.ceiling_agl_m:g} m ceiling.",
+        f"The whole route keeps {ops.min_agl_m:g} m to {ops.ceiling_agl_m:g} m above the ground, "
+        f"and {CLEARANCE_M:g} m above trees and buildings.",
     )
 
 

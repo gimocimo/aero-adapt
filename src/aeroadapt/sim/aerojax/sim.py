@@ -54,11 +54,12 @@ from aeroadapt.sim.aerojax.sensors import (
     sample,
 )
 from aeroadapt.sim.aerojax.state import RigidBodyState, SurfaceControls
+from aeroadapt.sim.aerojax.terrain import ground_height, obstacle_height
 
 MOTOR_SPIN_DOWN_S = 0.3  # rpm decay time constant after a motor cut (spec §8.2)
 
-# Termination codes
-RUNNING, GROUND_CONTACT, OUT_OF_BOUNDS, NUMERICAL = 0, 1, 2, 3
+# Termination codes (4 is the vehicle protocol's time limit)
+RUNNING, GROUND_CONTACT, OUT_OF_BOUNDS, NUMERICAL, OBSTACLE = 0, 1, 2, 3, 5
 
 
 @dataclass(frozen=True)
@@ -99,7 +100,8 @@ class Truth(NamedTuple):
     va: Array
     alpha: Array
     beta: Array
-    alt_agl: Array
+    alt_agl: Array  # above the ground below (terrain)
+    clearance: Array  # above the surface (terrain and obstacles), at the CG and both wingtips
     wind_ned: Array  # steady component at the aircraft
     gust_body: Array
     surfaces: Array  # (3,) actual deflections, B&M signs
@@ -167,10 +169,29 @@ def _controls(act: ActuatorState) -> SurfaceControls:
 
 
 def _atmosphere(env: EnvParams, rb: RigidBodyState, t: Array):
-    h_agl = -rb.pos_ned[2]
-    temp, p_static, rho = isa(env.isa, env.isa.alt_origin_msl_m + h_agl)
+    """Height above the ground below, and the air there: ISA by the height above the site
+    datum, the wind profile and turbulence by the height above the ground."""
+    h = -rb.pos_ned[2]
+    h_agl = h - ground_height(env.terrain, rb.pos_ned[:2])
+    temp, p_static, rho = isa(env.isa, env.isa.alt_origin_msl_m + h)
     wind = steady_wind(env.wind, h_agl) + event_wind(env.events, rb.pos_ned, h_agl, t)
     return h_agl, temp, p_static, rho, wind
+
+
+def _contact_points(af: AirframeParams, rb: RigidBodyState) -> Array:
+    """The CG and both wingtips, NED (3, 3)."""
+    half = 0.5 * af.b
+    tips = jnp.stack([jnp.array([0.0, -1.0, 0.0]), jnp.array([0.0, 1.0, 0.0])]) * half
+    tips_ned = jax.vmap(lambda v: quaternion.body_to_ned(rb.quat, v))(tips.astype(rb.pos_ned.dtype))
+    return jnp.concatenate([rb.pos_ned[None, :], rb.pos_ned[None, :] + tips_ned])
+
+
+def _clearance(env: EnvParams, af: AirframeParams, rb: RigidBodyState) -> tuple[Array, Array]:
+    """(height above the surface, obstacle under) at the CG and wingtips: (3,), (3,) bool."""
+    pts = _contact_points(af, rb)
+    ground = ground_height(env.terrain, pts[:, :2])
+    obstacle = obstacle_height(env.terrain, pts[:, :2])
+    return -pts[:, 2] - ground - obstacle, obstacle > 0.0
 
 
 def _physics_substep(
@@ -256,6 +277,7 @@ def _sensor_truth(
         alpha=fm.air.alpha,
         beta=fm.air.beta,
         alt_agl=h_agl,
+        clearance=jnp.min(_clearance(env, af, s.rb)[0]),
         wind_ned=wind,
         gust_body=s.gust_body,
         surfaces=s.act.surfaces,
@@ -275,13 +297,19 @@ def _sensor_truth(
     return st, truth
 
 
-def _termination(s: SimState, config: SimConfig) -> Array:
+def _termination(vp: VehicleParams, env: EnvParams, s: SimState, config: SimConfig) -> Array:
+    """Ground contact at the CG (over the terrain); an obstacle (tree, hedge, building, mast)
+    touched by the CG or a wingtip; out of range; a numerical failure."""
     finite = jnp.all(jnp.isfinite(jnp.concatenate([*s.rb])))
-    ground = -s.rb.pos_ned[2] <= config.contact_height_m
+    h_agl = -s.rb.pos_ned[2] - ground_height(env.terrain, s.rb.pos_ned[:2])
+    ground = h_agl <= config.contact_height_m
+    above, under = _clearance(env, vp.airframe, s.rb)
+    hit = jnp.any(jnp.logical_and(under, above <= config.contact_height_m))
     away = jnp.linalg.norm(s.rb.pos_ned[:2]) > config.max_range_m
-    return jnp.where(
-        ~finite, NUMERICAL, jnp.where(ground, GROUND_CONTACT, jnp.where(away, OUT_OF_BOUNDS, 0))
-    ).astype(jnp.int32)
+    code = jnp.where(away, OUT_OF_BOUNDS, 0)
+    code = jnp.where(hit, OBSTACLE, code)
+    code = jnp.where(ground, GROUND_CONTACT, code)
+    return jnp.where(~finite, NUMERICAL, code).astype(jnp.int32)
 
 
 def sim_step(
@@ -299,7 +327,7 @@ def sim_step(
     nxt = s
     for i in range(config.substeps):
         nxt = _physics_substep(vp, env, faults, nxt, cmd, keys[i], config.dt_physics)
-    code = _termination(nxt, config)
+    code = _termination(vp, env, nxt, config)
     nxt = nxt._replace(k=s.k + 1, done=code != RUNNING, termination=code)
     # A numerical failure keeps the last finite state; any earlier termination freezes all.
     keep_old = jnp.logical_or(s.done, code == NUMERICAL)

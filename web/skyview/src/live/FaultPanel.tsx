@@ -192,16 +192,15 @@ function ActiveFaults({ faults, send }: { faults: LiveFault[]; send: (m: Record<
   );
 }
 
-export function FaultPanel() {
+/** Scenario and airframe pickers, the wind, and the server's last error. */
+export function SessionControls() {
   const live = useStore((s) => s.live);
   const send = useStore((s) => s.liveSend);
-  const [tab, setTab] = useState<"faults" | "plan">("faults");
   if (!live || !send) return null;
-  const planTab = tab === "plan" && live.site !== null;
   const reset = (p: { scenario?: string; airframe?: string | null }) =>
     send({ cmd: "reset", scenario: p.scenario ?? live.scenario, airframe: p.airframe === undefined ? live.airframe : p.airframe });
   return (
-    <div className="faultpanel" data-testid="fault-panel">
+    <>
       <div className="pickers">
         <label>
           Scenario
@@ -229,6 +228,41 @@ export function FaultPanel() {
       </div>
       <WindControl wind={live.wind} send={send} />
       {live.error && <p className="faulterror">{live.error}</p>}
+    </>
+  );
+}
+
+/** Active faults (clearable ones with a button) and every fault kind to inject. */
+export function FaultControls() {
+  const live = useStore((s) => s.live);
+  const send = useStore((s) => s.liveSend);
+  if (!live || !send) return null;
+  return (
+    <>
+      <ActiveFaults faults={live.faults} send={send} />
+      <h2>Inject a fault</h2>
+      {FAULT_GROUPS.map((g) => (
+        <details key={g.title} className="faultgroup" open={g.title === "Propulsion"}>
+          <summary>{g.title}</summary>
+          {g.kinds.map((k) => (
+            <FaultRow key={k.label} k={k} disabled={live.done} onInject={(spec) => send({ cmd: "inject_fault", spec })} />
+          ))}
+        </details>
+      ))}
+    </>
+  );
+}
+
+/** The live panel of the real-map layout: session, then Faults and Plan tabs. */
+export function FaultPanel() {
+  const live = useStore((s) => s.live);
+  const send = useStore((s) => s.liveSend);
+  const [tab, setTab] = useState<"faults" | "plan">("faults");
+  if (!live || !send) return null;
+  const planTab = tab === "plan" && live.site !== null;
+  return (
+    <div className="faultpanel" data-testid="fault-panel">
+      <SessionControls />
       {live.site && (
         <div className="tabs" role="tablist">
           <button role="tab" aria-selected={!planTab} className={planTab ? "" : "on"} onClick={() => setTab("faults")}>
@@ -240,22 +274,7 @@ export function FaultPanel() {
           </button>
         </div>
       )}
-      {planTab ? (
-        <PlanPanel />
-      ) : (
-        <>
-          <ActiveFaults faults={live.faults} send={send} />
-          <h2>Inject a fault</h2>
-          {FAULT_GROUPS.map((g) => (
-            <details key={g.title} className="faultgroup" open={g.title === "Propulsion"}>
-              <summary>{g.title}</summary>
-              {g.kinds.map((k) => (
-                <FaultRow key={k.label} k={k} disabled={live.done} onInject={(spec) => send({ cmd: "inject_fault", spec })} />
-              ))}
-            </details>
-          ))}
-        </>
-      )}
+      {planTab ? <PlanPanel /> : <FaultControls />}
     </div>
   );
 }

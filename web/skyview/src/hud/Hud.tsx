@@ -135,9 +135,62 @@ function Attitude({ roll, pitch, rollDem, pitchDem }: { roll: number; pitch: num
   );
 }
 
-export function Hud({ s, replay }: { s: Sample; replay: Replay }) {
-  const { mode: modes, phase: phases, fault_bits } = replay.manifest.enums;
+/** The primary flight display: attitude, speed and height tapes, heading, throttle. */
+export function PfdSvg({ s, width = W, altLabel = "m AGL" }: { s: Sample; width?: number; altLabel?: string }) {
   const heading = ((s.yaw * DEG) % 360 + 360) % 360;
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width={width} height={(width * H) / W} className="pfd-svg">
+      <Attitude roll={s.roll} pitch={s.pitch} rollDem={s.rollDem} pitchDem={s.pitchDem} />
+      <Tape
+        x={14}
+        value={s.ias}
+        span={10}
+        step={1}
+        label="IAS"
+        unit="m/s"
+        side="left"
+        markers={[
+          { value: s.tasTrue, color: "#7dff7a", title: "true airspeed (truth)", shape: "caret" },
+          { value: s.speedTarget, color: "#e070ff", title: "speed target", shape: "bug" },
+        ]}
+      />
+      <Tape
+        x={W - 76}
+        value={s.altAgl}
+        span={40}
+        step={5}
+        label="ALT"
+        unit={altLabel}
+        side="right"
+        markers={[{ value: s.altTarget, color: "#e070ff", title: "altitude target", shape: "bug" }]}
+      />
+      <text x={14 + 31} y={CY + 112} textAnchor="middle" className="hud-truth">
+        TAS {fmt(s.tasTrue)}
+      </text>
+      <text x={14 + 31} y={CY + 126} textAnchor="middle" className="hud-small">
+        (truth)
+      </text>
+      <text x={W - 45} y={CY + 112} textAnchor="middle" className="hud-small">
+        VS {fmt(s.climb)} m/s
+      </text>
+      <text x={CX} y={H - 28} textAnchor="middle" className="hud-big">
+        HDG {heading.toFixed(0).padStart(3, "0")}°
+      </text>
+      <text x={CX} y={H - 10} textAnchor="middle" className="hud-small">
+        α {fmt(s.alpha * DEG)}°  β {fmt(s.beta * DEG)}°  GS {fmt(s.groundspeed)} m/s
+      </text>
+      <rect x={W - 18} y={CY - 60} width={8} height={120} className="hud-tape" />
+      <rect x={W - 18} y={CY + 60 - 120 * s.throttle} width={8} height={120 * s.throttle} fill="#4cc2ff" />
+      <text x={W - 14} y={CY + 74} textAnchor="middle" className="hud-small">
+        THR
+      </text>
+    </svg>
+  );
+}
+
+/** Mode, contingency phase and active faults, as badges. */
+export function StatusBadges({ s, replay }: { s: Sample; replay: Replay }) {
+  const { mode: modes, phase: phases, fault_bits } = replay.manifest.enums;
   const phase = phases[s.phase] ?? "";
   const faults = Object.entries(fault_bits)
     .filter(([, bit]) => (s.faultBits & bit) !== 0)
@@ -148,79 +201,58 @@ export function Hud({ s, replay }: { s: Sample; replay: Replay }) {
         .at(-1);
       return `${faultName(name)} @ ${ev ? (ev.time_us * 1e-6).toFixed(1) : "?"} s`;
     });
-  const td = replay.events.find((e) => e.type === "touchdown");
-  const ended = td && s.time >= td.time_us * 1e-6;
   const speedErr = s.ias - s.tasTrue;
   return (
-    <div className="hud" data-testid="hud">
-      <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H}>
-        <Attitude roll={s.roll} pitch={s.pitch} rollDem={s.rollDem} pitchDem={s.pitchDem} />
-        <Tape
-          x={14}
-          value={s.ias}
-          span={10}
-          step={1}
-          label="IAS"
-          unit="m/s"
-          side="left"
-          markers={[
-            { value: s.tasTrue, color: "#7dff7a", title: "true airspeed (truth)", shape: "caret" },
-            { value: s.speedTarget, color: "#e070ff", title: "speed target", shape: "bug" },
-          ]}
-        />
-        <Tape
-          x={W - 76}
-          value={s.altAgl}
-          span={40}
-          step={5}
-          label="ALT"
-          unit="m AGL"
-          side="right"
-          markers={[{ value: s.altTarget, color: "#e070ff", title: "altitude target", shape: "bug" }]}
-        />
-        <text x={14 + 31} y={CY + 112} textAnchor="middle" className="hud-truth">
-          TAS {fmt(s.tasTrue)}
-        </text>
-        <text x={14 + 31} y={CY + 126} textAnchor="middle" className="hud-small">
-          (truth)
-        </text>
-        <text x={W - 45} y={CY + 112} textAnchor="middle" className="hud-small">
-          VS {fmt(s.climb)} m/s
-        </text>
-        <text x={CX} y={H - 28} textAnchor="middle" className="hud-big">
-          HDG {heading.toFixed(0).padStart(3, "0")}°
-        </text>
-        <text x={CX} y={H - 10} textAnchor="middle" className="hud-small">
-          α {fmt(s.alpha * DEG)}°  β {fmt(s.beta * DEG)}°  GS {fmt(s.groundspeed)} m/s
-        </text>
-        <rect x={W - 18} y={CY - 60} width={8} height={120} className="hud-tape" />
-        <rect x={W - 18} y={CY + 60 - 120 * s.throttle} width={8} height={120 * s.throttle} fill="#4cc2ff" />
-        <text x={W - 14} y={CY + 74} textAnchor="middle" className="hud-small">
-          THR
-        </text>
-      </svg>
-      <div className="hud-badges">
-        <span className="badge">{modes[s.mode] ?? "?"}</span>
-        {s.failed && <span className="badge badge-warn">{phase}</span>}
-        {!s.airspeedHealthy && <span className="badge badge-alert">AIRSPEED UNRELIABLE</span>}
-        {Math.abs(speedErr) > 3 && <span className="badge badge-alert">IAS−TAS {fmt(speedErr)}</span>}
-        {faults.map((f) => (
-          <span key={f} className="badge badge-fault">
-            FAULT: {f}
-          </span>
-        ))}
+    <div className="hud-badges">
+      <span className="badge">{modes[s.mode] ?? "?"}</span>
+      {s.failed && <span className="badge badge-warn">{phase}</span>}
+      {!s.airspeedHealthy && <span className="badge badge-alert">AIRSPEED UNRELIABLE</span>}
+      {Math.abs(speedErr) > 3 && <span className="badge badge-alert">IAS−TAS {fmt(speedErr)}</span>}
+      {faults.map((f) => (
+        <span key={f} className="badge badge-fault">
+          FAULT: {f}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** How the flight ended: a touchdown (and where), or what it hit. */
+export function EndCard({ s, replay }: { s: Sample; replay: Replay }) {
+  const td = replay.events.find((e) => e.type === "touchdown");
+  const hit = replay.events.find((e) => e.type === "collision");
+  if (hit && s.time >= hit.time_us * 1e-6) {
+    return (
+      <div className="touchdown-card collision" data-testid="collision">
+        <strong>Collision: {String(hit.payload.hit)}</strong>
+        <span>
+          {fmt(Number(hit.payload.height_m))} m above the ground · GS {fmt(Number(hit.payload.speed_mps))} m/s
+        </span>
+        <span>{hit.payload.zone ? `heading for zone ${String(hit.payload.zone)}` : "no zone"}</span>
       </div>
-      {ended && td && (
-        <div className="touchdown-card" data-testid="touchdown">
-          <strong>Touchdown: {String(td.payload.class)}</strong>
-          <span>
-            sink {fmt(Number(td.payload.sink_rate_mps))} m/s · GS {fmt(Number(td.payload.groundspeed_mps))} m/s
-          </span>
-          <span>
-            {td.payload.zone ? `zone ${String(td.payload.zone)} · ${td.payload.in_zone ? "inside" : "outside"}` : "no zone"}
-          </span>
-        </div>
-      )}
+    );
+  }
+  if (!td || s.time < td.time_us * 1e-6) return null;
+  return (
+    <div className="touchdown-card" data-testid="touchdown">
+      <strong>Touchdown: {String(td.payload.class)}</strong>
+      <span>
+        sink {fmt(Number(td.payload.sink_rate_mps))} m/s · GS {fmt(Number(td.payload.groundspeed_mps))} m/s
+      </span>
+      <span>
+        {td.payload.zone ? `zone ${String(td.payload.zone)} · ${td.payload.in_zone ? "inside" : "outside"}` : "no zone"}
+        {td.payload.surface ? ` · ${String(td.payload.surface)}` : ""}
+      </span>
+    </div>
+  );
+}
+
+export function Hud({ s, replay }: { s: Sample; replay: Replay }) {
+  return (
+    <div className="hud" data-testid="hud">
+      <PfdSvg s={s} />
+      <StatusBadges s={s} replay={replay} />
+      <EndCard s={s} replay={replay} />
     </div>
   );
 }

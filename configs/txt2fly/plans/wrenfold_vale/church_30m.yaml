@@ -1,0 +1,6 @@
+summary: Go to the church and circle it at 30 m radius, at 80 m.
+steps:
+  - do: orbit
+    target: {kind: place, id: "St Michael's Church"}
+    radius_m: 30
+    alt_m: 80

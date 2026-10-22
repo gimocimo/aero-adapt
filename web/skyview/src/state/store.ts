@@ -65,7 +65,8 @@ export const useStore = create<State>((set, get) => ({
   advance: (dtWall) => {
     const { replay, playing, speed, time, live } = get();
     if (live && replay) {
-      set({ time: Math.max(replay.duration - LIVE_DELAY_S, 0) });
+      // A finished session shows its last instant (the touchdown).
+      set({ time: Math.max(replay.duration - (live.done ? 0 : LIVE_DELAY_S), 0) });
       return;
     }
     if (!replay || !playing) return;

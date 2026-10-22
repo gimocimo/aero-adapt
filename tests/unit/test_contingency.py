@@ -78,7 +78,8 @@ def test_wind_triangle() -> None:
 def test_landing_is_into_wind_and_aims_inside_the_field(sp: StackParams) -> None:
     zones = zones_from_site(load_site("cambridge_west"))
     wind = jnp.array([4.0, 0.0])  # blowing north
-    d, touchdown, final_start = zone_patterns(sp.cont, zones, wind, jnp.zeros(2))
+    d, touchdown, final_start, usable = zone_patterns(sp.cont, zones, wind, jnp.zeros(2))
+    assert bool(np.all(np.asarray(usable)[zones.valid]))
     for i in np.flatnonzero(zones.valid):
         assert float(d[i] @ wind) < 0  # headwind on final
         to_centre = np.asarray(zones.centre[i] - touchdown[i])

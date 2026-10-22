@@ -49,6 +49,8 @@ class LoopLog(NamedTuple):
     quat: Array  # body → NED, scalar first
     euler: Array  # roll, pitch, yaw
     omega: Array
+    hagl: Array  # height above the ground below (terrain)
+    clearance: Array  # above the surface (terrain and obstacles), at the CG and wingtips
     va: Array
     alpha: Array
     beta: Array
@@ -151,6 +153,8 @@ def closed_loop_carry(
             quat=rb.quat,
             euler=jnp.stack(quaternion.to_euler(rb.quat)),
             omega=rb.omega,
+            hagl=tr.alt_agl,
+            clearance=tr.clearance,
             va=tr.va,
             alpha=tr.alpha,
             beta=tr.beta,

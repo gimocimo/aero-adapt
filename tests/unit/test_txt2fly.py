@@ -27,7 +27,7 @@ from aeroadapt.txt2fly.checker import check, report_json
 from aeroadapt.txt2fly.gazetteer import Gazetteer, UnknownPlace, load_gazetteer, site_layers
 from aeroadapt.txt2fly.plan import Home, Offset, PlaceRef, Plan, load_plan
 
-PLANS = Path(__file__).resolve().parents[2] / "configs" / "txt2fly" / "plans"
+PLANS = Path(__file__).resolve().parents[2] / "configs" / "txt2fly" / "plans" / "cambridge_west"
 WEST = (-6.0 * math.cos(math.radians(250.0)), -6.0 * math.sin(math.radians(250.0)))
 
 
@@ -91,7 +91,7 @@ def test_long_axis_of_a_rectangle() -> None:
 
 # --------------------------------------------------------------------------- plans, places
 def test_example_plans_load() -> None:
-    files = sorted(PLANS.glob("*.yaml"))
+    files = sorted(PLANS.parent.glob("*/*.yaml"))
     assert len(files) >= 4
     for f in files:
         assert load_plan(f).steps

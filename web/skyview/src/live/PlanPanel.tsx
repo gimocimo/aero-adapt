@@ -7,36 +7,79 @@ import type { PlanCheck, PlanProposal } from "./client";
 
 const place = (id: string) => ({ kind: "place", id });
 
-/** Example plans for the Cambridge site (ids and names from its gazetteer). */
-export const EXAMPLES: { label: string; plan: Record<string, unknown> }[] = [
-  {
-    label: "Fly by field A",
-    plan: { summary: "A pass over field A along its long axis.", steps: [{ do: "pass_over", target: place("field A") }] },
-  },
-  {
-    label: "Patrol A, B, C",
-    plan: {
-      summary: "Patrol fields A, B and C, lap after lap, until the battery reserve.",
-      steps: [{ do: "patrol", targets: [place("field A"), place("field B"), place("field C")], alt_m: 100 }],
+type Example = { label: string; plan: Record<string, unknown> };
+
+/** Example plans per site (ids and names from its gazetteer). */
+export const EXAMPLES: Record<string, Example[]> = {
+  cambridge_west: [
+    {
+      label: "Fly by field A",
+      plan: { summary: "A pass over field A along its long axis.", steps: [{ do: "pass_over", target: place("field A") }] },
     },
-  },
-  {
-    label: "Circle field C",
-    plan: {
-      summary: "Circle field C twice at 100 m, then come home.",
-      steps: [{ do: "orbit", target: place("field C"), alt_m: 100, turns: 2 }, { do: "return_home" }],
+    {
+      label: "Patrol A, B, C",
+      plan: {
+        summary: "Patrol fields A, B and C, lap after lap, until the battery reserve.",
+        steps: [{ do: "patrol", targets: [place("field A"), place("field B"), place("field C")], alt_m: 100 }],
+      },
     },
-  },
-  {
-    label: "Church, 30 m circle",
-    plan: {
-      summary: "Go to the church and circle it at 30 m radius, 80 m above it.",
-      assumptions: ["80 m above the ground at the church"],
-      steps: [{ do: "orbit", target: place("Saint Peter (Coton Parish Church)"), radius_m: 30, alt_m: 80 }],
+    {
+      label: "Circle field C",
+      plan: {
+        summary: "Circle field C twice at 100 m, then come home.",
+        steps: [{ do: "orbit", target: place("field C"), alt_m: 100, turns: 2 }, { do: "return_home" }],
+      },
     },
-  },
-  { label: "Return home", plan: { summary: "Return home.", steps: [{ do: "return_home" }] } },
-];
+    {
+      label: "Church, 30 m circle",
+      plan: {
+        summary: "Go to the church and circle it at 30 m radius, 80 m above it.",
+        assumptions: ["80 m above the ground at the church"],
+        steps: [{ do: "orbit", target: place("Saint Peter (Coton Parish Church)"), radius_m: 30, alt_m: 80 }],
+      },
+    },
+    { label: "Return home", plan: { summary: "Return home.", steps: [{ do: "return_home" }] } },
+  ],
+  wrenfold_vale: [
+    {
+      label: "Fly by field A",
+      plan: { summary: "A pass over field A (Mill Meadow) along its long axis.", steps: [{ do: "pass_over", target: place("field A") }] },
+    },
+    {
+      label: "Patrol A, B, C",
+      plan: {
+        summary: "Patrol fields A, B and C at 110 m, lap after lap, until the battery reserve.",
+        steps: [{ do: "patrol", targets: [place("field A"), place("field B"), place("field C")], alt_m: 110 }],
+      },
+    },
+    {
+      label: "Circle field B",
+      plan: {
+        summary: "Circle field B (Long Field) twice at 100 m, then come home.",
+        steps: [{ do: "orbit", target: place("field B"), alt_m: 100, turns: 2 }, { do: "return_home" }],
+      },
+    },
+    {
+      label: "Church, 30 m circle",
+      plan: {
+        summary: "Go to the church and circle it at 30 m radius, at 80 m.",
+        steps: [{ do: "orbit", target: place("St Michael's Church"), radius_m: 30, alt_m: 80 }],
+      },
+    },
+    {
+      label: "Hanger Wood, 50 m",
+      plan: {
+        summary: "Circle Hanger Wood once at 50 m, then come home.",
+        steps: [{ do: "orbit", target: place("Hanger Wood"), alt_m: 50, turns: 1 }, { do: "return_home" }],
+      },
+    },
+    { label: "Return home", plan: { summary: "Return home.", steps: [{ do: "return_home" }] } },
+  ],
+};
+
+export function examplesFor(siteId: string | undefined): Example[] {
+  return EXAMPLES[siteId ?? ""] ?? EXAMPLES.cambridge_west!;
+}
 
 const pretty = (plan: Record<string, unknown>) => JSON.stringify(plan, null, 2);
 
@@ -128,7 +171,8 @@ function Proposal({ p, ack, setAck }: { p: PlanProposal; ack: Record<string, boo
 export function PlanPanel() {
   const live = useStore((s) => s.live);
   const send = useStore((s) => s.liveSend);
-  const [text, setText] = useState(pretty(EXAMPLES[0]!.plan));
+  const examples = examplesFor(live?.site?.id);
+  const [text, setText] = useState(pretty(examples[0]!.plan));
   const [error, setError] = useState<string | null>(null);
   const [ack, setAck] = useState<Record<string, boolean>>({});
   const p = live?.proposal ?? null;
@@ -161,7 +205,7 @@ export function PlanPanel() {
         </p>
       )}
       <div className="examples">
-        {EXAMPLES.map((ex) => (
+        {examples.map((ex) => (
           <button key={ex.label} onClick={() => setText(pretty(ex.plan))}>
             {ex.label}
           </button>
@@ -197,6 +241,7 @@ export function PlanPanel() {
       {error && <p className="faulterror">{error}</p>}
       {p && <Proposal p={p} ack={ack} setAck={setAck} />}
       {live.site.attribution && <p className="attribution">Places: {live.site.attribution}</p>}
+      <p className="attribution">Heights are above home (the ground where the aircraft took off).</p>
     </div>
   );
 }

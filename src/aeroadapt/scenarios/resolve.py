@@ -14,6 +14,7 @@ from aeroadapt.scenarios.schema import EventsCfg, Scenario
 from aeroadapt.scenarios.site import Site, load_site
 from aeroadapt.sim.aerojax import EnvParams, SimConfig, make_env
 from aeroadapt.sim.aerojax.atmosphere import EnvEvents, no_events
+from aeroadapt.sim.aerojax.terrain import Terrain
 from aeroadapt.stack.config import StackCfg, StackParams, build_stack_params, load_stack_cfg
 from aeroadapt.stack.types import Mission, make_mission
 from aeroadapt.vehicle.protocol import InitialCondition
@@ -62,9 +63,29 @@ def build_events(cfg: EventsCfg) -> EnvEvents:
     )
 
 
+def site_terrain(site: Site) -> Terrain | None:
+    """A world site's terrain and obstacle grids (None: flat ground)."""
+    if site.world is None:
+        return None
+    from aeroadapt.world import load_world
+
+    w = load_world(site.world)
+    obs = w.obstacles()
+    return Terrain(
+        dtm_origin=np.array([w.dtm.n0, w.dtm.e0]),
+        dtm_cell=np.array(w.dtm.cell),
+        dtm=w.dtm.h,
+        obs_origin=np.array([obs.n0, obs.e0]),
+        obs_cell=np.array(obs.cell),
+        obs_quantum=np.array(obs.quantum),
+        obs=obs.agl,
+    )
+
+
 def build_env(scenario: Scenario, site: Site) -> EnvParams:
     e = scenario.environment
     return make_env(
+        terrain=site_terrain(site),
         events=build_events(e.events),
         alt_origin_msl_m=site.ground_msl_m,
         magnetic_ned_gauss=site.magnetic.field_ned_gauss,

@@ -37,7 +37,7 @@ def touchdown_record(cols: dict[str, np.ndarray], k: int, site: Site, zone: int)
     in_zone = None
     if zone >= 0:
         in_zone = site.safe_zones[zone].contains(n, e)
-    return {
+    out = {
         "pos_ne_m": [round(n, 2), round(e, 2)],
         "sink_rate_mps": round(sink, 3),
         "groundspeed_mps": round(float(cols["truth.groundspeed"][k]), 3),
@@ -47,6 +47,29 @@ def touchdown_record(cols: dict[str, np.ndarray], k: int, site: Site, zone: int)
         "zone": site.safe_zones[zone].id if zone >= 0 else None,
         "in_zone": in_zone,
     }
+    if site.world is not None:
+        # Into rising ground the ground closes faster than the sink rate: classify by the
+        # speed towards the slope (sink plus the slope along the ground track).
+        from aeroadapt.world import load_world
+
+        dtm = load_world(site.world).dtm
+        grad = np.array([dtm.at(n + 1.0, e) - dtm.at(n - 1.0, e),
+                         dtm.at(n, e + 1.0) - dtm.at(n, e - 1.0)]) / 2.0  # fmt: skip
+        v = np.array([float(cols["truth.vel_n"][k]), float(cols["truth.vel_e"][k])])
+        closing = sink + float(grad @ v)
+        out["surface"] = _world_at(site, n, e)
+        out["slope_pct"] = round(100.0 * float(np.hypot(*grad)), 1)
+        out["closing_speed_mps"] = round(closing, 3)
+        out["class"] = classify_touchdown(max(sink, closing), roll, pitch)
+    return out
+
+
+def _world_at(site: Site, n: float, e: float) -> str:
+    from aeroadapt.world import load_world
+    from aeroadapt.world.places import what_is_at
+
+    assert site.world is not None
+    return what_is_at(load_world(site.world), n, e)
 
 
 def extract_events(cols: dict[str, np.ndarray], site: Site) -> list[Event]:
@@ -100,6 +123,14 @@ def extract_events(cols: dict[str, np.ndarray], site: Site) -> list[Event]:
             events.append(
                 _ev(cols, k, "touchdown", **touchdown_record(cols, k, site, int(zone[k])))
             )
+        elif term == Termination.OBSTACLE and site.world is not None:
+            n, e = float(cols["truth.pos_n"][k]), float(cols["truth.pos_e"][k])
+            z = int(zone[k])
+            events.append(_ev(cols, k, "collision", pos_ne_m=[round(n, 2), round(e, 2)],
+                              height_m=round(float(cols["truth.hagl"][k]), 2),
+                              speed_mps=round(float(cols["truth.groundspeed"][k]), 2),
+                              hit=_world_at(site, n, e),
+                              zone=site.safe_zones[z].id if z >= 0 else None))  # fmt: skip
         else:
             events.append(_ev(cols, k, "terminated", reason=term.name))
     events.append(_ev(cols, len(cols["time_us"]) - 1, "end"))

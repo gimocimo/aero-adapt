@@ -1,0 +1,21 @@
+# Txt2Fly (docs/06) on the real-map site: the aircraft waits over field A, circling home, for a
+# plan. The Txt2Fly validation (V24-V28) flies here.
+schema_version: 1
+id: txt2fly-cambridge
+description: >-
+  Txt2Fly: circles over field A until a plan is confirmed. The site's operations block sets
+  the geofence, the no-fly areas and the places plans can name.
+site: cambridge_west
+airframe: aerosonde_bm
+seed: 2026
+duration_s: 1800
+initial: {pos_ne_m: [-150, -200], alt_agl_m: 100, heading_deg: 0, airspeed_mps: 25}
+mission:
+  alt_agl_m: 100
+  waypoints_ne_m: [[-50, -150]]
+  on_complete: rtl
+  home_ne_m: [-150, -200]
+environment:
+  wind: {from_deg: 250, speed_mps: 6}
+  turbulence: {model: dryden_low_alt, intensity: light}
+stack: {autopilot: stock, contingency: classical_v0, estimator: navigator}

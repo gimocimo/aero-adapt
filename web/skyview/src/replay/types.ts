@@ -24,6 +24,8 @@ export interface Manifest {
     id: string;
     name: string;
     origin: { lat_deg: number; lon_deg: number; h_ellipsoid_m: number };
+    /** A world site's world (docs/07); absent or null on a flat site. */
+    world?: string | null;
     safe_zones: SafeZone[];
   };
   mission: { waypoints_ne_alt_m: [number, number, number][]; on_complete: string };

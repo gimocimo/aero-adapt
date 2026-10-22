@@ -79,6 +79,10 @@ FLARE_PITCH_MAX_RAD = 0.21  # 12°
 FLARE_SEC = 2.0
 ENERGY_ARM_S = 20.0  # energy-residual detector armed after navigator convergence
 FLOAT_M = 60.0  # the glide path aims this far short of the touchdown point (flare float)
+STOP_M = 60.0  # a landing direction needs this much of the zone left beyond the touchdown
+# Over obstacles, the glide aims this far past the displaced threshold: on the planned glide
+# (L/D about 12 on final) it crosses the threshold about 6 m up, room for arriving low.
+THRESHOLD_BUFFER_M = 75.0
 
 
 class ContState(NamedTuple):
@@ -170,26 +174,42 @@ def ground_speed(v_air: Array | float, wind: Array, course_unit: Array) -> Array
 
 def zone_patterns(
     cp: ContParams, zones: Zones, wind: Array, pos: Array
-) -> tuple[Array, Array, Array]:
+) -> tuple[Array, Array, Array, Array]:
     """Per zone: landing course unit vector (the axis direction with the headwind; in light
     wind the one whose final starts nearer the aircraft), aim point a quarter of the field
-    in, and the final-start point."""
+    in, the final-start point, and whether that landing is usable.
+
+    Where the site survey found obstacles on an approach (docs/07 §5), the glide's aim point
+    (``FLOAT_M`` before the touchdown) moves at least ``THRESHOLD_BUFFER_M`` past the
+    displaced threshold, so the planned glide crosses the threshold several metres up, and
+    the touchdown moves with it; a direction is usable while ``STOP_M`` of the zone remains
+    beyond the touchdown. If the into-wind direction is not usable, the other one is (a
+    downwind landing beats none)."""
     d1 = jnp.stack([jnp.cos(zones.axis), jnp.sin(zones.axis)], -1)  # (Z, 2)
     along_wind = d1 @ wind  # < 0: d1 is into wind
     # Light wind: approach from the side the aircraft is on (F = T − L·d lies upwind of T).
     nearer = ((pos[None, :] - zones.centre) * d1).sum(-1) < 0  # aircraft behind the centre
-    use_d1 = jnp.where(jnp.abs(along_wind) > 1.0, along_wind < 0, nearer)
+    prefer_d1 = jnp.where(jnp.abs(along_wind) > 1.0, along_wind < 0, nearer)
+    half = jnp.asarray(zones.half_length)[:, None]
+    aim_back = zones.thr_back - THRESHOLD_BUFFER_M
+    td_back = jnp.where(
+        aim_back >= 0.5 * half + FLOAT_M, 0.5 * half, aim_back - FLOAT_M
+    )  # (Z, 2): touchdown, metres before the centre, landing along +axis / −axis
+    ok = td_back >= STOP_M - half
+    use_d1 = jnp.where(prefer_d1, ok[:, 0] | ~ok[:, 1], ok[:, 0] & ~ok[:, 1])
     d = jnp.where(use_d1[:, None], d1, -d1)
-    touchdown = jnp.asarray(zones.centre) - 0.5 * jnp.asarray(zones.half_length)[:, None] * d
+    back = jnp.where(use_d1, td_back[:, 0], td_back[:, 1])
+    touchdown = jnp.asarray(zones.centre) - back[:, None] * d
     final_start = touchdown - cp.final_length * d
-    return d, touchdown, final_start
+    return d, touchdown, final_start, jnp.where(use_d1, ok[:, 0], ok[:, 1])
 
 
 def assess_zones(
     cp: ContParams, zones: Zones, pos: Array, height: Array, wind: Array, rho: Array
 ) -> tuple[Array, Array]:
-    """(height margin, selection score) per zone; both -inf where unreachable or invalid."""
-    d, _, final_start = zone_patterns(cp, zones, wind, pos)
+    """(height margin, selection score) per zone; both -inf where unreachable or invalid.
+    ``height`` is above the site datum; each zone's margin counts from its own ground."""
+    d, _, final_start, usable = zone_patterns(cp, zones, wind, pos)
     to_f = final_start - pos[None, :]
     dist_f = jnp.linalg.norm(to_f, axis=-1)
     va = best_glide_speed(cp, rho)
@@ -203,7 +223,8 @@ def assess_zones(
         + cp.h_pattern
         + cp.h_margin
     )
-    margin = jnp.where(jnp.logical_and(zones.valid, flyable), height - h_req, -jnp.inf)
+    ok = jnp.logical_and(jnp.logical_and(zones.valid, flyable), usable)
+    margin = jnp.where(ok, height - zones.elev - h_req, -jnp.inf)
     score = jnp.where(margin >= 0, zones.quality * margin, -jnp.inf)  # spec §9.3
     return margin, score
 
@@ -213,7 +234,7 @@ def _select(cp: ContParams, zones: Zones, s: ContState, est: Estimate, score: Ar
     best = jnp.argmax(score)
     ok = jnp.isfinite(score[best])
     wind = est.wind_ned[:2]
-    d, touchdown, final_start = zone_patterns(cp, zones, wind, est.pos_ned[:2])
+    d, touchdown, final_start, _ = zone_patterns(cp, zones, wind, est.pos_ned[:2])
     dk, fk = d[best], final_start[best]
     # Circle tangent to the final course at F, on the side the aircraft is on.
     side = jnp.where(cross2(dk, est.pos_ned[:2] - fk) >= 0, 1.0, -1.0)
@@ -317,6 +338,11 @@ def contingency_step(
         _select(cp, zones, s, est, score),
         s,
     )
+
+    # From here on, heights count from the chosen zone's ground (its landing altitude, as
+    # ArduPlane's land waypoint); straight in without a zone, from the datum.
+    sel = jnp.clip(s.zone, 0, zones.valid.shape[0] - 1)
+    h = h - jnp.where(s.zone >= 0, jnp.asarray(zones.elev)[sel], 0.0)
 
     # ------------------------------------------------------------- pattern geometry
     d = s.land_dir

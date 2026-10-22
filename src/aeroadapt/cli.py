@@ -104,6 +104,13 @@ def _export_viz(args: argparse.Namespace) -> int:
             shutil.copy2(glb, dest / "model.glb")
             manifest["viz_model"] = "model.glb"
             (dest / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    # A world site's world travels with its replay too (docs/07 §8).
+    world = manifest["site"].get("world")
+    if world:
+        from aeroadapt.world import load_world
+        from aeroadapt.world.export import write_payload
+
+        write_payload(load_world(world), dest / "world.msgpack")
     index = dest.parent / "index.json"
     entries = sorted(p.name for p in dest.parent.iterdir() if (p / "viz.arrow").exists())
     index.write_text(json.dumps(entries, indent=2) + "\n")
@@ -283,7 +290,7 @@ def _serve(args: argparse.Namespace) -> int:
     from aeroadapt.live.server import run_server
 
     with contextlib.suppress(KeyboardInterrupt):
-        asyncio.run(run_server(args.scenario, port=args.port))
+        asyncio.run(run_server(args.scenario, port=args.port, warm_others=not args.no_warm_others))
     return 0
 
 
@@ -344,8 +351,13 @@ def main(argv: list[str] | None = None) -> int:
     ef.add_argument("--to", help="destination (default: web/skyview/public/fleet/<id>)")
     ef.set_defaults(func=_export_fleet)
     sv = sub.add_parser("serve", help="live server: fly a scenario and inject faults from Skyview")
-    sv.add_argument("--scenario", default="m1-nominal")
+    sv.add_argument("--scenario", default="wrenfold-nominal")
     sv.add_argument("--port", type=int, default=8765)
+    sv.add_argument(
+        "--no-warm-others",
+        action="store_true",
+        help="do not compile the other sites' closed loops in the background",
+    )
     sv.set_defaults(func=_serve)
     pl = sub.add_parser("plan", help="Txt2Fly: check a typed plan, or fly it (docs/06)")
     pl.add_argument("action", choices=("check", "fly"))

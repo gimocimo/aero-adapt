@@ -1,0 +1,68 @@
+schema_version: 1
+id: wrenfold_vale
+name: Wrenfold Vale (synthetic)
+description: >-
+  A synthetic English valley, known exactly (docs/07): the River Wren between a wooded north
+  ridge and a higher south ridge, Wrenfold village with its church, two farms, a radio mast, an
+  airstrip and hedged fields. The simulator touches the same ground, trees, hedges and
+  buildings the viewer draws, and the safe zones come from the world's own survey.
+
+# Nominal: the world is not a real place. The origin sets the magnetic field and the barometric
+# reference only (the viewer's real-map mode has nothing to show here).
+origin:
+  lat_deg: 52.05
+  lon_deg: -1.62
+  h_ellipsoid_m: 120.0  # WGS84 ellipsoidal height of the datum (the ground at the airstrip)
+geoid_undulation_m: 47.0
+
+ground_model: world
+world: wrenfold
+
+isa:
+  temp_offset_k: 0.0
+  qnh_hpa: 1013.25
+
+magnetic:               # tools/site_magnetic.py 52.05 -1.62 120 2026.807
+  model: WMM2025
+  epoch_year: 2026.807
+  declination_deg: 0.677
+  inclination_deg: 66.920
+  total_field_gauss: 0.49231
+  field_ned_gauss: [0.19298, 0.00228, 0.45290]
+
+airspace_notes: >-
+  Synthetic site: no real airspace. Treated as UK open category (120 m ceiling).
+
+# Safe zones: from the world's survey (S, the airstrip; A-E, the long fields).
+
+# Planned missions (Txt2Fly, docs/06 §5). No-fly areas come from the world: the village with
+# 30 m around it, the farmyards with 30 m around them, and the radio mast with its stays.
+operations:
+  home_ne_m: [0.0, 0.0]  # over the airstrip
+  geofence_ne_m: [[1300.0, -1550.0], [1300.0, 1550.0], [-1300.0, 1550.0], [-1300.0, -1550.0]]
+  ceiling_agl_m: 120.0
+  min_agl_m: 40.0
+  fence_alt_margin_m: 20.0
+  no_fly:
+    - id: wrenfold
+      name: Wrenfold village
+      reason: houses and people below
+      world_area: settlement-wrenfold
+    - id: hollow-farm
+      name: Hollow Farm
+      reason: people and livestock in the yard
+      world_area: yard-hollow-farm
+    - id: ridge-farm
+      name: Ridge Farm
+      reason: people and livestock in the yard
+      world_area: yard-ridge-farm
+    - id: mast
+      name: the radio mast
+      reason: the mast and its stay wires
+      world_area: structure-mast
+  places:
+    - id: home
+      name: home
+      kind: home
+      point_ne_m: [0.0, 0.0]
+      aliases: [launch point, base]

@@ -29,14 +29,14 @@ from aeroadapt.txt2fly.checker import check
 from aeroadapt.txt2fly.gazetteer import Gazetteer, load_gazetteer
 from aeroadapt.txt2fly.plan import Plan, load_plan
 
-PLANS = Path(__file__).resolve().parents[2] / "configs" / "txt2fly" / "plans"
+PLANS = Path(__file__).resolve().parents[2] / "configs" / "txt2fly" / "plans" / "cambridge_west"
 AIRFRAMES = ("aerosonde_bm", "gen-twin_boom-00058", "gen-glider-00191")
 
 
 def _session(
     airframe: str = "aerosonde_bm", wind: tuple[float, float] = (6.0, 250.0)
 ) -> LiveSession:
-    d = load_scenario("txt2fly-demo").model_dump(mode="json")
+    d = load_scenario("txt2fly-cambridge").model_dump(mode="json")
     d["environment"]["wind"].update(speed_mps=wind[0], from_deg=wind[1])
     sc = Scenario.model_validate(d)
     if airframe == "aerosonde_bm":

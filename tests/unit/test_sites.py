@@ -20,6 +20,7 @@ def test_cambridge_west_dev_site() -> None:
     # Ground height comes from the 3D-tiles surface over open field and must stay close to
     # the independent terrain model (ADR-001: ellipsoidal heights, UK geoid about +46 m).
     survey = site.ground_survey
+    assert survey is not None
     assert abs(site.origin.h_ellipsoid_m - survey.origin_tiles_surface_m) < 0.1
     assert abs(survey.origin_terrain_dtm_m - survey.origin_tiles_surface_m) < 2.0
     # UK magnetic field in 2026: small easterly declination, steep inclination.

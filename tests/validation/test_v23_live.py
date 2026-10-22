@@ -126,7 +126,16 @@ def server_port() -> Iterator[int]:
     """The real CLI server in a subprocess."""
     port = 8798
     proc = subprocess.Popen(
-        [sys.executable, "-u", "-m", "aeroadapt.cli", "serve", "--port", str(port)],
+        [
+            sys.executable,
+            "-u",
+            "-m",
+            "aeroadapt.cli",
+            "serve",
+            "--port",
+            str(port),
+            "--no-warm-others",
+        ],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -168,6 +177,7 @@ def test_server_protocol(server_port: int) -> None:
             hello = _unpack(await asyncio.wait_for(ws.recv(), 60))
             assert hello["type"] == "hello" and "m1-nominal" in hello["scenarios"]
             assert hello["airframe"] is None and hello["model"] is None
+            assert hello["world"]["id"] == "wrenfold"  # the default scenario's world site
             m = await _until(ws, "frames")
             t = np.frombuffer(m["cols"]["t"]["data"], np.float32)
             assert len(t) == m["n"] and np.all(np.diff(t) > 0)

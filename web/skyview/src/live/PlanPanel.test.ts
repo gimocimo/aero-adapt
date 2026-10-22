@@ -32,6 +32,6 @@ describe("Txt2Fly plan panel", () => {
   });
 
   it("offers example plans that parse", () => {
-    for (const ex of EXAMPLES) expect("plan" in parsePlan(JSON.stringify(ex.plan))).toBe(true);
+    for (const ex of Object.values(EXAMPLES).flat()) expect("plan" in parsePlan(JSON.stringify(ex.plan))).toBe(true);
   });
 });

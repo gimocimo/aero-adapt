@@ -18,7 +18,7 @@ export default defineConfig({
     },
     {
       // Listens once the closed loop is compiled.
-      command: "uv run aeroadapt serve --port 8799",
+      command: "uv run aeroadapt serve --port 8799 --no-warm-others",
       cwd: "../..",
       port: 8799,
       reuseExistingServer: !process.env.CI,

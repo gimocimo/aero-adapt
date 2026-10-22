@@ -2,7 +2,8 @@
 
 * :class:`Environment` is the minimal (density, gravity) pair used by the force model and by
   the Beard & McLain parity configuration.
-* :class:`EnvParams` is the full simulator environment: ISA, wind, turbulence, Earth field.
+* :class:`EnvParams` is the full simulator environment: ISA, wind, turbulence, Earth field,
+  terrain and obstacles.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from aeroadapt.sim.aerojax.atmosphere import (
     WindParams,
     no_events,
 )
+from aeroadapt.sim.aerojax.terrain import Terrain, flat_terrain
 
 
 class Environment(NamedTuple):
@@ -39,6 +41,7 @@ class EnvParams(NamedTuple):
     turbulence: TurbulenceParams
     magnetic_ned_gauss: Array  # (3,)
     events: EnvEvents = no_events()
+    terrain: Terrain = flat_terrain()
 
 
 def make_env(
@@ -54,6 +57,7 @@ def make_env(
     qnh_hpa: float = 1013.25,
     gravity: float = G0,
     events: EnvEvents | None = None,
+    terrain: Terrain | None = None,
 ) -> EnvParams:
     """Host-side convenience builder (aviation 'wind from' convention at the boundary)."""
     return EnvParams(
@@ -63,4 +67,5 @@ def make_env(
         turbulence=TurbulenceParams(w20_mps),
         magnetic_ned_gauss=jnp.asarray(magnetic_ned_gauss),
         events=no_events() if events is None else events,
+        terrain=flat_terrain() if terrain is None else terrain,
     )

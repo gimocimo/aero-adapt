@@ -1,6 +1,7 @@
 // Live session client (M2 spec §9): msgpack over WebSocket to `aeroadapt serve`.
 import { decode, encode } from "@msgpack/msgpack";
 import type { Manifest, ReplayEvent } from "../replay/types";
+import { fromWire, type WorldPayload } from "../world3d/payload";
 import { LiveBuffer, type WireColumn } from "./buffer";
 
 /** A fault of the session; `index` is what `clear_fault` takes. */
@@ -12,6 +13,7 @@ export interface LiveFault {
 
 /** The site's operating area for planned missions (Txt2Fly, docs/06 §5); NE metres. */
 export interface SiteLayers {
+  id: string;
   geofence: [number, number][];
   home: [number, number];
   no_fly: { id: string; name: string; reason: string; polygons: [number, number][][] }[];
@@ -74,6 +76,8 @@ export interface LiveStatus {
   wind: LiveWind | null;
   /** Txt2Fly: the site's operating area (null: the site has none). */
   site: SiteLayers | null;
+  /** A world site's world (docs/07 §8); null on a flat site. */
+  world: WorldPayload | null;
   /** The latest proposal, until it is confirmed or cancelled. */
   proposal: PlanProposal | null;
   /** The confirmed plan being flown. */
@@ -100,6 +104,7 @@ export const OFFLINE: LiveStatus = {
   modelUrl: null,
   wind: null,
   site: null,
+  world: null,
   proposal: null,
   activePlan: null,
 };
@@ -114,6 +119,7 @@ type Message =
       airframes: LiveAirframe[];
       model: Uint8Array | null;
       site: SiteLayers | null;
+      world: unknown;
       plan: PlanProposal | null;
     }
   | { type: "plan_proposal"; proposal: PlanProposal }
@@ -199,6 +205,7 @@ export class LiveClient {
         modelUrl,
         faults: [],
         site: m.site,
+        world: m.world ? fromWire(m.world) : null,
         proposal: null,
         activePlan: m.plan,
       });

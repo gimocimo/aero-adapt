@@ -17,6 +17,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 from aeroadapt.airframes import Airframe
+from aeroadapt.core.polygons import principal_chords
 from aeroadapt.scenarios.site import MAX_SAFE_ZONES, Site
 
 STACK_DIR = Path(__file__).resolve().parents[3] / "configs" / "stack"
@@ -281,6 +282,11 @@ class Zones(NamedTuple):
     half_length: np.ndarray  # (Z,)
     half_width: np.ndarray  # (Z,)
     quality: np.ndarray  # (Z,)
+    elev: np.ndarray  # (Z,) ground height above the site datum (the landing waypoint altitude)
+    # (Z, 2) displaced threshold for landing along +axis and −axis: how far before the centre
+    # the glide may first aim at the ground and still clear the obstacles on the approach by
+    # the survey's approach surface (inf: nothing in the way).
+    thr_back: np.ndarray
 
 
 class StackParams(NamedTuple):
@@ -306,26 +312,10 @@ def glide_polar(af: Airframe) -> tuple[float, float]:
     return ld, v_bg
 
 
-def _chord(pts: np.ndarray, c: np.ndarray, u: np.ndarray) -> tuple[float, float]:
-    """Parameters (t_min < 0 < t_max) where the line c + t·u leaves the convex polygon."""
-    ts = []
-    for a, b in zip(pts, np.roll(pts, -1, axis=0), strict=True):
-        e = b - a
-        den = u[0] * e[1] - u[1] * e[0]
-        if abs(den) < 1e-12:
-            continue
-        w = a - c
-        t = (w[0] * e[1] - w[1] * e[0]) / den  # along the line
-        s = (w[0] * u[1] - w[1] * u[0]) / den  # along the edge
-        if -1e-9 <= s <= 1 + 1e-9:
-            ts.append(t)
-    return min(ts), max(ts)
-
-
 def zones_from_site(site: Site) -> Zones:
-    """Each zone polygon → long axis (principal component), and the centre and half extents
-    of the chords through the polygon along and across that axis: the run actually
-    available on the centre line, not the (longer) vertex projection."""
+    """Each zone polygon → its long axis and the chords along and across it
+    (:func:`~aeroadapt.core.polygons.principal_chords`), its ground height and, where the
+    site survey found obstacles on an approach, the displaced threshold for each direction."""
     n = MAX_SAFE_ZONES
     valid = np.zeros(n, bool)
     centre = np.zeros((n, 2))
@@ -333,21 +323,16 @@ def zones_from_site(site: Site) -> Zones:
     half_len = np.zeros(n)
     half_wid = np.zeros(n)
     quality = np.zeros(n)
+    elev = np.zeros(n)
+    thr_back = np.full((n, 2), np.inf)
     for i, z in enumerate(site.safe_zones):
-        pts = np.asarray(z.polygon_ne_m, dtype=np.float64)
-        c = pts.mean(axis=0)
-        _, _, vt = np.linalg.svd(pts - c)
-        major, minor = vt[0], vt[1]
-        t0, t1 = _chord(pts, c, major)
-        c = c + 0.5 * (t0 + t1) * major
-        w0, w1 = _chord(pts, c, minor)
+        centre[i], axis[i], half_len[i], half_wid[i] = principal_chords(np.asarray(z.polygon_ne_m))
         valid[i] = True
-        centre[i] = c + 0.5 * (w0 + w1) * minor
-        axis[i] = math.atan2(major[1], major[0])
-        half_len[i] = 0.5 * (t1 - t0)
-        half_wid[i] = 0.5 * (w1 - w0)
         quality[i] = z.quality
-    return Zones(valid, centre, axis, half_len, half_wid, quality)
+        elev[i] = z.elevation_m
+        if z.threshold_back_m is not None:
+            thr_back[i] = [np.inf if t is None else t for t in z.threshold_back_m]
+    return Zones(valid, centre, axis, half_len, half_wid, quality, elev, thr_back)
 
 
 def build_stack_params(cfg: StackCfg, airframe: Airframe, site: Site, dt: float) -> StackParams:

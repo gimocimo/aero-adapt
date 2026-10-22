@@ -8,6 +8,9 @@ Client → server: ``inject_fault{spec}`` (a fault spec without trigger), ``clea
 ``set_wind{speed_mps, from_deg}``, ``set_speed{x}``, ``pause``, ``resume``,
 ``reset{scenario, airframe}``.
 
+A world site's ``hello`` also carries its world (docs/07 §8): terrain, fields, woods, hedges,
+trees, buildings, for the stylised view.
+
 Txt2Fly (docs/06 §10): ``hello`` carries the site's operating area (geofence, no-fly areas,
 places); ``propose_plan{plan}`` answers ``plan_proposal`` (the plan built and checked from the
 aircraft's state now); ``confirm_plan{id, acknowledged}`` flies it from the next chunk
@@ -23,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import itertools
 import json
 import time
@@ -40,6 +44,7 @@ from aeroadapt.airframes import Airframe
 from aeroadapt.airframes.fleet import load_fleet
 from aeroadapt.live.session import CHUNK_S, LiveSession
 from aeroadapt.scenarios.schema import SCENARIO_DIR, load_scenario
+from aeroadapt.scenarios.site import load_site
 from aeroadapt.stack.config import StackCfg
 from aeroadapt.txt2fly.gazetteer import site_layers
 
@@ -94,6 +99,17 @@ class Catalogue:
         )
 
 
+@functools.lru_cache(maxsize=4)
+def _world(world_id: str | None) -> dict[str, Any] | None:
+    """A world site's world for the browser (docs/07 §8), built once per process."""
+    if world_id is None:
+        return None
+    from aeroadapt.world import load_world
+    from aeroadapt.world.export import viewer_payload
+
+    return viewer_payload(load_world(world_id))
+
+
 def _pack(msg: dict[str, Any]) -> bytes:
     return msgpack.packb(msg, use_bin_type=True)  # type: ignore[no-any-return]
 
@@ -146,6 +162,7 @@ class Connection:
             "airframes": cat.listing(),
             "model": cat.models.get(self.airframe_id or ""),
             "site": site_layers(self.session.resolved.site),
+            "world": _world(self.session.resolved.site.world),
             "plan": self.session.active_plan,
         })  # fmt: skip
 
@@ -249,7 +266,7 @@ async def _handler(ws: ServerConnection, catalogue: Catalogue, scenario_id: str)
             print(f"session recorded → {out}", flush=True)
 
 
-def _warm_up(catalogue: Catalogue, scenario_id: str) -> None:
+def _warm_up(catalogue: Catalogue, scenario_id: str, fleet: bool = True) -> None:
     """Compile the closed loop before the first browser connects: once for the scenario's
     airframe and once for tabulated (fleet) aerodynamics; and the plan preview."""
     session = catalogue.session(scenario_id, None)
@@ -257,11 +274,28 @@ def _warm_up(catalogue: Catalogue, scenario_id: str) -> None:
     if session.resolved.site.operations is not None:
         session.propose({"steps": [{"do": "return_home"}]})  # the short preview
         session.propose({"steps": [{"do": "hold"}]})  # … and the long one
-    for af in itertools.islice(catalogue.airframes, 1):
+    for af in itertools.islice(catalogue.airframes, 1 if fleet else 0):
         catalogue.session(scenario_id, af).step()
 
 
-async def run_server(scenario_id: str, host: str = "127.0.0.1", port: int = 8765) -> None:
+def _other_grounds(catalogue: Catalogue, scenario_id: str) -> list[str]:
+    """One scenario per ground grid (flat, or each world) other than this scenario's."""
+
+    def ground(s: str) -> str | None:
+        return load_site(load_scenario(s).site).world
+
+    seen, out = {ground(scenario_id)}, []
+    for s in catalogue.scenarios:
+        g = ground(s)
+        if g not in seen:
+            seen.add(g)
+            out.append(s)
+    return out
+
+
+async def run_server(
+    scenario_id: str, host: str = "127.0.0.1", port: int = 8765, warm_others: bool = True
+) -> None:
     catalogue = Catalogue.load()
     print(f"compiling the closed loop ({len(catalogue.airframes)} fleet airframes)…", flush=True)
     await asyncio.to_thread(_warm_up, catalogue, scenario_id)
@@ -274,4 +308,9 @@ async def run_server(scenario_id: str, host: str = "127.0.0.1", port: int = 8765
             f"live server on ws://{host}:{port} (scenario {scenario_id}); Ctrl-C to stop",
             flush=True,
         )
+        # Sites with other ground grids (flat ones, worlds) compile their own closed loop:
+        # one scenario of each, in the background, so switching to it later is quick.
+        others = _other_grounds(catalogue, scenario_id) if warm_others else []
+        warm = asyncio.gather(*(asyncio.to_thread(_warm_up, catalogue, s, False) for s in others))
         await server.serve_forever()
+        warm.cancel()

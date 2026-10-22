@@ -87,6 +87,7 @@ def build_manifest(r: ResolvedScenario, cols: dict[str, np.ndarray]) -> dict[str
             "id": site.id,
             "name": site.name,
             "origin": site.origin.model_dump(mode="json"),
+            "world": site.world,
             "safe_zones": [z.model_dump(mode="json") for z in site.safe_zones],
         },
         "mission": {

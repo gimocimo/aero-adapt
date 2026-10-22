@@ -11,6 +11,7 @@ const IMPORTANT = new Set([
   "contingency_phase",
   "airspeed_health",
   "touchdown",
+  "collision",
   "terminated",
   "mode",
 ]);
@@ -31,7 +32,9 @@ export function describe(e: ReplayEvent): string {
     case "airspeed_health":
       return p.healthy ? "Airspeed sensor healthy" : "Airspeed sensor flagged unreliable";
     case "touchdown":
-      return `Touchdown: ${String(p.class)}${p.zone ? `, zone ${String(p.zone)} ${p.in_zone ? "(inside)" : "(outside)"}` : ""}`;
+      return `Touchdown: ${String(p.class)}${p.zone ? `, zone ${String(p.zone)} ${p.in_zone ? "(inside)" : "(outside)"}` : ""}${p.surface ? ` · ${String(p.surface)}` : ""}`;
+    case "collision":
+      return `Collision: ${String(p.hit)}`;
     case "terminated":
       return `Terminated: ${String(p.reason)}`;
     case "mode":

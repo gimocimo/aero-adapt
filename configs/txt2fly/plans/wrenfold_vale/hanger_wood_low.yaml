@@ -1,0 +1,9 @@
+# Lower than the woods allow: the planner lifts the circle (and the way home) to keep 30 m
+# above the trees, and says so (docs/07 §7).
+summary: Circle Hanger Wood once at 50 m, then come home.
+steps:
+  - do: orbit
+    target: {kind: place, id: Hanger Wood}
+    alt_m: 50
+    turns: 1
+  - do: return_home

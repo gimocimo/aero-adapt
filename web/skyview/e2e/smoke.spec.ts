@@ -1,13 +1,17 @@
 import { expect, test } from "@playwright/test";
 
-test("plays a replay: the HUD airspeed changes and the console stays clean", async ({ page }) => {
+for (const [view, query] of [
+  ["four-panel view", "quality=low"],
+  ["real-map view", "map=real&tiles=0"],
+] as const) {
+test(`plays a replay (${view}): the HUD airspeed changes and the console stays clean`, async ({ page }) => {
   const errors: string[] = [];
   page.on("console", (msg) => {
     if (msg.type() === "error") errors.push(msg.text());
   });
   page.on("pageerror", (err) => errors.push(err.message));
 
-  await page.goto("/?replay=fixtures/smoke&tiles=0");
+  await page.goto(`/?replay=fixtures/smoke&${query}`);
   const ias = page.getByTestId("hud-IAS");
   await expect(ias).toBeVisible({ timeout: 30_000 });
   const clock = page.getByTestId("clock");
@@ -20,3 +24,4 @@ test("plays a replay: the HUD airspeed changes and the console stays clean", asy
   await expect(page.getByText("Fault: motor cut")).toHaveCount(0); // fixture has no faults
   expect(errors).toEqual([]);
 });
+}

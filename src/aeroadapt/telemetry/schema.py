@@ -120,11 +120,14 @@ SURF = ("aileron", "elevator", "rudder")
 COLUMNS: list[Column] = [
     # --- truth (privileged) ---------------------------------------------------------
     *(Column(f"truth.pos_{a}", "m", _f("pos_ned", i), viz=True) for i, a in enumerate(NED)),
-    *(Column(f"truth.vel_{a}", "m/s", _f("vel_ned", i)) for i, a in enumerate(NED)),
+    *(Column(f"truth.vel_{a}", "m/s", _f("vel_ned", i), viz=i < 2) for i, a in enumerate(NED)),
     *(Column(f"truth.q{a}", "1", _f("quat", i), viz=True) for i, a in enumerate("wxyz")),
     *(Column(f"truth.{a}", "rad", _f("euler", i), viz=True) for i, a in enumerate(EULER)),
     *(Column(f"truth.omega_{a}", "rad/s", _f("omega", i)) for i, a in enumerate(XYZ)),
+    # Height above the site datum (the ground at home; above ground level on a flat site).
     Column("truth.alt_agl", "m", _alt_agl, viz=True),
+    Column("truth.hagl", "m", _f("hagl"), viz=True),  # above the ground below (terrain)
+    Column("truth.clearance", "m", _f("clearance"), viz=True),  # above trees, roofs, …
     Column("truth.climb_rate", "m/s", _climb, viz=True),
     Column("truth.groundspeed", "m/s", _groundspeed, viz=True),
     Column("truth.tas", "m/s", _f("va"), viz=True),
@@ -132,9 +135,9 @@ COLUMNS: list[Column] = [
     Column("truth.beta", "rad", _f("beta"), viz=True),
     *(Column(f"truth.wind_{a}", "m/s", _f("wind_ned", i), viz=i < 2) for i, a in enumerate(NED)),
     Column("truth.thrust", "N", _f("thrust")),
-    Column("truth.battery_v", "V", _f("battery_v")),
-    Column("truth.soc", "1", _f("soc")),
-    Column("truth.prop_rpm", "rpm", _f("prop_rpm")),
+    Column("truth.battery_v", "V", _f("battery_v"), viz=True),
+    Column("truth.soc", "1", _f("soc"), viz=True),
+    Column("truth.prop_rpm", "rpm", _f("prop_rpm"), viz=True),
     *(Column(f"actual.{a}", "rad", _f("surfaces", i), viz=True) for i, a in enumerate(SURF)),
     Column("actual.throttle", "1", _f("throttle_actual"), viz=True),
     # --- sensors (as the stack received them) ---------------------------------------

@@ -1,0 +1,187 @@
+# Wrenfold Vale (docs/07): a synthetic English valley, 3.2 km square, known exactly.
+# The River Wren meanders east along the valley floor between a wooded north ridge (+30 m) and
+# a higher south ridge (+40 m). Wrenfold village sits on a terrace north of the river, with
+# its church, pub and green; two farms, a radio mast, an airstrip and a patchwork of hedged
+# fields fill the rest. Everything below is authored; the generator (seed) adds the fields,
+# hedges, trees and village houses deterministically. The ground at home (the airstrip) is
+# the site datum: every height is above it.
+schema_version: 1
+id: wrenfold
+name: Wrenfold Vale
+description: >-
+  Synthetic valley: river, village with church, two farms, woods, hedged fields, an airstrip
+  and a radio mast. Terrain from 3 m below the airstrip (the river) to about 40 m above it.
+seed: 20261022
+bounds_ne_m: [[-1600, -1600], [1600, 1600]]
+
+terrain:
+  cell_m: 10
+  east_slope_per_km: -1.5
+  ridges:
+    - {from_n_m: 380, to_n_m: 1350, rise_m: 30}
+    - {from_n_m: -700, to_n_m: -1450, rise_m: 40}
+  hills:
+    - {centre_ne_m: [1150, 1000], height_m: 8, radius_m: 300}
+    - {centre_ne_m: [-1200, -800], height_m: 6, radius_m: 350}
+    - {centre_ne_m: [600, 1300], height_m: 5, radius_m: 250}
+  noise_m: 1.2
+
+river:
+  id: river-wren
+  name: River Wren
+  width_m: 12
+  depth_m: 2.5
+  points_ne_m: [[-320, -1600], [-260, -1250], [-360, -950], [-250, -650], [-330, -350],
+                [-420, -60], [-330, 250], [-380, 560], [-280, 880], [-350, 1200], [-300, 1600]]
+
+roads:
+  - id: vale-road
+    name: Vale Road
+    kind: road
+    width_m: 7
+    points_ne_m: [[190, -1600], [230, -1150], [270, -800], [300, -450], [280, -100], [240, 300],
+                  [230, 700], [190, 1100], [230, 1600]]
+  - id: high-street
+    name: High Street
+    kind: street
+    width_m: 5.5
+    hedged: false
+    points_ne_m: [[470, -850], [480, -600], [470, -400], [450, -150]]
+  - id: church-lane
+    name: Church Lane
+    kind: street
+    width_m: 5
+    hedged: false
+    points_ne_m: [[296, -470], [380, -465], [470, -460], [560, -470], [630, -478]]
+  - id: mill-lane
+    name: Mill Lane
+    kind: lane
+    width_m: 5
+    points_ne_m: [[236, 480], [60, 500], [-150, 520], [-370, 545], [-520, 600], [-700, 640],
+                  [-900, 560], [-1150, 520], [-1600, 480]]
+  - id: hollow-farm-track
+    kind: track
+    width_m: 3.5
+    points_ne_m: [[-545, 606], [-505, 690], [-470, 760]]
+  - id: ridge-farm-track
+    kind: track
+    width_m: 3.5
+    points_ne_m: [[235, 640], [450, 640], [700, 610], [820, 590]]
+  - id: airstrip-track
+    kind: track
+    width_m: 3.5
+    hedged: false
+    points_ne_m: [[285, -150], [160, -150], [80, -150]]
+
+woods:
+  - id: hanger-wood
+    name: Hanger Wood
+    canopy_m: 18
+    polygon_ne_m: [[880, -1600], [980, -1200], [900, -850], [1000, -560], [1180, -380],
+                   [1350, -150], [1600, -120], [1600, -1600]]
+  - id: long-copse
+    name: Long Copse
+    canopy_m: 16
+    polygon_ne_m: [[-820, 180], [-880, 520], [-980, 900], [-1120, 1180], [-1280, 1250],
+                   [-1260, 800], [-1100, 380], [-950, 150]]
+  - id: rowan-spinney
+    name: Rowan Spinney
+    canopy_m: 14
+    polygon_ne_m: [[-500, -1120], [-480, -980], [-580, -940], [-640, -1060]]
+  - id: ash-plantation
+    name: Ash Plantation
+    kind: conifer
+    canopy_m: 20
+    polygon_ne_m: [[-1000, -1600], [-980, -1250], [-1120, -1050], [-1350, -1100],
+                   [-1600, -1250], [-1600, -1600]]
+  - id: cuckoo-wood
+    name: Cuckoo Wood
+    canopy_m: 17
+    polygon_ne_m: [[1000, 700], [1050, 1050], [1250, 1150], [1300, 800], [1150, 650]]
+
+village:
+  id: wrenfold
+  name: Wrenfold
+  outline_ne_m: [[330, -920], [360, -560], [330, -380], [380, -120], [520, -60], [620, -200],
+                 [720, -430], [690, -560], [640, -700], [560, -900]]
+  streets: [high-street, church-lane]
+  green_ne_m: [[440, -540], [440, -485], [400, -485], [400, -540]]
+  buildings:
+    - {kind: nave, name: "St Michael's Church", centre_ne_m: [655, -466], length_m: 24,
+       width_m: 9, heading_deg: 90, eaves_m: 7, ridge_m: 12}
+    - {kind: tower, name: "St Michael's Church tower", centre_ne_m: [655, -481], length_m: 6,
+       width_m: 6, heading_deg: 90, eaves_m: 19, ridge_m: 30, roof: spire}
+    - {kind: pub, name: The Plough, centre_ne_m: [500, -640], length_m: 16, width_m: 9,
+       heading_deg: 92, eaves_m: 5.5, ridge_m: 9}
+    - {kind: hall, name: Wrenfold village hall, centre_ne_m: [438, -270], length_m: 18,
+       width_m: 10, heading_deg: 85, eaves_m: 4.5, ridge_m: 7.5}
+
+farms:
+  - id: hollow-farm
+    name: Hollow Farm
+    yard_ne_m: [[-420, 760], [-420, 900], [-550, 900], [-550, 760]]
+    buildings:
+      - {kind: farmhouse, centre_ne_m: [-438, 785], length_m: 13, width_m: 8, heading_deg: 0,
+         eaves_m: 5.5, ridge_m: 9}
+      - {kind: barn, centre_ne_m: [-505, 835], length_m: 36, width_m: 18, heading_deg: 90,
+         eaves_m: 6, ridge_m: 10.5}
+      - {kind: barn, centre_ne_m: [-465, 880], length_m: 28, width_m: 14, heading_deg: 0,
+         eaves_m: 5, ridge_m: 8.5}
+  - id: ridge-farm
+    name: Ridge Farm
+    yard_ne_m: [[820, 520], [820, 660], [930, 660], [930, 520]]
+    buildings:
+      - {kind: farmhouse, centre_ne_m: [838, 545], length_m: 12, width_m: 8, heading_deg: 0,
+         eaves_m: 5.5, ridge_m: 9}
+      - {kind: barn, centre_ne_m: [885, 610], length_m: 34, width_m: 16, heading_deg: 90,
+         eaves_m: 6, ridge_m: 10}
+      - {kind: shed, centre_ne_m: [905, 545], length_m: 20, width_m: 10, heading_deg: 90,
+         eaves_m: 4.5, ridge_m: 5, roof: flat}
+
+airstrip:
+  id: airstrip
+  name: Wrenfold airstrip
+  centre_ne_m: [0, 0]
+  heading_deg: 90
+  length_m: 450
+  width_m: 70
+  buildings:
+    - {kind: hangar, name: the hangar, centre_ne_m: [72, -150], length_m: 24, width_m: 16,
+       heading_deg: 90, eaves_m: 5, ridge_m: 7}
+
+structures:
+  - {id: mast, name: the radio mast, kind: mast, point_ne_m: [-1000, -300], height_m: 40,
+     radius_m: 1.2}
+  - {id: hollow-farm-silo, name: Hollow Farm silo, kind: silo, point_ne_m: [-528, 778],
+     height_m: 15, radius_m: 3.5}
+
+fields:
+  size_m: [240, 330]
+  rotation_deg: 6
+  jitter_m: 22
+  crops: {wheat: 0.28, barley: 0.18, oilseed: 0.1, pasture: 0.22, meadow: 0.1, ploughed: 0.12}
+  hedge_height_m: [2.0, 3.0]
+  hedge_width_m: 2.0
+  hedge_tree_spacing_m: 90
+  hedge_tree_height_m: [9, 15]
+
+# Landing grounds: safe zones. The airstrip, and eight long fields drawn here on the level valley
+# floor (each is levelled, its hedges are trimmed and its approach funnels kept free of trees).
+zones:
+  - {id: S, at_ne_m: [0, 0], name: the airstrip}
+  - {id: A, polygon_ne_m: [[-45, -920], [-45, -500], [-225, -500], [-225, -920]], crop: pasture,
+     name: Mill Meadow}
+  - {id: B, polygon_ne_m: [[-40, 700], [-40, 1120], [-230, 1120], [-230, 700]], crop: barley,
+     name: Long Field}
+  - {id: C, polygon_ne_m: [[-480, -560], [-480, -120], [-700, -120], [-700, -560]], crop: meadow,
+     name: Wren Leys}
+  - {id: D, polygon_ne_m: [[170, -1500], [170, -1080], [20, -1080], [20, -1500]], crop: wheat,
+     name: Top Field}
+  - {id: E, polygon_ne_m: [[-500, 1000], [-500, 1450], [-700, 1450], [-700, 1000]],
+     crop: pasture, name: Hollow Pasture}
+  - {id: F, polygon_ne_m: [[500, 80], [500, 480], [330, 480], [330, 80]], crop: stubble,
+     name: Church Acre}
+  - {id: G, polygon_ne_m: [[-80, -40], [-80, 480], [-250, 480], [-250, -40]], crop: meadow,
+     name: Strip Meadow}
+  - {id: H, polygon_ne_m: [[-470, -1500], [-470, -1150], [-640, -1150], [-640, -1500]],
+     crop: pasture, name: West Leys}

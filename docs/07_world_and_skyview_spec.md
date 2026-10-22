@@ -384,7 +384,7 @@ For demo videos, Skyview's chase view has a look of its own. It is on by default
   - Hedges are continuous lumpy rows: each bush is long along its hedge, over a lower core that fills the dips between them.
 - **Ground.**
   - The painted land cover, as before, has grain by kind up close: grass, crops in rows, ploughed soil, tarmac, a wood's floor.
-  - Grass and a wood's floor take their grain from a photograph: a CC0 photogrammetry scan of mossy turf (ambientCG Ground037; `web/skyview/public/textures/`). It is scaled to a mid-grey mean, so it modulates the painted colour rather than replacing it. The other classes keep grain made from noise.
+  - Grass, a wood's floor, ploughed soil and tarmac take their grain from photographs, all CC0 (`web/skyview/public/textures/`): a scan of mossy turf (ambientCG Ground037), and aerial scans of soil and of asphalt (Poly Haven). Each is scaled to a mid-grey mean, so it modulates the painted colour rather than replacing it. Crops keep rows made from noise.
   - Patches tens of metres across reach out a few kilometres, and broad mottling covers everything, so no field is one flat colour. These are noise: a photograph would visibly repeat at that scale.
   - High open ground is moorland olive (it was khaki).
 - **Roads** are surfaces of their own, with sharp edges and tarmac grain. Roads have a dashed centre line and edge lines; tracks have wheel ruts with grass between. They fade into the painted roads beyond about a kilometre.
@@ -399,7 +399,7 @@ For demo videos, Skyview's chase view has a look of its own. It is on by default
 
 **Fidelity.** None of this changes the simulator; the views draw the same payload, at the same positions and heights. The look is a drawing:
 
-- the ground's grain is one photograph (grass and woods), repeated every 5 and 23 m, and noise for the rest; from 100 m up, most of what reads is the broad patches, which are noise;
+- the ground's grain is three photographs, each repeating every few to few tens of metres, and noise for crops; from 100 m up, most of what reads is the broad patches, which are noise;
 - windows are patterns on the walls, not modelled;
 - the river's surface is drawn level at its banks, while the simulator has the channel's ground;
 - the rotors turn for the eye only. The simulator keeps each rotor as a wall across the wind (§14).

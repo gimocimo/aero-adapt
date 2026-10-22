@@ -73,8 +73,10 @@ export interface Detail {
 
 /** Photographs of the ground by class (CC0, see public/textures/README.md). */
 const PHOTOS: Partial<Record<"grass" | "soil" | "paved" | "forest", string>> = {
-  grass: "textures/ambientcg-Ground037.jpg",
+  grass: "textures/ambientcg-Ground037.jpg", // 2.1 m across
   forest: "textures/ambientcg-Ground037.jpg",
+  soil: "textures/polyhaven-dirt_aerial_02.jpg", // 20 m across
+  paved: "textures/polyhaven-aerial_asphalt_01.jpg", // 30 m across
 };
 
 /** Write a photograph into a detail texture, scaled to a mid-grey mean per channel. */

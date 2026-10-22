@@ -43,8 +43,8 @@ uniform sampler2D uClass, uGrass, uCrop, uSoil, uPaved, uForest, uMottle;`,
   vec3 g = vec3(0.5);
   if (cls < 0.5) g = 0.6 * texture2D(uGrass, w / 5.0).rgb + 0.4 * texture2D(uGrass, w / 23.0).rgb;
   else if (cls < 1.5) g = 0.6 * texture2D(uCrop, w / 6.0).rgb + 0.4 * texture2D(uMottle, w / 29.0).rgb;
-  else if (cls < 2.5) g = 0.65 * texture2D(uSoil, w / 5.0).rgb + 0.35 * texture2D(uSoil, w / 27.0).rgb;
-  else if (cls < 3.5) g = 0.7 * texture2D(uPaved, w / 4.0).rgb + 0.3 * texture2D(uPaved, w / 31.0).rgb;
+  else if (cls < 2.5) g = 0.65 * texture2D(uSoil, w / 20.0).rgb + 0.35 * texture2D(uSoil, w / 7.0).rgb;
+  else if (cls < 3.5) g = 0.7 * texture2D(uPaved, w / 30.0).rgb + 0.3 * texture2D(uPaved, w / 11.0).rgb;
   else if (cls < 4.5) g = 0.6 * texture2D(uForest, w / 4.0).rgb + 0.4 * texture2D(uForest, w / 19.0).rgb;
   float strength = cls > 4.5 ? 0.0 : (cls > 2.5 && cls < 3.5 ? 1.0 : 1.6);
   diffuseColor.rgb *= 1.0 + near * strength * (g - 0.5);
@@ -173,8 +173,8 @@ uniform sampler2D uPaved, uGrass;`,
 {
   float along = vRoad.x, across = vRoad.y, hw = vRoad.z, kind = floor(vRoad.w + 0.5);
   vec2 w = vec2(vWorld.x, -vWorld.z);
-  float grain = 0.6 * texture2D(uPaved, w / 3.0).r + 0.4 * texture2D(uPaved, w / 17.0).r;
-  diffuseColor.rgb *= 0.82 + 0.36 * grain;
+  vec3 grain = 0.6 * texture2D(uPaved, w / 11.0).rgb + 0.4 * texture2D(uPaved, w / 30.0).rgb;
+  diffuseColor.rgb *= 1.0 + 0.9 * (grain - 0.5);
   float fw = fwidth(across) + 1e-3;
   if (kind > 0.5 && kind < 1.5) {
     float dash = step(fract(along / 9.0), 0.45) * (1.0 - smoothstep(0.07, 0.07 + fw, abs(across)));

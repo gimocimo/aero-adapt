@@ -302,3 +302,33 @@ The world is synthetic. Wrenfold is not a real place, and its origin only sets t
   - `tools/world_map.py` draws any world as a map sheet: shaded relief, contours, features, zones, no-fly areas, and a grid labelled every 500 m.
   - Skyview now tints open ground by height and bakes shaded relief (lit from the north-west, as on maps) into the ground texture, so hills read even from straight above. Its lights are a little softer.
   - A **Grid** layer (on by default) draws 100 m lines with 500 m labels on the map, for talking about positions.
+- **22 Oct 2026, the owner's test map, on paper.** The rest of the day went into drawing the test map with the owner, one layer at a time. Each layer is a sketch, quick to redraw, and is locked once the owner approves it. The sketch is `configs/sketches/testmap.yaml`; the locks sit beside it (3.6 MB). Nothing in the sketch is simulated yet: it becomes a world in the next step.
+  - **Terrain and rivers.**
+    - A steep eastern range (350 m) and gentle south-western hills (120 m), with a broad valley between them. The valley floor is flattened to a lowland flood plain: median slope 0.4%.
+    - An irregular river, 36 to 51 m wide, falling 0.7 m/km. It has two tributaries and forks round an island in the middle.
+  - **City** (`tools/sketch_city.py`), grown rather than zoned.
+    - Old roads take the easiest way over the land and meet at the crossing on the island.
+    - Streets grow out along a direction field: the river, the roads, the old centre.
+    - Blocks are filled by their character: old town, perimeter blocks, terraces, modern slabs, towers on podiums, and detached houses at a gradual edge.
+    - Landmarks: cathedral, castle, town hall, museum, column and an arena. There are parks, squares and courtyard gardens, and The Spire is 250 m tall with antennas on every tower.
+    - About 5,000 buildings in all.
+  - **Countryside** (`tools/sketch_country.py`).
+    - Three villages, one of them 330 buildings, joined to the city by roadside houses.
+    - 30 farmsteads.
+    - Each village, string of houses and farm is locked as its own group, so one can be grown again alone.
+  - **Land** (`tools/sketch_land.py`).
+    - 446 fields with hedges.
+    - Woods that thin out past their edges, glades, scrub, riverside willows, orchards and hedgerow trees of varying character: about 107,000 trees in all.
+    - 22 wind turbines (131 m tip) on the range's city-facing slopes.
+  - **Power** (`tools/sketch_power.py`). A two-reactor station on the river, with 135 m cooling towers. Its 400 kV lines run on 51 m lattice pylons, one along the river bank to a substation by the city, one to the grid.
+  - **Infrastructure** (`tools/sketch_infra.py`). Two 200 m guyed masts on the summits, and a solar farm by the city.
+  - **Operations** (`tools/sketch_ops.py`).
+    - **Airstrip:** a 310 m grass strip, runway 07/25.
+    - **Landing fields:** 22 fields where the UAV may land: empty, level, and clear of trees, wires and zones.
+    - **No-fly zones** (30):
+      - closed at all heights: the power station, the city centre (the island, the historic centre and the towers, as one zone edged along the streets), and the arena;
+      - closed up to 100 m above the ground: the whole city with the river through it, and the power-line corridors;
+      - flat-topped cylinders round each turbine (to 200 m) and each mast with its stays (to 250 m), measured from the ground at their centres.
+    - **Geofence:** 150 m inside the map's edge, with a flat ceiling at 500 m.
+  - **Drawing.** `tools/sketch_map.py` draws the map sheet, the city close-up and the operations map, and `--lock` saves what is not yet locked. `tools/sketch_iso.py` draws isometric views. `tools/sketch_8k.py` draws an 8K isometric picture at true heights: a ray cast over the heightfield, every building, turbine, pylon and tree standing, shadows, and with `--zones` the no-fly zones as volumes. It takes about 40 s.
+  - **Cost.** Building the whole map from the locks takes about 6 s and 0.9 GB.

@@ -1,0 +1,229 @@
+# The owner's test map, on paper (docs/07): an abstract sketch, edited step by step and drawn
+# with tools/sketch_map.py. When the owner is satisfied it becomes a full world
+# (configs/worlds/testmap.yaml) and is flown. Metres north and east of the map's centre.
+name: Test map (sketch)
+# Locked by the owner (22 Oct 2026): the hills, every river, the city, the villages, the farms,
+# the fields and the woods, exactly as drawn. The settings below are kept for the record; the drawing reads the
+# locked files.
+locked:
+  terrain: testmap_terrain.npz
+  rivers: testmap_rivers.json
+  city: testmap_city.json.gz  # the city's streets, places, buildings and trees (22 Oct 2026)
+  countryside: testmap_countryside.json.gz  # the villages and farms (22 Oct 2026)
+  land: testmap_land.json.gz  # the fields, hedges, woods, every tree and the wind farm (22 Oct 2026)
+  power: testmap_power.json.gz  # the power station, its substation and lines (22 Oct 2026; rebuilt smaller)
+  infra: testmap_infra.json.gz  # the telecom masts and the solar farm (22 Oct 2026)
+  ops: testmap_ops.json.gz  # the airstrip, landing fields, no-fly zones, geofence and ceiling (22 Oct 2026)
+bounds_ne_m: [[-2500, -2500], [2500, 2500]]
+
+terrain:
+  # The plain falls gently from the south-east to the north-west, the way the river flows: a
+  # lowland river's fall (step 13: was 4 m/km, an upland river's).
+  tilt_m_per_km: 0.8      # rise towards the south-east
+  tilt_towards_deg: 135   # bearing of the rise (south-east)
+  undulation_m: 0.4
+  # A flat valley floor (step 13): the low ground smoothed and lowered, the hills above unchanged.
+  valley_floor: {below_m: 35, keep: 0.3}
+  # Two hill ranges either side of a broad diagonal valley (south-east to north-west). Each
+  # follows its crest line, with natural relief (summits, saddles, spurs) from fractal noise;
+  # its highest point is scaled to height_m.
+  ranges:
+    - name: eastern range
+      crest_ne_m: [[-1150, 2650], [-300, 2250], [450, 1900], [1250, 1400], [1950, 900], [2650, 450]]
+      height_m: 350
+      width_m: 750        # how far the hills spread either side of the crest
+      roughness: 0.55     # 0 smooth … 1 rugged
+      seed: 11
+    - name: south-western hills
+      crest_ne_m: [[-2650, -350], [-1900, -1000], [-1150, -1750], [-450, -2650]]
+      height_m: 120
+      width_m: 650
+      roughness: 0.4
+      seed: 23
+  valley_m: 260  # the hills give way to the river within about this distance
+
+# Flows from beyond the south-east corner to beyond the north-west corner, widening as it goes
+# (in steps where its tributaries join); around the middle it forks round an island and joins
+# again. Its course is irregular as real rivers are: its curvature drifts at two scales (long
+# loops and small wiggles, never repeating; bends no tighter than a few channel widths), it
+# keeps to the valley floor, and it is only loosely pulled towards its exit.
+river:
+  name: main river
+  from_ne_m: [-2700, 2700]   # enters (outside the map, south-east)
+  to_ne_m: [2700, -2700]     # leaves (outside the map, north-west)
+  width_m: [36, 50]          # at entry; the widest reach downstream (step 13: was 20 to 80,
+                             # more than its tributaries could feed)
+  depth_m: 3
+  irregularity: 1.0          # how much the curvature drifts (0: straight)
+  seed: 7
+  course_file: testmap_main_river.json  # the course, locked by the owner (22 Oct 2026)
+  island:
+    from: 0.43               # fork, as a fraction of the river's length
+    to: 0.57                 # where the arms join again
+    width_m: 230             # widest point of the island
+    side: right              # the second arm runs on the river's right bank (north-east)
+  # Tributaries join before the island, pointing downstream as confluences do; water runs
+  # downhill where the ground slopes.
+  tributaries:
+    - name: brook from the peak
+      from: peak             # rises at the eastern range's highest summit
+      joins_at: 0.39         # fraction along the main river
+      width_m: [3, 12]
+    - name: southern tributary
+      from_ne_m: [-2500, 500]   # enters at the bottom edge, 500 m east of the centre
+      joins_at: 0.30
+      width_m: [10, 25]
+
+# A medium-sized city round the island, a "mini-London" (step 11, 22 Oct 2026), grown rather
+# than planned (tools/sketch_city.py): old roads meeting at the crossing on the island; streets
+# grown out from there along the river, the roads and the old centre; blocks between them,
+# some claimed by landmarks, parks and squares; buildings filling the rest by character (old
+# town, city blocks, terraces, modern slabs, towers by the river on the south-east side,
+# houses at the edge); trees in parks, squares, courtyards and along the main roads.
+city:
+  name: the city (to be named)
+  seed: 3
+  founded_ne_m: [-49, -48]   # on the island, where the old roads crossed the river
+  centre_ne_m: [0, 0]        # the town reaches about radius_m from here, wavering …
+  radius_m: 800
+  fringe: 0.3                # beyond it the town thins out into the country over this much more
+  ribbon_m: 90               # … and further out along the old roads
+  ribbon_reach_m: 220
+  grain_deg: -45             # the streets' general grain away from the river and roads
+  embankment_m: 12           # quays between the water and the first buildings
+  quays_within_m: 650        # quay roads along the water in the older town
+  extra_bridges: 6           # streets that carry on over the river
+  close_up_ne_m: [-1250, 1250, -1250, 1250]
+  roads:                     # where each old road leaves the map
+    - {name: valley road west, to_ne_m: [1800, -2500]}
+    - {name: north road, to_ne_m: [2500, -400]}
+    - {name: hill road, to_ne_m: [900, 2500]}
+    - {name: valley road east, to_ne_m: [-1900, 2500]}
+    - {name: south road, to_ne_m: [-2500, 250]}
+    - {name: downs road, to_ne_m: [-1400, -2500]}
+  landmarks:                 # each claims the blocks round the nearest point it can
+    - {name: Cathedral, kind: cathedral, near_ne_m: [-49, -48], height_m: 75}
+    - {name: Castle, kind: castle, height_m: 28}          # on the island's upstream tip
+    - {name: Town Hall, kind: town_hall, near_ne_m: [20, -158], height_m: 55}
+    - {name: Museum, kind: dome, near_ne_m: [200, 80], height_m: 52}
+    - {name: Victory Column, kind: column, near_ne_m: [-330, -330], height_m: 45}
+    - {name: Stadium, kind: stadium, near_ne_m: [520, 420], height_m: 24}
+  parks:
+    - {name: Royal Park, near_ne_m: [420, -200], radius_m: 160}
+    - {name: Riverside Gardens, near_ne_m: [-420, -120], radius_m: 90}
+    - {name: Southern Common, near_ne_m: [-620, -380], radius_m: 120}
+  garden_squares: 6          # Georgian squares with trees, in the inner town
+  squares: 3                 # small paved squares in the old town
+  towers: {upstream_m: 450, radius_m: 230, tallest_m: 190, tallest_name: The Spire}
+  # Edits to the locked city (step 19, 22 Oct 2026; tools/sketch_city.py raise_tower,
+  # add_antennas): The Spire raised to 250 m, and antennas on every tower's roof.
+  edits: {raise: {The Spire: 250}, antennas: true, arena: rebuilt}  # (arena: tiers round its pitch, its bowl cleared)
+
+# Villages along the old roads, clear of the city, and farmsteads and single buildings in the
+# open country off the hills (step 12, 22 Oct 2026; tools/sketch_country.py).
+countryside:
+  seed: 5
+  villages:                  # each settles on flat, dry land near at_m along its road; tall:
+                             # how many taller buildings (four to seven storeys) at its heart
+    - {name: west village, road: valley road west, at_m: 2000, buildings: 90}
+    - {name: north village, road: north road, at_m: 1950, buildings: 85}
+    - {name: south village, road: south road, at_m: 2050, buildings: 330, radius_m: 370, lanes: 11, tall: 10,
+       clear_m: 200}
+  ribbons:                   # houses strung out along a road between the city and a village
+    - {name: south road houses, road: south road, to: south village, buildings: 60}
+  farms: 30                  # farmsteads, cottages and barns
+  farm_spacing_m: 330        # never closer to each other than this
+  farm_mix: [0.15, 0.1, 0.3, 0.27, 0.18]  # cottage, barn, small, medium, large farm
+
+# The land between the settlements (step 13, 22 Oct 2026; tools/sketch_land.py): a wind farm in
+# the depression behind the eastern range, woods on the hills, copses, and the farms' fields.
+land:
+  seed: 7
+  wind_farm:
+    name: hillside wind farm
+    # On the eastern range's lower slopes facing the city (step 14: moved from behind the
+    # range, so its turbines stand in the way of flights over the town's east side).
+    area_ne_m: [[-1500, 200], [2300, 2460]]
+    city_side_of: eastern range
+    turbines: 24             # aimed for; 22 fitted (locked with the land, 22 Oct 2026)
+    hub_m: 85                # a 2-3 MW turbine: 92 m rotor, 131 m to the blade tip
+    rotor_m: 92
+    spacing_rotors: [3.0, 2.1]  # along the wind, across it (step 16: closer, was 4.5 and 3.0)
+    wind_from_deg: 225       # the prevailing wind (south-west); the rotors face it
+    max_slope: 0.18
+    min_rise_m: 25           # on the slopes, not the valley floor
+    max_rise_m: 200
+    from_houses_m: 300      # from homes (not barns)
+  woods:                     # share of each range's slopes wooded
+    - {range: south-western hills, cover: 0.6, above_m: 12, conifer: 0.15}   # mostly broadleaf
+    - {range: eastern range, cover: 0.22, above_m: 30, below_m: 230, conifer: 0.6}  # plantations
+  copses: 14                 # small woods in the farm land
+  copse_conifer: 0.05
+  fringe_m: 50               # how far woods thin out past their edge, on average (6 to 120 m)
+  scrub: 0.05                # scrub on rough ground (patchy: 0 to about 0.35 of full cover)
+  orchards: 8                # small fields by the villages and farms
+  fields:
+    size_ha: [2.5, 10]       # fields beyond the farm
+    paddock_ha: [0.6, 2.0]   # by the farm
+    max_slope: 0.18          # steeper or higher ground is left as rough grazing
+    max_rise_m: 140
+
+# A power station (step 17, 22 Oct 2026; tools/sketch_power.py): a nuclear plant with two
+# reactors on the river between the west and north villages, with two natural-draught
+# cooling towers, and 400 kV lines on lattice pylons to a substation on the city's edge and
+# off the map to the national grid.
+power:
+  name: power station
+  seed: 9
+  between: [west village, north village]   # on the river, between these
+  size_m: [480, 380]         # along the river, inland (step 18: smaller, was 660 x 520)
+  from_homes_m: 300          # no village or town home nearer (a farm may be bought out)
+  cooling_tower_m: 135       # (was 150)
+  span_m: 330                # pylons at most this far apart
+  lines:
+    - {name: city line, to: city, along_river: true}  # along the bank, to a substation by the city
+    - {name: grid line, to_ne_m: [2500, -1000]}  # off the map, to the national grid
+
+# Telecom masts on the hills and a solar farm in the south (step 18, 22 Oct 2026;
+# tools/sketch_infra.py).
+infra:
+  seed: 11
+  masts:                     # guyed lattice masts, red and white, on each range's highest free ground
+    - {name: eastern mast, range: eastern range, height_m: 200}       # (step 19: was 150)
+    - {name: western mast, range: south-western hills, height_m: 200}
+  solar:
+    name: solar farm
+    size_ha: [5, 10]
+    near_city_m: [150, 700]  # from the city's buildings (step 19: was in the far south-east)
+    from_homes_m: 120
+
+# Operations (step 19, 22 Oct 2026; tools/sketch_ops.py): the airstrip, the fields the UAV
+# may land in, and the no-fly zones. The UAV may fly over the city and villages but land
+# only in the landing fields (or at the airstrip).
+ops:
+  airstrip:
+    near_ne_m: [0, 0]        # as near the middle of the map as a field allows
+    runway_m: 320            # mown grass runway, 18 m wide
+    min_runway_m: 260
+    wind_from_deg: 225       # lined up as near the prevailing wind as the field allows
+  landable:
+    count: 22
+    crops: [pasture, meadow, stubble, ploughed]   # empty: grass, stubble or bare earth
+    min_ha: 1.5              # a small UAV lands in 100-150 m
+    min_length_m: 150
+    min_width_m: 60
+    max_slope: 0.05
+    clear_in_m: 12           # no tree further in from the hedge than this
+    from_zones_m: 30         # off every no-fly zone (the UAV comes down through it to land) …
+    from_closed_m: 100       # … and further from those closed at all heights
+    spacing_m: 260           # spread over the map
+  no_fly:                    # the power station, city centre and arena at all heights; the rest up to a height
+    centre: {to_street_m: 5, join_m: 8, across_river_m: 70, quays_m: 45, seam_m: 12, round_island_m: 60}  # historic centre and towers, one zone
+    turbine_radius_m: 100
+    turbine_ceiling_m: 200   # flat top, this far above the ground at the turbine's foot (tip 131 m)
+    masts: {ring_m: 20, above_m: 50}             # the mast and its stays (130 m out); flat top 50 m above the mast
+    power_lines: {half_width_m: 40, ceiling_m: 100}
+    city: {ceiling_m: 100, to_street_m: 5, join_m: 8, min_ha: 4, enclosed: 0.5, inlet_m: 30, across_river_m: 90, quays_m: 45, seam_m: 12}  # the built-up core, its parks and the river through it, one edge along the streets
+  geofence_inset_m: 150      # the map's edge, 150 m in
+  ceiling_m: 500             # the geofence's top: a flat altitude over the whole map, above its datum (step 21: was
+  ceiling_ref: datum         # 300 m above the ground); zones with no ceiling of their own go up to it

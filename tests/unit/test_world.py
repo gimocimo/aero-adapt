@@ -151,3 +151,16 @@ def test_flat_terrain_is_exactly_zero() -> None:
     pts = jnp.asarray([[0.0, 0.0], [1234.5, -987.6], [-1e4, 3e3]], jnp.float32)
     assert np.all(np.asarray(ground_height(t, pts)) == 0.0)
     assert np.all(np.asarray(obstacle_height(t, pts)) == 0.0)
+
+
+def test_the_test_map_step_1() -> None:
+    """The owner's test map so far: 5 km square, open ground, a plain with hills to the east."""
+    w = load_world("testmap")
+    assert w.bounds == (-2500.0, -2500.0, 2500.0, 2500.0)
+    assert not w.plots and not w.hedges and not len(w.trees) and not w.buildings
+    h, e = w.dtm.h, w.dtm.e0 + w.dtm.cell * np.arange(w.dtm.h.shape[1])
+    west, east = h[:, e < 500.0], h[:, e > 1200.0]
+    assert float(np.ptp(west)) < 10.0  # the plain: a few metres of gentle rise and ripple
+    assert 70.0 < float(east.max()) < 85.0  # the hills
+    assert float(w.dtm.at(0.0, 0.0)) == pytest.approx(0.0, abs=1e-9)
+    assert not load_site("testmap").safe_zones

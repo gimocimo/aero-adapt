@@ -1,0 +1,25 @@
+# The test map, drawn with the owner step by step (docs/07). 5 km square, home at the centre.
+#
+# Step 1 (22 Oct 2026): the ground only. A plain (gentle undulation of about a metre, rising
+# slowly towards the east) with a group of hills on the eastern side, up to about 75 m above
+# home. Everything else comes in later steps.
+schema_version: 1
+id: testmap
+name: Test map
+description: >-
+  The owner's test map, built up feature by feature. Step 1: a plain with hills to the east.
+seed: 5000
+bounds_ne_m: [[-2500, -2500], [2500, 2500]]
+
+terrain:
+  cell_m: 10
+  east_slope_per_km: 2.0
+  hills:
+    # (north, east) in metres from home; height above the plain; radius (1/e of the height)
+    - {centre_ne_m: [-300, 2050], height_m: 70, radius_m: 520}   # the highest
+    - {centre_ne_m: [750, 1700], height_m: 55, radius_m: 450}
+    - {centre_ne_m: [-1300, 1550], height_m: 42, radius_m: 420}
+    - {centre_ne_m: [1750, 2150], height_m: 40, radius_m: 420}
+    - {centre_ne_m: [-750, 2400], height_m: 30, radius_m: 360}
+    - {centre_ne_m: [150, 1150], height_m: 20, radius_m: 330}    # a foothill
+  noise_m: 0.8

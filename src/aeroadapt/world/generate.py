@@ -20,7 +20,7 @@ from shapely.geometry import LineString, MultiLineString, Point, Polygon, box
 from shapely.ops import unary_union
 
 from aeroadapt.core.polygons import principal_chords
-from aeroadapt.world.schema import BuildingSpec, WorldSpec
+from aeroadapt.world.schema import BuildingSpec, FieldSpec, WorldSpec
 
 FIELD_MIN_AREA_M2 = 12_000.0  # smaller leftovers are rough grass, without hedges
 ZONE_INSET_M = 15.0  # a safe zone keeps this far inside its field's hedges
@@ -377,28 +377,34 @@ def generate(spec: WorldSpec) -> World:
     wood_union = unary_union([w.polygon for w in woods])
     excluded = unary_union([river_corridor, road_corridors, wood_union, *built, *drawn.values()])
 
-    # Fields: a jittered grid (rotated with the lie of the land) less everything above.
-    fs = spec.fields
-    rot = math.radians(fs.rotation_deg)
-    R = np.array([[math.cos(rot), -math.sin(rot)], [math.sin(rot), math.cos(rot)]])
-    reach = 1.5 * max(n1 - n0, e1 - e0) / 2 + max(fs.size_m)
-
-    def lines_(scale: float) -> np.ndarray:
-        xs, x = [-reach], -reach
-        while x < reach:
-            x += scale * rng.uniform(*fs.size_m)
-            xs.append(x)
-        return np.asarray(xs)
-
-    us, vs = lines_(0.75), lines_(1.0)  # fields run longer east-west than north-south
-    uu, vv = np.meshgrid(us, vs, indexing="ij")
-    grid = np.stack([uu, vv], -1) + rng.uniform(-fs.jitter_m, fs.jitter_m, (*uu.shape, 2))
-    grid = grid @ R.T
-    crops = list(fs.crops)
-    weights = np.asarray([fs.crops[c] for c in crops], float)
-    weights /= weights.sum()
+    # Fields: a jittered grid (rotated with the lie of the land) less everything above. A
+    # world without a field spec is open grassland (hedges keep their default sizes).
+    fs = spec.fields or FieldSpec(crops={"rough": 1.0})
     zone_at = {z.id: Point(z.at_ne_m) for z in spec.zones if z.at_ne_m is not None}
     zone_crop = {z.id: z.crop for z in spec.zones}
+    us = vs = np.zeros(0)
+    grid = np.zeros((0, 0, 2))
+    crops: list[str] = []
+    weights = np.zeros(0)
+    if spec.fields is not None:
+        rot = math.radians(fs.rotation_deg)
+        R = np.array([[math.cos(rot), -math.sin(rot)], [math.sin(rot), math.cos(rot)]])
+        reach = 1.5 * max(n1 - n0, e1 - e0) / 2 + max(fs.size_m)
+
+        def lines_(scale: float) -> np.ndarray:
+            xs, x = [-reach], -reach
+            while x < reach:
+                x += scale * rng.uniform(*fs.size_m)
+                xs.append(x)
+            return np.asarray(xs)
+
+        us, vs = lines_(0.75), lines_(1.0)  # fields run longer east-west than north-south
+        uu, vv = np.meshgrid(us, vs, indexing="ij")
+        grid = np.stack([uu, vv], -1) + rng.uniform(-fs.jitter_m, fs.jitter_m, (*uu.shape, 2))
+        grid = grid @ R.T
+        crops = list(fs.crops)
+        weights = np.asarray([fs.crops[c] for c in crops], float)
+        weights /= weights.sum()
     k = 0
     for i in range(len(us) - 1):
         for j in range(len(vs) - 1):

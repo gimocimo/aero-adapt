@@ -171,7 +171,7 @@ class WorldSpec(_Strict):
     farms: list[FarmSpec] = Field(default_factory=list)
     airstrip: AirstripSpec | None = None
     structures: list[StructureSpec] = Field(default_factory=list)
-    fields: FieldSpec
+    fields: FieldSpec | None = None  # None: no field patchwork (open grassland)
     zones: list[ZoneSpec] = Field(default_factory=list)
     places: list[PlaceSpec] = Field(default_factory=list)
 

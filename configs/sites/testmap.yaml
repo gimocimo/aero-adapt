@@ -1,0 +1,30 @@
+schema_version: 1
+id: testmap
+name: Test map (synthetic)
+description: >-
+  The owner's test map (configs/worlds/testmap.yaml), built up step by step. Step 1: a 5 km
+  plain with hills to the east, nothing on it yet.
+
+# Nominal, as for Wrenfold: the origin sets the magnetic field and the barometric reference.
+origin:
+  lat_deg: 52.05
+  lon_deg: -1.62
+  h_ellipsoid_m: 120.0
+geoid_undulation_m: 47.0
+
+ground_model: world
+world: testmap
+
+isa:
+  temp_offset_k: 0.0
+  qnh_hpa: 1013.25
+
+magnetic:               # tools/site_magnetic.py 52.05 -1.62 120 2026.807
+  model: WMM2025
+  epoch_year: 2026.807
+  declination_deg: 0.677
+  inclination_deg: 66.920
+  total_field_gauss: 0.49231
+  field_ned_gauss: [0.19298, 0.00228, 0.45290]
+
+airspace_notes: Synthetic site, no real airspace. No-fly areas and a geofence come later.

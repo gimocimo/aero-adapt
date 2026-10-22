@@ -296,3 +296,9 @@ The world is synthetic. Wrenfold is not a real place, and its origin only sets t
   - World format, generator and Wrenfold Vale. Terrain and obstacles in the simulator. The survey and the contingency's zone heights and thresholds. Planner terrain clearance. The four-panel Skyview.
   - The first sweep, before thresholds, had 6 strikes in 24. The obstacle-aware aim brought that to 2 in 24 (one of them with no field within glide).
   - Three more landing grounds (F, G, H), a longer G and Hollow Farm moved out of field E's approach line brought it to 1 in 24, with 20 in the field.
+- **22 Oct 2026, the owner's test map, step 1.** The owner is drawing a second world with me, a feature at a time (`configs/worlds/testmap.yaml`, site `testmap`, scenario `testmap-nominal`).
+  - Step 1 is the ground only: 5 km square, home at the centre. A plain rises gently eastwards, about ±5 m round home. Six hills on the eastern side reach 78 m above home.
+  - A world may now leave out its field patchwork (open grassland).
+  - `tools/world_map.py` draws any world as a map sheet: shaded relief, contours, features, zones, no-fly areas, and a grid labelled every 500 m.
+  - Skyview now tints open ground by height and bakes shaded relief (lit from the north-west, as on maps) into the ground texture, so hills read even from straight above. Its lights are a little softer.
+  - A **Grid** layer (on by default) draws 100 m lines with 500 m labels on the map, for talking about positions.

@@ -42,6 +42,7 @@ interface Label {
   cls: string;
   pos: THREE.Vector3;
   views: ("chase" | "top")[];
+  grid?: boolean; // a grid coordinate: shown with the grid layer
   els: Partial<Record<"chase" | "top", HTMLDivElement>>;
 }
 
@@ -126,6 +127,7 @@ export class WorldView {
   private worldKey = "";
   readonly thin: number;
   last: Sample | null = null;
+  private showGrid = true;
 
   constructor(canvas: HTMLCanvasElement, opts: { thin?: number } = {}) {
     this.thin = opts.thin ?? 1;
@@ -133,8 +135,8 @@ export class WorldView {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.thin > 1 ? 1 : 2));
     this.renderer.setClearColor(SKY);
     this.scene.background = SKY;
-    this.scene.add(new THREE.HemisphereLight("#eaf4ff", "#5d6e45", 1.6));
-    const sun = new THREE.DirectionalLight("#fff4df", 1.9);
+    this.scene.add(new THREE.HemisphereLight("#eaf4ff", "#5d6e45", 1.15));
+    const sun = new THREE.DirectionalLight("#fff4df", 1.6);
     sun.position.set(-0.6, 1.0, 0.45).multiplyScalar(1000);
     this.scene.add(sun, this.worldGroup);
     this.chaseCam.layers.enable(LAYER_CHASE);
@@ -423,6 +425,17 @@ export class WorldView {
       ];
       for (const [name, [n, e]] of named) add(name, "lbl-place", n, e, this.groundAt(n, e) + 25, ["top"]);
     }
+    if (this.world) {
+      // Grid coordinates every 500 m along the map's west and south edges.
+      const [n0, e0, n1, e1] = this.world.bounds;
+      const fmt = (v: number, pos: string, neg: string) => (v === 0 ? "0" : `${Math.abs(v)} m ${v > 0 ? pos : neg}`);
+      for (let v = Math.ceil(n0 / 500) * 500; v < n1; v += 500) {
+        if (v > n0) this.labels.push({ text: fmt(v, "N", "S"), cls: "lbl-grid", pos: new THREE.Vector3(e0 + 15, 0, -v), views: ["top"], els: {}, grid: true });
+      }
+      for (let v = Math.ceil(e0 / 500) * 500; v < e1; v += 500) {
+        if (v > e0) this.labels.push({ text: fmt(v, "E", "W"), cls: "lbl-grid lbl-grid-e", pos: new THREE.Vector3(v, 0, -n0 - 15), views: ["top"], els: {}, grid: true });
+      }
+    }
     for (const a of this.site?.no_fly ?? []) {
       const ring = a.polygons[0];
       if (!ring) continue;
@@ -450,7 +463,7 @@ export class WorldView {
       const el = l.els[view];
       if (!el) continue;
       v.copy(l.pos).project(cam);
-      const visible = v.z < 1 && Math.abs(v.x) < 1.05 && Math.abs(v.y) < 1.05;
+      const visible = v.z < 1 && Math.abs(v.x) < 1.05 && Math.abs(v.y) < 1.05 && (!l.grid || this.showGrid);
       el.style.display = visible ? "" : "none";
       if (visible) el.style.transform = `translate(${((v.x + 1) / 2) * w}px, ${((1 - v.y) / 2) * h}px) translate(-50%, -100%)`;
     }
@@ -472,11 +485,13 @@ export class WorldView {
   private repaintOverlay(s: Sample | null, layers: Layers): void {
     if (!this.overlay || !this.world) return;
     const zones = this.main?.replay.manifest.site.safe_zones ?? [];
-    const key = `${layers.zones}|${s?.reachMask ?? 0}|${s?.zone ?? -1}|${s?.failed ?? false}`;
+    this.showGrid = layers.grid;
+    const key = `${layers.zones}|${layers.grid}|${s?.reachMask ?? 0}|${s?.zone ?? -1}|${s?.failed ?? false}`;
     if (key === this.overlay.key) return;
     this.overlay.key = key;
     const st: OverlayState = {
       showZones: layers.zones,
+      grid: layers.grid,
       zones: zones.map((z, k) => ({
         id: z.id,
         polygon: z.polygon_ne_m,

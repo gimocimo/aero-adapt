@@ -15,6 +15,7 @@ const LAYER_LABELS: Record<keyof Layers, string> = {
   mission: "Mission",
   zones: "Safe zones",
   ghost: "Ghost",
+  grid: "Grid (100 m)",
 };
 
 const IMPORTANT = new Set([

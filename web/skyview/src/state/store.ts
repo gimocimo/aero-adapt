@@ -10,6 +10,8 @@ export interface Layers {
   mission: boolean;
   zones: boolean;
   ghost: boolean;
+  /** The reference grid on the ground: 100 m lines, labelled every 500 m on the map. */
+  grid: boolean;
 }
 
 interface State {
@@ -51,7 +53,7 @@ export const useStore = create<State>((set, get) => ({
   playing: false,
   speed: 1,
   camera: "chase",
-  layers: { trail: true, mission: true, zones: true, ghost: true },
+  layers: { trail: true, mission: true, zones: true, ghost: true, grid: true },
   status: "",
   live: null,
   liveSend: null,

@@ -258,3 +258,13 @@ def test_recorded_replies(ctx: tr.Context, tmp_path) -> None:
     assert isinstance(t.reply, Plan)
     with pytest.raises(tr.TranslatorError):
         asyncio.run(tr.Recorded(path).translate(ctx, "something else"))
+
+
+def test_a_workspace_id_is_sent_when_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.setenv("ANTHROPIC_WORKSPACE_ID", "wrkspc_test")
+    client = tr.ClaudeTranslator("haiku").client
+    assert client.default_headers["anthropic-workspace-id"] == "wrkspc_test"
+    monkeypatch.delenv("ANTHROPIC_WORKSPACE_ID")
+    assert "anthropic-workspace-id" not in tr.ClaudeTranslator("haiku").client.default_headers

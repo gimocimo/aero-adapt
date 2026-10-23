@@ -19,7 +19,8 @@ The prompt:
 Translators:
 
 * ``ClaudeTranslator``: the API. The SDK reads ``ANTHROPIC_API_KEY`` from the environment of
-  the process; the key is never stored, logged or passed around here.
+  the process; the key is never stored, logged or passed around here. An organisation-wide key
+  also needs ``ANTHROPIC_WORKSPACE_ID`` (sent as the ``anthropic-workspace-id`` header).
 * ``StandIn``: a few fixed phrasings, for tests and for flying without a key.
 * ``Recorded``: replies recorded from the API, for CI (which never calls it).
 """
@@ -403,9 +404,14 @@ class ClaudeTranslator:
     @property
     def client(self) -> AsyncAnthropic:
         if self._client is None:
+            import os
+
             from anthropic import AsyncAnthropic
 
-            self._client = AsyncAnthropic(timeout=TIMEOUT_S, max_retries=1)
+            # An organisation-wide key (not scoped to a workspace) must name one per request.
+            ws = os.environ.get("ANTHROPIC_WORKSPACE_ID")
+            headers = {"anthropic-workspace-id": ws} if ws else None
+            self._client = AsyncAnthropic(timeout=TIMEOUT_S, max_retries=1, default_headers=headers)
         return self._client
 
     async def translate(self, ctx: Context, text: str) -> Translation:
@@ -440,7 +446,8 @@ class ClaudeTranslator:
             except anthropic.AuthenticationError as e:
                 raise TranslatorError("the API key was not accepted") from e
             except anthropic.APIStatusError as e:
-                raise TranslatorError(f"the language model failed ({e.status_code})") from e
+                why = str(getattr(e, "message", "") or "")[:300]
+                raise TranslatorError(f"the language model failed ({e.status_code}): {why}") from e
             except anthropic.APIConnectionError as e:
                 raise TranslatorError("the language model could not be reached") from e
             except ValueError as e:  # the reply did not validate against the schema

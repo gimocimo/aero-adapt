@@ -665,6 +665,76 @@ dd {
   border-left: 3px solid #fff;
   background: rgba(255, 255, 255, 0.08);
 }
+/* Txt2Fly's conversation (docs/06 §10): the operator's words, then the answer. */
+.ask .conversation {
+  max-height: 180px;
+  overflow-y: auto;
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+}
+.ask .conversation li {
+  margin: 0 0 6px;
+}
+.ask .said {
+  margin: 0 0 2px;
+  padding: 3px 7px;
+  border-radius: 8px;
+  background: rgba(76, 201, 240, 0.16);
+  width: fit-content;
+  max-width: 92%;
+  margin-left: auto;
+}
+.ask .answer {
+  margin: 0;
+  padding: 2px 0;
+  line-height: 1.35;
+}
+.ask .answer.pending {
+  color: #9aa6b8;
+  font-style: italic;
+}
+.ask .answer.plan {
+  color: #9be7b4;
+}
+.ask .answer.refuse,
+.ask .answer.error {
+  color: #ffb86b;
+}
+.ask .answer.clarify p {
+  margin: 0 0 4px;
+}
+.ask .options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.ask .options button {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+.ask form {
+  display: flex;
+  gap: 6px;
+}
+.ask input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid #3a4558;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #e8ecf2;
+  font: inherit;
+}
+.planpanel details.typed {
+  margin: 8px 0 4px;
+}
+.planpanel details.typed summary {
+  cursor: pointer;
+  color: #9aa6b8;
+  margin-bottom: 6px;
+}
 .proposal .verdict {
   margin: 4px 0;
   font-weight: 600;

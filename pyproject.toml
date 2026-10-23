@@ -32,6 +32,9 @@ live = [
     "msgpack>=1.0",
     "websockets>=13",
 ]
+txt2fly = [
+    "anthropic>=2.1,<3",
+]
 
 [dependency-groups]
 dev = [

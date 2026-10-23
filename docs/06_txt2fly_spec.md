@@ -105,9 +105,11 @@ src/aeroadapt/txt2fly/
   gazetteer.py    site places, safe zones, no-fly polygons, OSM features
   builder.py      plan → mission v2 items + preview path (airframe- and wind-aware)
   checker.py      rules K1–K8, plain-language reasons and suggestions
-  translate.py    Claude: text + context → Reply
+  translate.py    Claude: text + context → Reply; the stand-in and recorded translators
+  prompt_rules.md the model's standing instructions and worked examples
   mavlink.py      QGroundControl .waypoints export (Should)
-  evaluate.py     eval runner and deterministic grader
+src/aeroadapt/harness/txt2fly_eval.py   eval runner and deterministic grader (a harness: the
+                                        planner itself must not import the simulator's side)
 src/aeroadapt/stack/mission.py      mission v2 items and sequencing
 configs/sites/cambridge_west.yaml   + geofence, ceiling, minimum height, no-fly polygons, places
 configs/sites/cambridge_west.osm.json   OSM extract (ODbL, attributed)
@@ -453,11 +455,15 @@ style items.
 
 **Server commands** (added to the live protocol):
 
-- `ask{text}` replies with one of:
-  - `plan_proposal{id, plan, items, preview, checks}`;
-  - `clarify{question, options}`;
-  - `refuse{reason}`;
-  - `error{message}`.
+- `ask{text}` replies `ask_reply{text, kind, …}`, its kind one of:
+  - `plan` (with the proposal's id and summary), the proposal itself coming as a
+    `plan_proposal{id, plan, items, preview, checks}`, exactly as for a typed plan;
+  - `clarify` (`question`, `options`);
+  - `refuse` (`reason`);
+  - `error` (`message`).
+
+  `hello` names the translator: Claude, or the stand-in when there is no API key
+  (`aeroadapt serve --translator auto|claude|haiku-think|opus|stand-in|none`).
 - `propose_plan{plan}`: a typed plan, the same reply without the model.
 - `confirm_plan{id, acknowledged}`: applied at the next control step.
 - `cancel_plan{id}`.
@@ -764,4 +770,78 @@ the language layer moves to week 11. For Txt2Fly:
 - **Bug fixed.** A turn point the builder inserts before a return-home circle took height 0 m
   when the leg before it was a circle, so the aircraft dived on the way home (unnoticed on flat
   Cambridge). It now keeps the circle's height.
+
+### Week 11 (23 Oct 2026): the language layer
+
+**Built**
+
+- **The translator** (`txt2fly/translate.py`), through the official SDK (`anthropic` 2.x, the
+  new `txt2fly` extra), `AsyncAnthropic` with a 30 s timeout:
+  - **Haiku 5.5 without thinking at low effort** by default (`thinking: disabled` is accepted
+    at low to high effort on this model); no sampling parameters and no prefill, which this
+    model and the 2026-10-21 API reject. The other settings: `haiku-think` (adaptive thinking,
+    low effort) and `opus` (Opus 5.5, which always thinks, at its default medium effort).
+  - **The reply schema is made for the site**: `messages.parse` with a Pydantic model whose
+    place ids are an enum of the site's places, so the model cannot name a place that does not
+    exist, and whose plan mirrors `plan.py` field for field. Unions are plain: each variant's
+    literal tells them apart, and the API's schemas take no discriminator keyword.
+  - **The prompt**: two cached system blocks, the rules with ten worked examples
+    (`prompt_rules.md`, the same everywhere) and the site and aircraft (fixed for a session).
+    About 3,700–4,100 tokens (Wrenfold, London, Cambridge). Each instruction adds the state now
+    (position, height, heading, nearest place, wind, the tightest circle in this wind, battery
+    and minutes to the reserve, the active plan with the radii and heights the builder chose)
+    and the last six turns, about 100–120 tokens.
+  - **Places for the model**: names quoted as data, with their aliases ("field A" is also
+    "Mill Meadow"), where they are from home, and their ground and top in metres above home,
+    from the planner's own relief grid (the conservative highest surface within 30 m). A big
+    site leaves its streets out: London's 2,951 places become 40.
+  - **Failures**: a refusal stop reason becomes a refusal; `max_tokens` gets one retry with
+    twice the room; timeouts, rate limits, a rejected key and other API errors become a
+    message in the panel. The flight never depends on the reply.
+  - **Opus** sends the server-side refusal fallback (`fallbacks: "default"`), and the report
+    counts any reply a fallback model served, so the reference is not silently another model.
+- **The stand-in** reads a few fixed phrasings ("circle the church at 80 m", "fly by field A",
+  "patrol fields A, B and C", "go home", joined by "then") and refuses safety changes. It is
+  what `serve` uses without a key, and what the tests use. `Recorded` replays replies recorded
+  from the API (for CI, which never calls it).
+- **Live mode**: `ask{text}` (above), run beside the flight; the conversation stays with the
+  connection, and is saved beside the session's recording as `conversation.json`. The session
+  log still records only the missions flown, so replays never call the model.
+- **Skyview**: the Plan tab leads with a text box and the conversation (clarifying answers as
+  buttons, "thinking…" while waiting, the translator named underneath); the typed-plan editor
+  folds away under "Typed plan". Playwright asks the stand-in: a safety change is refused, a
+  patrol in words is checked, confirmed and flown.
+- **CLI**: `aeroadapt txt2fly ask "<text>" [--translator …] [state …]` prints the reply and the
+  checker's report; `aeroadapt txt2fly eval [--split test] [--repeats 3] [--translator …]`.
+- **The evaluation** (`harness/txt2fly_eval.py`, `configs/txt2fly/eval_v1.yaml`), written before
+  any prompt tuning: 200 cases in the §11 proportions (80 clear, 30 ambiguous, 40 infeasible,
+  25 follow-ups, 15 unsafe or out of scope, 10 adversarial), over Wrenfold (the Aerosonde, a
+  glider, a twin-boom; calm, 6 and 10 m/s), London (the city trainer) and Cambridge, with
+  active plans flown before follow-ups, and two instruction-like place names injected into the
+  gazetteer. Split 50/50 by a hash of the case id. Graded by code; a **gold** translator answers
+  with each case's own expectation, which checks the set and the grader against the real
+  builder and checker for free: 200/200 pass, the expected reason found in 40/40 infeasible
+  cases.
+
+**Found and fixed**
+
+- **London's "church" was South Bank Tower**: the world gazetteer joined any named tower to a
+  church. A tower now joins a church only when there is a nave; London's towers are places of
+  their own.
+- **A start below the floor failed every plan.** An aircraft already lower than 30 m above the
+  buildings around it (60 m over Potters Fields) failed K4 on the first seconds of any plan,
+  which no plan can change. The checker and the builder's lift now allow the climb out of a
+  start that is too low, as the checker already allowed leaving a no-fly area the aircraft
+  started in; a plan that never climbs above the floor still fails.
+
+**Open**
+
+- **The paid runs (V27).** They need `ANTHROPIC_API_KEY` in the shell that runs them and the
+  owner's go-ahead. Estimated from the measured prompt sizes: the Haiku test split (about 100
+  cases × 3) about $0.07; with thinking about $0.15; the Opus reference about $7.
+- **London: climbing before the transit.** A plan that must climb far from a low start (a
+  circle of the Shard from 60 m) still fails K4 on the way, because the aircraft climbs while
+  it travels past towers; the builder should circle up first. A separate task.
+- V26 on the eval's accepted plans, the demo clip and write-up (T11), and the Shoulds (T9
+  MAVLink export, T10 glide landing).
 

@@ -60,6 +60,24 @@ export interface PlanProposal extends PlanReport {
   id: string;
 }
 
+/** One exchange with the translator (docs/06 §10): the operator's words and its answer. */
+export interface AskEntry {
+  text: string;
+  /** null while the translator is working. */
+  kind: "plan" | "clarify" | "refuse" | "error" | null;
+  question?: string;
+  options?: string[];
+  reason?: string;
+  message?: string;
+  summary?: string;
+  latency_s?: number;
+}
+
+export interface LiveTranslator {
+  name: string | null;
+  note: string;
+}
+
 export interface LiveAirframe {
   id: string;
   v_cruise_mps: number;
@@ -90,6 +108,9 @@ export interface LiveStatus {
   proposal: PlanProposal | null;
   /** The confirmed plan being flown. */
   activePlan: PlanProposal | null;
+  /** Txt2Fly's language layer: which translator answers, and the conversation so far. */
+  translator: LiveTranslator | null;
+  conversation: AskEntry[];
 }
 
 export interface LiveWind {
@@ -115,6 +136,8 @@ export const OFFLINE: LiveStatus = {
   world: null,
   proposal: null,
   activePlan: null,
+  translator: null,
+  conversation: [],
 };
 
 type Message =
@@ -129,7 +152,9 @@ type Message =
       site: SiteLayers | null;
       world: unknown;
       plan: PlanProposal | null;
+      translator?: LiveTranslator;
     }
+  | ({ type: "ask_reply" } & AskEntry)
   | { type: "plan_proposal"; proposal: PlanProposal }
   | { type: "plan_active"; plan: PlanProposal }
   | { type: "frames"; n: number; cols: Record<string, WireColumn> }
@@ -183,6 +208,10 @@ export class LiveClient {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(encode(msg));
     // A cancelled proposal disappears at once (the server keeps no reply for it).
     if (msg.cmd === "cancel_plan") this.setStatus({ proposal: null });
+    // The question shows at once, answered when the translator replies.
+    if (msg.cmd === "ask" && typeof msg.text === "string") {
+      this.setStatus({ conversation: [...this.status.conversation, { text: msg.text, kind: null }].slice(-12) });
+    }
   }
 
   close(): void {
@@ -216,6 +245,8 @@ export class LiveClient {
         world: m.world ? fromWire(m.world) : null,
         proposal: null,
         activePlan: m.plan,
+        translator: m.translator ?? null,
+        conversation: [],
       });
       this.h.onBuffer(this.buffer);
     } else if (m.type === "frames" && this.buffer) {
@@ -224,6 +255,13 @@ export class LiveClient {
     } else if (m.type === "events" && this.buffer) {
       this.buffer.events.push(...m.events);
       this.h.onData(this.buffer);
+    } else if (m.type === "ask_reply") {
+      const { type: _type, ...entry } = m;
+      const conv = [...this.status.conversation];
+      const i = conv.findIndex((e) => e.kind === null && e.text === entry.text);
+      if (i >= 0) conv[i] = entry;
+      else conv.push(entry);
+      this.setStatus({ conversation: conv.slice(-12) });
     } else if (m.type === "plan_proposal") {
       this.setStatus({ proposal: m.proposal });
     } else if (m.type === "plan_active") {

@@ -14,7 +14,11 @@ trees, buildings, for the stylised view.
 Txt2Fly (docs/06 §10): ``hello`` carries the site's operating area (geofence, no-fly areas,
 places); ``propose_plan{plan}`` answers ``plan_proposal`` (the plan built and checked from the
 aircraft's state now); ``confirm_plan{id, acknowledged}`` flies it from the next chunk
-(``plan_active`` follows); ``cancel_plan{id}``.
+(``plan_active`` follows); ``cancel_plan{id}``. ``ask{text}`` sends plain words to the
+translator (docs/06 §9) and answers ``ask_reply`` (kind plan, clarify, refuse or error); a plan
+also comes as a ``plan_proposal``, exactly as a typed one. The conversation stays with the
+connection, and is saved beside the recording (``conversation.json``); the session log itself
+records only the plans flown, so a replay never calls the model.
 
 Airframes: the scenario's own, and the sample fleet (``configs/fleets/sample``) with the
 stack configurations V20 tuned for them (``stack_cfgs.jsonl``).
@@ -46,7 +50,9 @@ from aeroadapt.live.session import CHUNK_S, LiveSession
 from aeroadapt.scenarios.schema import SCENARIO_DIR, load_scenario
 from aeroadapt.scenarios.site import load_site
 from aeroadapt.stack.config import StackCfg
-from aeroadapt.txt2fly.gazetteer import site_layers
+from aeroadapt.txt2fly import translate as tr
+from aeroadapt.txt2fly.gazetteer import load_gazetteer, site_layers
+from aeroadapt.txt2fly.plan import Plan
 
 REPO = Path(__file__).resolve().parents[3]
 RUNS = REPO / "runs" / "live"
@@ -64,6 +70,8 @@ class Catalogue:
     airframes: dict[str, Airframe] = field(default_factory=dict)
     stacks: dict[str, StackCfg] = field(default_factory=dict)
     models: dict[str, bytes] = field(default_factory=dict)
+    translator: tr.Translator | None = None
+    translator_note: str = ""
 
     @classmethod
     def load(cls, fleet: Path = SAMPLE_FLEET) -> Catalogue:
@@ -150,6 +158,9 @@ class Connection:
         self.paused = False
         self.error: str | None = None
         self.session = session
+        self.turns: list[tr.Turn] = []  # what the translator is shown of the conversation
+        self.conversation: list[dict[str, Any]] = []  # the record, saved with the session
+        self._asks: set[asyncio.Task[None]] = set()
 
     async def send(self, msg: dict[str, Any]) -> None:
         await self.ws.send(_pack(msg))
@@ -175,7 +186,57 @@ class Connection:
             "site": site_layers(self.session.resolved.site),
             "world": _world(self.session.resolved.site.world),
             "plan": self.session.active_plan,
+            "translator": {"name": cat.translator.name if cat.translator else None,
+                           "note": cat.translator_note},
         })  # fmt: skip
+
+    async def ask(self, text: str) -> None:
+        """Plain words → the translator → a proposal, a question or a refusal. Runs beside the
+        flight, which carries on whatever happens here."""
+        cat, session = self.catalogue, self.session
+        reply: dict[str, Any] = {"type": "ask_reply", "text": text}
+        if cat.translator is None or session.resolved.site.operations is None:
+            reply.update(kind="error", message="no translator here: type a plan instead")
+            await self.send(reply)
+            return
+        ctx = tr.Context(load_gazetteer(session.resolved.site), session.aircraft(),
+                         session.active_plan, tuple(self.turns), session.time_s)  # fmt: skip
+        try:
+            t = await cat.translator.translate(ctx, text)
+        except tr.TranslatorError as e:
+            reply.update(kind="error", message=str(e))
+            self.conversation.append({"time_s": session.time_s, "text": text, "error": str(e)})
+            await self.send(reply)
+            return
+        if session is not self.session:  # the scenario changed while the model was thinking
+            return
+        if t.turn is not None:
+            self.turns.append(t.turn)
+        self.conversation.append(
+            {
+                "time_s": session.time_s,
+                "text": text,
+                "reply": t.raw,
+                "translator": t.translator,
+                "model": t.model,
+                "latency_s": round(t.latency_s, 3),
+                "usage": t.usage,
+            }
+        )
+        reply.update(translator=t.translator, latency_s=round(t.latency_s, 3))
+        if isinstance(t.reply, tr.Clarify):
+            reply.update(kind="clarify", question=t.reply.question, options=list(t.reply.options))
+        elif isinstance(t.reply, tr.Refuse):
+            reply.update(kind="refuse", reason=t.reply.reason)
+        else:
+            assert isinstance(t.reply, Plan)
+            err, prop = await asyncio.to_thread(session.propose, t.reply)
+            if prop is None:
+                reply.update(kind="error", message=err or "the plan could not be built")
+            else:
+                reply.update(kind="plan", proposal=prop["id"], summary=t.reply.summary)
+                await self.send({"type": "plan_proposal", "proposal": prop})
+        await self.send(reply)
 
     async def receive(self) -> None:
         async for raw in self.ws:
@@ -206,6 +267,10 @@ class Connection:
                 self.error = await asyncio.to_thread(self.session.confirm, str(msg.get("id")), ack)
             elif cmd == "cancel_plan":
                 self.session.cancel(str(msg.get("id")))
+            elif cmd == "ask" and str(msg.get("text") or "").strip():
+                task = asyncio.create_task(self.ask(str(msg["text"]).strip()[:500]))
+                self._asks.add(task)
+                task.add_done_callback(self._asks.discard)
             elif cmd == "reset":
                 scenario = str(msg.get("scenario") or self.scenario_id)
                 airframe = msg.get("airframe", self.airframe_id) or None
@@ -216,6 +281,7 @@ class Connection:
                 else:
                     self.record()
                     self.scenario_id, self.airframe_id = scenario, airframe
+                    self.turns, self.conversation = [], []
                     self.session = await asyncio.to_thread(
                         self.catalogue.session, scenario, airframe
                     )
@@ -247,7 +313,10 @@ class Connection:
         if not self.session.chunks:
             return None
         out = RUNS / f"{self.scenario_id}-{next(_session_ids):03d}"
-        return self.session.record(out)
+        path = self.session.record(out)
+        if self.conversation:
+            (path / "conversation.json").write_text(json.dumps(self.conversation, indent=1) + "\n")
+        return path
 
 
 async def _handler(ws: ServerConnection, catalogue: Catalogue, scenario_id: str) -> None:
@@ -304,10 +373,29 @@ def _other_grounds(catalogue: Catalogue, scenario_id: str) -> list[str]:
     return out
 
 
+def make_translator(choice: str) -> tuple[tr.Translator | None, str]:
+    """The translator ``serve --translator`` asks for, and a note for the operator. ``auto``:
+    Claude when the SDK and a key are there, else the stand-in."""
+    if choice == "none":
+        return None, "no translator: type plans instead"
+    if choice == "stand-in" or (choice == "auto" and not tr.available()):
+        note = "" if choice == "stand-in" else "no API key: "
+        return tr.StandIn(), note + "a stand-in reads a few fixed phrasings"
+    setting = "haiku" if choice in ("auto", "claude") else choice
+    t = tr.ClaudeTranslator(setting)
+    return t, f"Claude ({t.setting.model})"
+
+
 async def run_server(
-    scenario_id: str, host: str = "127.0.0.1", port: int = 8765, warm_others: bool = True
+    scenario_id: str,
+    host: str = "127.0.0.1",
+    port: int = 8765,
+    warm_others: bool = True,
+    translator: str = "auto",
 ) -> None:
     catalogue = Catalogue.load()
+    catalogue.translator, catalogue.translator_note = make_translator(translator)
+    print(f"translator: {catalogue.translator_note}", flush=True)
     print(f"compiling the closed loop ({len(catalogue.airframes)} fleet airframes)…", flush=True)
     await asyncio.to_thread(_warm_up, catalogue, scenario_id)
 

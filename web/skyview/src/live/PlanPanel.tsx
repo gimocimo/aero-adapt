@@ -1,9 +1,10 @@
-// Txt2Fly (docs/06 §10): a typed plan is built and checked against the aircraft's state now,
-// shown on the map, and flown from the next chunk once confirmed. (The language layer, in week
-// 10, puts a text box in front of the same steps.)
-import { useEffect, useState } from "react";
+// Txt2Fly (docs/06 §10): say where to go in plain words, or type a plan. Either way the plan is
+// built and checked against the aircraft's state now, shown on the map, and flown from the next
+// chunk once confirmed. The words go to the server's translator (Claude, or a stand-in without
+// an API key), which answers with a plan, a question or a refusal.
+import { useEffect, useRef, useState } from "react";
 import { useStore } from "../state/store";
-import type { PlanCheck, PlanProposal } from "./client";
+import type { AskEntry, PlanCheck, PlanProposal } from "./client";
 
 const place = (id: string) => ({ kind: "place", id });
 
@@ -168,6 +169,79 @@ function Proposal({ p, ack, setAck }: { p: PlanProposal; ack: Record<string, boo
   );
 }
 
+function Answer({ e, ask }: { e: AskEntry; ask: (text: string) => void }) {
+  if (e.kind === null) return <p className="answer pending">thinking…</p>;
+  if (e.kind === "plan") return <p className="answer plan">Plan: {e.summary || "see below"}</p>;
+  if (e.kind === "refuse") return <p className="answer refuse">{e.reason}</p>;
+  if (e.kind === "error") return <p className="answer error">{e.message}</p>;
+  return (
+    <div className="answer clarify">
+      <p>{e.question}</p>
+      {!!e.options?.length && (
+        <div className="options">
+          {e.options.map((o) => (
+            <button key={o} onClick={() => ask(o)}>
+              {o}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The conversation and the text box. */
+function AskBox() {
+  const live = useStore((s) => s.live);
+  const send = useStore((s) => s.liveSend);
+  const [text, setText] = useState("");
+  const end = useRef<HTMLLIElement>(null);
+  const conversation = live?.conversation ?? [];
+  useEffect(() => {
+    end.current?.scrollIntoView({ block: "nearest" });
+  }, [conversation.length]);
+  if (!live || !send || !live.translator?.name) return null;
+  const busy = conversation.some((e) => e.kind === null);
+  const ask = (t: string) => {
+    if (!t.trim() || busy) return;
+    send({ cmd: "ask", text: t.trim() });
+    setText("");
+  };
+  return (
+    <div className="ask" data-testid="ask">
+      {conversation.length > 0 && (
+        <ul className="conversation" data-testid="conversation">
+          {conversation.map((e, i) => (
+            <li key={i} ref={i === conversation.length - 1 ? end : undefined}>
+              <p className="said">{e.text}</p>
+              <Answer e={e} ask={ask} />
+            </li>
+          ))}
+        </ul>
+      )}
+      <form
+        onSubmit={(ev) => {
+          ev.preventDefault();
+          ask(text);
+        }}
+      >
+        <input
+          value={text}
+          onChange={(ev) => setText(ev.target.value)}
+          placeholder="Tell it where to go: circle the church at 80 m"
+          aria-label="instruction"
+          data-testid="ask-input"
+          disabled={live.done}
+        />
+        <button type="submit" disabled={busy || !text.trim() || live.done} data-testid="ask-send">
+          Send
+        </button>
+      </form>
+      <p className="attribution">Translator: {live.translator.note}</p>
+    </div>
+  );
+}
+
 export function PlanPanel() {
   const live = useStore((s) => s.live);
   const send = useStore((s) => s.liveSend);
@@ -177,10 +251,15 @@ export function PlanPanel() {
   const [ack, setAck] = useState<Record<string, boolean>>({});
   const p = live?.proposal ?? null;
   const ready = canConfirm(p, ack);
-  // Enter confirms a confirmable proposal (outside the editor): one key press.
+  // A new proposal starts unacknowledged.
+  useEffect(() => {
+    setAck({});
+  }, [p?.id]);
+  // Enter confirms a confirmable proposal (outside a text field): one key press.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Enter" || !ready || !p || !send || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key !== "Enter" || !ready || !p || !send) return;
+      if (e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement) return;
       send({ cmd: "confirm_plan", id: p.id, acknowledged: p.warnings });
     };
     window.addEventListener("keydown", onKey);
@@ -194,7 +273,6 @@ export function PlanPanel() {
       return;
     }
     setError(null);
-    setAck({});
     send({ cmd: "propose_plan", plan: r.plan });
   };
   return (
@@ -204,27 +282,10 @@ export function PlanPanel() {
           Flying: {live.activePlan.summary || live.activePlan.steps.map((s) => s.label).join(", ")}
         </p>
       )}
-      <div className="examples">
-        {examples.map((ex) => (
-          <button key={ex.label} onClick={() => setText(pretty(ex.plan))}>
-            {ex.label}
-          </button>
-        ))}
-      </div>
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        spellCheck={false}
-        rows={9}
-        aria-label="plan (JSON)"
-        data-testid="plan-editor"
-      />
-      <div className="planbuttons">
-        <button onClick={check} disabled={live.done} data-testid="plan-check">
-          Check
-        </button>
-        {p && (
-          <>
+      <AskBox />
+      {p && (
+        <>
+          <div className="planbuttons">
             <button
               className="confirm"
               disabled={!ready}
@@ -235,11 +296,34 @@ export function PlanPanel() {
               Confirm
             </button>
             <button onClick={() => send({ cmd: "cancel_plan", id: p.id })}>Cancel</button>
-          </>
-        )}
-      </div>
-      {error && <p className="faulterror">{error}</p>}
-      {p && <Proposal p={p} ack={ack} setAck={setAck} />}
+          </div>
+          <Proposal p={p} ack={ack} setAck={setAck} />
+        </>
+      )}
+      <details className="typed" open={!live.translator?.name}>
+        <summary data-testid="typed-plan">Typed plan</summary>
+        <div className="examples">
+          {examples.map((ex) => (
+            <button key={ex.label} onClick={() => setText(pretty(ex.plan))}>
+              {ex.label}
+            </button>
+          ))}
+        </div>
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          spellCheck={false}
+          rows={9}
+          aria-label="plan (JSON)"
+          data-testid="plan-editor"
+        />
+        <div className="planbuttons">
+          <button onClick={check} disabled={live.done} data-testid="plan-check">
+            Check
+          </button>
+        </div>
+        {error && <p className="faulterror">{error}</p>}
+      </details>
       {live.site.attribution && <p className="attribution">Places: {live.site.attribution}</p>}
       <p className="attribution">Heights are above home (the ground where the aircraft took off).</p>
     </div>

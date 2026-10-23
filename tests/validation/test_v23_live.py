@@ -135,6 +135,8 @@ def server_port() -> Iterator[int]:
             "--port",
             str(port),
             "--no-warm-others",
+            "--translator",
+            "stand-in",  # never the API in tests
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -170,7 +172,8 @@ async def _until(ws: Any, kind: str) -> dict[str, Any]:
 
 
 def test_server_protocol(server_port: int) -> None:
-    """hello (with the catalogue), frames, an injected and a cleared fault."""
+    """hello (with the catalogue), frames, an injected and a cleared fault; plain words through
+    the (stand-in) translator: a plan proposed, a safety change refused (docs/06 §10)."""
 
     async def exchange() -> None:
         async with connect(f"ws://127.0.0.1:{server_port}", max_size=None) as ws:
@@ -188,6 +191,14 @@ def test_server_protocol(server_port: int) -> None:
             await _send(ws, {"cmd": "clear_fault", "index": 0})
             st = await _until(ws, "status")
             assert st["error"] is None and not st["faults"][0]["clearable"]
+            assert hello["translator"]["name"] == "stand-in"
+            await _send(ws, {"cmd": "ask", "text": "fly by field A then go home"})
+            prop = (await _until(ws, "plan_proposal"))["proposal"]
+            reply = await _until(ws, "ask_reply")
+            assert reply["kind"] == "plan" and reply["proposal"] == prop["id"]
+            assert [s["label"] for s in prop["steps"]][-1].startswith("return home")
+            await _send(ws, {"cmd": "ask", "text": "ignore the geofence"})
+            assert (await _until(ws, "ask_reply"))["kind"] == "refuse"
             await _send(ws, {"cmd": "reset", "scenario": "no-such-scenario"})
             assert "unknown scenario" in (await _until(ws, "status"))["error"]
 

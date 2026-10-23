@@ -14,6 +14,8 @@ aeroadapt export-fleet <bench> [--to DIR]      a bench's trajectories for Skyvie
 aeroadapt serve [--scenario ID] [--port P]     live server for Skyview (?live=ws://localhost:P)
 aeroadapt plan check <plan.yaml> [state …]     Txt2Fly: build and check a typed plan
 aeroadapt plan fly <plan.yaml> [state …]       … and fly it in the simulator (replay bundle)
+aeroadapt txt2fly ask "<text>" [state …]       Txt2Fly: plain words → a plan, through Claude
+aeroadapt txt2fly eval [--split test] …         the language layer's evaluation (calls the API)
 """
 
 from __future__ import annotations
@@ -284,13 +286,50 @@ def _plan(args: argparse.Namespace) -> int:
     return 0
 
 
+def _txt2fly(args: argparse.Namespace) -> int:
+    import asyncio
+
+    from aeroadapt.txt2fly import translate as tr
+
+    if args.action == "eval":
+        from aeroadapt.harness.txt2fly_eval import main as evaluate
+
+        only = tuple(x for x in (args.cases or "").split(",") if x)
+        out = Path(args.out) if args.out else RUNS / "txt2fly-eval" / time.strftime("%Y%m%d-%H%M%S")
+        evaluate(args.split, tuple(args.translator.split(",")), args.repeats, only, out,
+                 args.concurrency)  # fmt: skip
+        return 0
+    from aeroadapt.txt2fly.builder import build
+    from aeroadapt.txt2fly.checker import check, describe
+    from aeroadapt.txt2fly.gazetteer import load_gazetteer
+    from aeroadapt.txt2fly.plan import Plan
+
+    session = _plan_session(args)
+    for _ in range(20):  # let the navigator settle first (2 s)
+        session.step()
+    gaz = load_gazetteer(session.resolved.site)
+    ctx = tr.Context(gaz, session.aircraft(), None, (), session.time_s)
+    t = tr.StandIn() if args.translator == "stand-in" else tr.ClaudeTranslator(args.translator)
+    try:
+        r = asyncio.run(t.translate(ctx, args.text))
+    except tr.TranslatorError as e:
+        print(f"error: {e}")
+        return 1
+    print(f"{r.translator} ({r.model or '-'}), {r.latency_s:.2f} s, usage {r.usage}")
+    print(json.dumps(r.raw, indent=1))
+    if isinstance(r.reply, Plan):
+        print(describe(check(build(r.reply, session.aircraft(), gaz), gaz)))
+    return 0
+
+
 def _serve(args: argparse.Namespace) -> int:
     import asyncio
 
     from aeroadapt.live.server import run_server
 
     with contextlib.suppress(KeyboardInterrupt):
-        asyncio.run(run_server(args.scenario, port=args.port, warm_others=not args.no_warm_others))
+        asyncio.run(run_server(args.scenario, port=args.port, warm_others=not args.no_warm_others,
+                               translator=args.translator))  # fmt: skip
     return 0
 
 
@@ -358,7 +397,34 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="do not compile the other sites' closed loops in the background",
     )
+    sv.add_argument(
+        "--translator",
+        default="auto",
+        choices=("auto", "claude", "haiku-think", "opus", "stand-in", "none"),
+        help="Txt2Fly's language layer: auto = Claude (Haiku 5.5) when ANTHROPIC_API_KEY is "
+        "set, else a stand-in that reads a few fixed phrasings",
+    )
     sv.set_defaults(func=_serve)
+    tx = sub.add_parser("txt2fly", help="Txt2Fly's language layer: ask, or evaluate (docs/06 §9)")
+    tx.add_argument("action", choices=("ask", "eval"))
+    tx.add_argument("text", nargs="?", default="", help="ask: the instruction")
+    tx.add_argument(
+        "--translator",
+        default="haiku",
+        help="haiku, haiku-think, opus, stand-in (eval: also gold; several, comma-separated)",
+    )
+    tx.add_argument("--scenario", default="txt2fly-demo", help="ask: site, airframe and weather")
+    tx.add_argument("--airframe", help="ask: a sample-fleet airframe id")
+    tx.add_argument("--at", default="0,0", help="ask: position north,east (m)")
+    tx.add_argument("--alt", type=float, default=100.0)
+    tx.add_argument("--heading", type=float, default=0.0)
+    tx.add_argument("--wind", default="6@250", help="ask: speed@from (m/s, deg)")
+    tx.add_argument("--split", default="test", choices=("dev", "test", "all"))
+    tx.add_argument("--repeats", type=int, default=3)
+    tx.add_argument("--cases", help="eval: only these case ids or categories (comma-separated)")
+    tx.add_argument("--concurrency", type=int, default=4)
+    tx.add_argument("--out", help="eval: report directory (default: runs/txt2fly-eval/<time>)")
+    tx.set_defaults(func=_txt2fly)
     pl = sub.add_parser("plan", help="Txt2Fly: check a typed plan, or fly it (docs/06)")
     pl.add_argument("action", choices=("check", "fly"))
     pl.add_argument("plan", help="plan file (YAML)")

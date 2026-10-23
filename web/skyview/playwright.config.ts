@@ -17,8 +17,8 @@ export default defineConfig({
       timeout: 60_000,
     },
     {
-      // Listens once the closed loop is compiled.
-      command: "uv run aeroadapt serve --port 8799 --no-warm-others",
+      // Listens once the closed loop is compiled. The stand-in translator: tests never call the API.
+      command: "uv run aeroadapt serve --port 8799 --no-warm-others --translator stand-in",
       cwd: "../..",
       port: 8799,
       reuseExistingServer: !process.env.CI,

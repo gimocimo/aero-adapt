@@ -896,42 +896,219 @@ dd {
 .fly .f-deck .deck-bar .timeline .clock {
   min-width: 0;
 }
-/* The instruments, compact: smaller dials, the gauges in one card, see-through cards. */
-.instruments.compact {
-  padding: 8px;
-  gap: 6px;
+/* The avionics (quad/Avionics.tsx): a ball under a heading arc, big numbers either side, four
+   gauges. Cyan: the autopilot's targets and the wind; magenta: its commands and where it is
+   bound; green: the ground track and health; yellow: the aircraft. */
+.fly .f-inst {
+  border: none;
+  background: rgba(14, 20, 28, 0.62);
 }
-.fly .inst {
-  background: rgba(6, 9, 13, 0.55);
-  border-color: rgba(255, 255, 255, 0.08);
+.avionics {
+  width: 330px;
+  padding: 9px 0 10px;
+  font-variant-numeric: tabular-nums;
 }
-.instruments.compact .nav-svg {
-  width: 182px;
-  height: 182px;
+.av-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  font-size: 12px;
 }
-.instruments.compact .inst.gauges.both {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  column-gap: 10px;
-  min-width: 0;
+.av-mode {
+  color: #7fd0ff;
+  font-weight: 600;
 }
-.instruments.compact .gauge {
-  grid-template-columns: 34px 1fr 66px;
-  margin: 2px 4px;
+.av-phase {
+  color: var(--muted);
+}
+.av-phase.warn {
+  color: #f0a830;
+  font-weight: 600;
+}
+.av-head .zonechips {
+  margin: 0;
+  gap: 3px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+.av-head .zchip {
+  min-width: 15px;
+  padding: 0 3px;
+  border: 1px solid rgba(147, 161, 176, 0.6);
+  background: transparent;
+  color: #93a1b0;
+  font-weight: 500;
+}
+.av-head .zchip.reach {
+  border-color: #49c07a;
+  background: rgba(73, 192, 122, 0.25);
+  color: #bdf0cf;
+}
+.av-head .zchip.sel {
+  border-color: #f0a830;
+  background: rgba(240, 168, 48, 0.3);
+  color: #ffe7bf;
+}
+.av-wind {
+  fill: #7fd0ff;
+  font-size: 12px;
+}
+.av-wind path {
+  fill: none;
+  stroke: #7fd0ff;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.av-wind .av-wind-from {
+  fill: #7fb3d6;
   font-size: 11px;
 }
-.instruments.compact .cont-line {
-  grid-column: 1 / -1;
+.av-alerts {
   display: flex;
-  gap: 8px;
-  align-items: center;
-  margin: 4px 4px 2px;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 14px 0;
 }
-.instruments.compact .cont-line .cont-phase {
-  margin: 0;
+.av-main {
+  display: block;
+  margin-top: 4px;
 }
-.instruments.compact .cont-line .zonechips {
-  margin: 0;
+.av-main text {
+  font-family: system-ui, sans-serif;
+}
+.av-arc {
+  fill: none;
+  stroke: rgba(201, 211, 221, 0.55);
+}
+.av-tick,
+.av-roll {
+  stroke: #e8edf3;
+  stroke-width: 1.3;
+}
+.av-scale {
+  fill: #93a1b0;
+  font-size: 11px;
+}
+.av-north {
+  fill: #ff7b7b;
+}
+.av-track {
+  fill: #49c07a;
+}
+.av-bearing {
+  fill: #e070e0;
+}
+.av-hdgbox {
+  fill: #0e141c;
+  stroke: rgba(255, 255, 255, 0.35);
+}
+.av-hdg {
+  fill: #e8edf3;
+  font: 13px ui-monospace, monospace;
+}
+.av-caret,
+.av-index {
+  fill: #e8edf3;
+}
+.av-sky {
+  fill: #3d7fd0;
+}
+.av-ground {
+  fill: #8a5a30;
+}
+.av-horizon {
+  stroke: #fff;
+  stroke-width: 1.5;
+}
+.av-ladder {
+  stroke: rgba(255, 255, 255, 0.8);
+}
+.av-director {
+  fill: none;
+  stroke: #e070e0;
+  stroke-width: 2.2;
+}
+.av-pointer,
+.av-dot {
+  fill: #ffd040;
+}
+.av-aircraft {
+  stroke: #ffd040;
+  stroke-width: 3;
+}
+.av-lbl {
+  fill: #93a1b0;
+  font-size: 11px;
+}
+.av-main .av-big {
+  fill: #e8edf3;
+  font: 28px ui-monospace, monospace;
+}
+.av-tgt {
+  fill: #7fd0ff;
+  font-size: 12px;
+}
+.av-sub {
+  fill: #c9d3dd;
+  font-size: 11px;
+}
+.av-home {
+  fill: #e070e0;
+  font-size: 11px;
+}
+.av-vsi {
+  stroke: rgba(201, 211, 221, 0.5);
+}
+.av-vs {
+  fill: #7fd0ff;
+}
+.av-cells {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  column-gap: 12px;
+  padding: 2px 14px 0;
+  font-size: 12px;
+}
+.av-cell .av-k {
+  color: #93a1b0;
+}
+.av-cell .av-v {
+  color: #e8edf3;
+  font-family: ui-monospace, monospace;
+}
+.av-cell .bar {
+  display: block;
+  height: 2px;
+  margin-top: 5px;
+  background: rgba(255, 255, 255, 0.12);
+}
+.av-cell .bar i {
+  display: block;
+  height: 100%;
+  background: #49c07a;
+}
+.av-cell.neutral .bar i {
+  background: #7fd0ff;
+}
+.av-cell.warn .bar i {
+  background: #f0a830;
+}
+.av-cell.alert .bar i {
+  background: #e5484d;
+}
+.av-cell.alert .av-v {
+  color: #ff8a8d;
+}
+.av-cell small {
+  display: block;
+  margin-top: 3px;
+  color: #93a1b0;
+  font: 11px ui-monospace, monospace;
+}
+.avionics .touchdown-card {
+  margin: 8px 14px 0;
 }
 /* &film=1: the picture alone. */
 .fly.film .f-badges,
@@ -1381,4 +1558,7 @@ dd {
   .quad .gl {
     position: fixed;
   }
+}
+.av-head .zchip.more {
+  border-style: dashed;
 }

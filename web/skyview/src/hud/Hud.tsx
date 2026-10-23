@@ -188,11 +188,9 @@ export function PfdSvg({ s, width = W, altLabel = "m AGL" }: { s: Sample; width?
   );
 }
 
-/** Mode, contingency phase and active faults, as badges. */
-export function StatusBadges({ s, replay }: { s: Sample; replay: Replay }) {
-  const { mode: modes, phase: phases, fault_bits } = replay.manifest.enums;
-  const phase = phases[s.phase] ?? "";
-  const faults = Object.entries(fault_bits)
+/** What is wrong right now: an unreliable airspeed, a speed error, the active faults. */
+export function alerts(s: Sample, replay: Replay): { text: string; cls: string }[] {
+  const faults = Object.entries(replay.manifest.enums.fault_bits)
     .filter(([, bit]) => (s.faultBits & bit) !== 0)
     .map(([name]) => {
       // The latest onset: a cleared sensor fault may be injected again.
@@ -202,15 +200,23 @@ export function StatusBadges({ s, replay }: { s: Sample; replay: Replay }) {
       return `${faultName(name)} @ ${ev ? (ev.time_us * 1e-6).toFixed(1) : "?"} s`;
     });
   const speedErr = s.ias - s.tasTrue;
+  return [
+    ...(!s.airspeedHealthy ? [{ text: "AIRSPEED UNRELIABLE", cls: "badge-alert" }] : []),
+    ...(Math.abs(speedErr) > 3 ? [{ text: `IAS−TAS ${fmt(speedErr)}`, cls: "badge-alert" }] : []),
+    ...faults.map((f) => ({ text: `FAULT: ${f}`, cls: "badge-fault" })),
+  ];
+}
+
+/** Mode, contingency phase and active faults, as badges. */
+export function StatusBadges({ s, replay }: { s: Sample; replay: Replay }) {
+  const { mode: modes, phase: phases } = replay.manifest.enums;
   return (
     <div className="hud-badges">
       <span className="badge">{modes[s.mode] ?? "?"}</span>
-      {s.failed && <span className="badge badge-warn">{phase}</span>}
-      {!s.airspeedHealthy && <span className="badge badge-alert">AIRSPEED UNRELIABLE</span>}
-      {Math.abs(speedErr) > 3 && <span className="badge badge-alert">IAS−TAS {fmt(speedErr)}</span>}
-      {faults.map((f) => (
-        <span key={f} className="badge badge-fault">
-          FAULT: {f}
+      {s.failed && <span className="badge badge-warn">{phases[s.phase] ?? ""}</span>}
+      {alerts(s, replay).map((a) => (
+        <span key={a.text} className={`badge ${a.cls}`}>
+          {a.text}
         </span>
       ))}
     </div>

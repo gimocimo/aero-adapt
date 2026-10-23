@@ -1,18 +1,34 @@
-// The instrument panel (bottom left): the primary flight display, a navigation display, the
-// energy and terrain gauges and the contingency's state. Truth values are marked as such.
-// ``compact`` (the full-screen layout's overlay): smaller dials, the gauges in one card.
+// The instrument panel of the four-panel layout (bottom left): the primary flight display, a
+// navigation display, the energy and terrain gauges and the contingency's state. Truth values
+// are marked as such. The full-screen layout uses the compact ``Avionics`` instead.
 import { EndCard, PfdSvg, StatusBadges } from "../hud/Hud";
 import type { Sample } from "../replay/interp";
 import type { Replay } from "../replay/types";
 
 const DEG = 180 / Math.PI;
 
-function fmt(x: number, digits = 0): string {
+export function fmt(x: number, digits = 0): string {
   return Number.isFinite(x) ? x.toFixed(digits) : "—";
 }
 
-function wrap360(deg: number): number {
+export function wrap360(deg: number): number {
   return ((deg % 360) + 360) % 360;
+}
+
+/** Where the aircraft is bound: the zone the contingency chose, or home; its bearing (degrees
+ * true) and distance (m). */
+export function navTarget(s: Sample, replay: Replay): { name: string; brg: number; dist: number } {
+  const zone = s.zone >= 0 ? replay.manifest.site.safe_zones[s.zone] : undefined;
+  let target: { name: string; n: number; e: number } = { name: "home", n: 0, e: 0 };
+  if (zone) {
+    const [n, e] = zone.polygon_ne_m.reduce(([a, b], [x, y]) => [a + x, b + y], [0, 0]).map((v) => v / zone.polygon_ne_m.length) as [number, number];
+    target = { name: `zone ${zone.id}`, n, e };
+  }
+  return {
+    name: target.name,
+    brg: Math.atan2(target.e - s.e, target.n - s.n) * DEG,
+    dist: Math.hypot(target.n - s.n, target.e - s.e),
+  };
 }
 
 /** Heading-up navigation display: compass card, ground track, wind, bearing to the zone the
@@ -22,14 +38,8 @@ function NavDisplay({ s, replay }: { s: Sample; replay: Replay }) {
   const C = 110;
   const hdg = s.yaw * DEG;
   const rot = (deg: number) => deg - hdg; // card angle on screen (0 = up)
-  const zone = s.zone >= 0 ? replay.manifest.site.safe_zones[s.zone] : undefined;
-  let target: { name: string; n: number; e: number } = { name: "home", n: 0, e: 0 };
-  if (zone) {
-    const [n, e] = zone.polygon_ne_m.reduce(([a, b], [x, y]) => [a + x, b + y], [0, 0]).map((v) => v / zone.polygon_ne_m.length) as [number, number];
-    target = { name: `zone ${zone.id}`, n, e };
-  }
-  const brg = Math.atan2(target.e - s.e, target.n - s.n) * DEG;
-  const dist = Math.hypot(target.n - s.n, target.e - s.e);
+  const { name, brg, dist } = navTarget(s, replay);
+  const target = { name };
   const windFrom = Math.atan2(-s.windE, -s.windN) * DEG;
   const windSpeed = Math.hypot(s.windN, s.windE);
   const ticks = Array.from({ length: 36 }, (_, k) => k * 10);
@@ -135,49 +145,22 @@ function ZoneChips({ s, replay }: { s: Sample; replay: Replay }) {
   );
 }
 
-export function Instruments({ s, replay, compact = false }: { s: Sample; replay: Replay; compact?: boolean }) {
+export function Instruments({ s, replay }: { s: Sample; replay: Replay }) {
   const { phase: phases } = replay.manifest.enums;
   const world = !!replay.manifest.site.world;
   const clr = s.clearance;
   const clrTone = clr < 10 ? "alert" : clr < 30 ? "warn" : "ok";
   const agl = s.hagl;
-  const dials = (
-    <div className="inst-row">
-      <div className="inst pfd" data-testid="hud">
-        <PfdSvg s={s} width={compact ? 268 : 330} altLabel={world ? "m (home)" : "m AGL"} />
-      </div>
-      <div className="inst nav">
-        <NavDisplay s={s} replay={replay} />
-      </div>
-    </div>
-  );
-  if (compact) {
-    return (
-      <div className="instruments compact" data-testid="instruments">
-        {dials}
-        <div className="inst gauges both">
-          <Gauge label="THR" value={100 * s.throttle} unit="%" frac={s.throttle} />
-          <Gauge label="AGL" value={agl} unit="m" frac={agl / 150} tone={agl < 40 ? "warn" : "ok"} digits={1} testid="gauge-agl" />
-          <Gauge label="SoC" value={100 * s.soc} unit="%" frac={s.soc} tone={s.soc < 0.3 ? "warn" : "ok"} />
-          <Gauge label="CLR" value={clr} unit="m" frac={clr / 150} tone={clrTone} digits={1} testid="gauge-clearance" />
-          <Gauge label="BATT" value={s.batteryV} unit="V" frac={s.soc} digits={1} />
-          <Gauge label="GS" value={s.groundspeed} unit="m/s" frac={s.groundspeed / 35} digits={1} />
-          <Gauge label="RPM" value={s.rpm} unit="rpm" frac={s.rpm / 8000} />
-          <Gauge label="VS" value={s.climb} unit="m/s" frac={0.5 + s.climb / 10} digits={1} />
-          <div className="cont-line">
-            <span className="g-label">Contingency</span>
-            <span className="cont-phase">{s.failed ? phases[s.phase] : "monitoring"}</span>
-            <ZoneChips s={s} replay={replay} />
-          </div>
-        </div>
-        <StatusBadges s={s} replay={replay} />
-        <EndCard s={s} replay={replay} />
-      </div>
-    );
-  }
   return (
     <div className="instruments" data-testid="instruments">
-      {dials}
+      <div className="inst-row">
+        <div className="inst pfd" data-testid="hud">
+          <PfdSvg s={s} width={330} altLabel={world ? "m (home)" : "m AGL"} />
+        </div>
+        <div className="inst nav">
+          <NavDisplay s={s} replay={replay} />
+        </div>
+      </div>
       <div className="inst-row">
         <div className="inst gauges">
           <h3>Energy</h3>

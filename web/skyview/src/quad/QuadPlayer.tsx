@@ -9,6 +9,7 @@ import { listReplays, loadReplay } from "../replay/load";
 import { SPEEDS, useStore } from "../state/store";
 import { loadWorld, type WorldPayload } from "../world3d/payload";
 import { type ChaseMode, extentOf, WorldView } from "../world3d/WorldView";
+import { Avionics } from "./Avionics";
 import { ControlDeck } from "./ControlDeck";
 import { Instruments } from "./Instruments";
 
@@ -34,11 +35,13 @@ function bundleUrl(id: string): string {
   return id.includes("/") ? `/${id.replace(/^\/+/, "")}` : `/replays/${id}`;
 }
 
+/** The instruments: compact avionics over the full-screen picture, or the four-panel set. */
 function InstrumentsContainer({ compact = false }: { compact?: boolean }) {
   const replay = useStore((s) => s.replay);
   const time = useStore((s) => s.time);
   if (!replay || replay.n === 0) return null;
-  return <Instruments s={sample(replay, time)} replay={replay} compact={compact} />;
+  const s = sample(replay, time);
+  return compact ? <Avionics s={s} replay={replay} /> : <Instruments s={s} replay={replay} />;
 }
 
 /** Wind as seen in a view: an arrow (blowing towards) and its speed. */

@@ -220,14 +220,17 @@ A transparent overlay canvas on the same terrain mesh carries:
 
 The tracks themselves (the trail by phase, the mission, a proposal, the active plan) are fat lines in 3D. Labels are HTML, projected per view.
 
-**Instruments** (bottom left, `quad/Instruments.tsx`; compact over the picture, with the gauges in one card):
+**Avionics** (bottom left, `quad/Avionics.tsx`; the owner's design, chosen from sketches on 23 Oct 2026). One compact panel over the picture, without an edge:
 
-- the primary flight display (attitude, speed and height tapes; heights "m (home)" on a world site);
-- a heading-up navigation display: compass card, ground track, the wind, and a bearing and distance to the chosen zone or home;
-- energy gauges: throttle, rpm, battery, state of charge;
-- height gauges (truth): above the ground, clearance above obstacles (amber under 30 m, red under 10 m), ground speed, vertical speed;
-- the contingency's phase and zone chips;
-- badges, and the touchdown or collision card.
+- **Header:** the autopilot mode, the contingency's phase (amber once it acts) and the safe zones, most relevant first: the chosen one amber, those within glide green, five at most and a count of the rest. Alerts and faults appear on a line beneath, only while active.
+- **The attitude ball** under a heading-up arc:
+  - the ball has a pitch ladder, a roll scale and pointer, and the flight director: magenta bars for the roll and pitch the stack demands, relative to the aircraft;
+  - the arc carries ticks every 10°, a heading box, the ground track (green) and the bearing to home or the chosen zone (magenta), pinned to the arc's ends when out of view.
+- **Either side:** airspeed (IAS) and height (m above home on a world site) in large figures. Under each, the autopilot's target in cyan; then TAS (truth) and ground speed, or the climb rate, which also drives a small bar beside the height. The wind, in the top-right corner, is an arrow drawn nose-up with its speed and origin.
+- **Beneath:** the distance to home or the chosen zone, then four gauges: throttle (with rpm), state of charge (with volts), height above the ground and clearance above obstacles (amber under 30 m, red under 10 m). A value the flight did not record shows as a dash.
+- The touchdown or collision card.
+
+In `?layout=quad`, `quad/Instruments.tsx` keeps the larger set: the primary flight display, a navigation display, the eight gauges and the badges.
 
 **Controls** (bottom right, `quad/ControlDeck.tsx`):
 
@@ -346,7 +349,7 @@ The world is synthetic. Wrenfold is not a real place, and its origin only sets t
 - **22 Oct 2026, the test map flies.** The locked sketch is baked into a world (§14) and flown: `testmap-nominal` is a tour from its airstrip at 150 m. A headless 30-minute run is clean: no collision, at least 87 m above the ground and everything on it, never inside a zone closed at all heights, never out of the geofence.
 - **22 Oct 2026, the cinematic look.** Skyview's chase view gets a look for demo videos (§15): sunlight with soft shadows, a sky, haze and filmic grading; tree models up close; ground grain by land cover; roads, water and building facades of their own; turning turbines; and a film mode (`&film=1`) with nothing but the picture.
 - **23 Oct 2026, London** (docs/08). A second world, real: the City and Bankside from Environment Agency LiDAR and OpenStreetMap. Buildings on their own footprints and measured obstacles join the baked-world format; the cinematic look gains ambient occlusion, clouds, aerial haze, richer facades, rooftop plant, traffic, boats and a city beyond the map's edge.
-- **23 Oct 2026, the full-screen player** (§8). The follow view fills the window, the map becomes a minimap in a circle that follows the aircraft, and the instruments and controls float over the picture. `?layout=quad` keeps the four panels.
+- **23 Oct 2026, the full-screen player** (§8). The follow view fills the window, the map becomes a minimap in a circle that follows the aircraft, and the instruments and controls float over the picture. `?layout=quad` keeps the four panels. The instruments became compact avionics, chosen from sketches: an attitude ball under a heading arc, big speed and height figures with the autopilot's targets, and four gauges.
 
 ## 14. Baked worlds: the test map
 

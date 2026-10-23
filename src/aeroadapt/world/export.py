@@ -121,6 +121,15 @@ def viewer_payload(world: World) -> dict:
         ],
         # Each wire's points (n, e, height above the datum).
         "wires": [{"kind": w.kind, "points": np.round(w.points, 2).tolist()} for w in world.wires],
+        # Each railway's points (n, e, height of the rails) and what carries each one.
+        "rails": [
+            {
+                "kind": r.kind,
+                "points": np.round(r.points, 2).tolist(),
+                "carried": r.carried.tolist(),
+            }
+            for r in world.rails
+        ],
     }
 
 

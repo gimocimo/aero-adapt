@@ -112,7 +112,18 @@ float boxes(vec2 p, vec2 period, vec2 size) {
   vec2 seed = floor(vSpot.xz / 41.0);
   float tone = hash2(seed * 3.1);
   diffuseColor.rgb *= (0.86 + 0.16 * tone) * vec3(1.0 + 0.03 * (tone - 0.5), 1.0, 1.0 - 0.04 * (tone - 0.5));
-  bool walls = (kind > 0.5 && kind < 4.5) || kind > 7.5;
+  bool walls = (kind > 0.5 && kind < 4.5) || (kind > 7.5 && kind < 8.5);
+  if (kind > 9.5) {
+    // A brick viaduct: arches along it where it stands tall enough, their openings in shadow.
+    float wallH = kind - 10.0;
+    float x = (fract(uv.x / 9.0) - 0.5) * 9.0;
+    float spring = wallH - 3.6;
+    float open = step(abs(x), 3.1) * step(uv.y, spring) + step(spring, uv.y) * step(x * x + (uv.y - spring) * (uv.y - spring), 3.1 * 3.1);
+    open *= step(6.5, wallH);
+    diffuseColor.rgb *= 0.88 + 0.2 * texture2D(uNoise, uv / 1.5).r;
+    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.13, 0.11, 0.1), open * 0.9);
+    diffuseColor.rgb *= mix(0.82, 1.0, smoothstep(0.0, 6.0, uv.y));
+  }
   if (kind > 2.5 && kind < 3.5) {
     // A curtain wall: glass panels between mullions, an opaque band at each floor's slab,
     // each panel catching the sky a little differently.
@@ -223,6 +234,14 @@ uniform sampler2D uPaved, uGrass;`,
     float dash = step(fract(along / 9.0), 0.45) * (1.0 - smoothstep(0.07, 0.07 + fw, abs(across)));
     float edge = 1.0 - smoothstep(0.06, 0.06 + fw, abs(abs(across) - (hw - 0.35)));
     diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.78), max(dash, edge) * 0.85);
+  } else if (kind > 2.5) {
+    // A railway: two rails on sleepers in ballast.
+    float sleeper = (1.0 - smoothstep(0.1, 0.1 + fwidth(along), abs(fract(along / 0.65) - 0.5) * 0.65 - 0.05))
+      * (1.0 - smoothstep(1.2, 1.3, abs(across)));
+    float rail = 1.0 - smoothstep(0.04, 0.04 + fw, abs(abs(across) - 0.72));
+    float fade = 1.0 - smoothstep(0.15, 0.5, fwidth(along) / 0.65);
+    diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.62, sleeper * fade);
+    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.55, 0.57, 0.6), rail * 0.9);
   } else if (kind > 1.5) {
     // A track: two wheel ruts with grass between them and along the edges.
     float rut = 1.0 - smoothstep(0.35, 0.6, abs(abs(across) - 0.85));
@@ -244,7 +263,7 @@ export function waterMaterial(): THREE.MeshStandardMaterial {
   normal.needsUpdate = true;
   normal.repeat.set(1 / 9, 1 / 9);
   const mat = new THREE.MeshStandardMaterial({
-    color: "#25526b",
+    color: "#2b4c55", // a river's grey-green, under the sky it reflects
     roughness: 0.06,
     metalness: 0.0,
     normalMap: normal,

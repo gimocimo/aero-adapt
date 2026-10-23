@@ -379,7 +379,7 @@ For demo videos, Skyview's chase view has a look of its own. It is on by default
   - Soft shadows fall within 320 m of what the camera follows. For a distant shot the shadowed box grows (to 1.4 km), between the camera and what it looks at.
   - A sky dome runs from deep blue overhead to the haze at the horizon, with the sun's glow and fair-weather cumulus 1.5 km up. Its light falls on every surface, and water and glass reflect it.
   - Haze thickens with distance (exponentially: a few per cent at a kilometre, a quarter at three, half at five).
-  - Ambient occlusion (GTAO, reaching about 5 m) darkens streets between buildings, eaves and the feet of trees. The picture is multisampled, then graded with ACES filmic tone mapping. The ground's colours are a fifth less saturated than the map's.
+  - Ambient occlusion (GTAO, reaching about 5 m) darkens streets between buildings, eaves and the feet of trees. The picture is multisampled, then graded with ACES filmic tone mapping, with a lens's slight vignette. The ground's colours are a fifth less saturated than the map's; foliage and water are the darker greens and grey-greens they are.
 - **Trees.**
   - Within 340 m of the camera, each tree is a model of its kind (broadleaf, conifer, willow or shrub): a trunk and a lobed crown, casting a shadow.
   - Beyond that, the simple instanced shapes stand in. The near set is refreshed every 30 m the camera moves.
@@ -399,7 +399,8 @@ For demo videos, Skyview's chase view has a look of its own. It is on by default
   - Buildings on their own footprints (a survey world such as London, docs/08) are drawn with flat, skillion, pyramidal and domed roofs, and parts that stand clear of the ground.
 - **Water** fills each water cover bank to bank, rippled and reflecting the sky. It is level at its lowest shore nearby, so a river steps down as it falls. The painted water at its edge reads as shallows.
 - **Turbines** turn at about 15 rpm, by the wall clock: in a replay at 4×, they still turn at 1×. `__view.setClock(t)` fixes the clock (for a recording, frame by frame); `setClock(null)` gives the wall clock back.
-- **Traffic.** Cars, black cabs and red buses drive the roads (a vehicle every 35 m of main road and 60 m of street, both ways, keeping left), and boats and barges ply a river with a centre line.
+- **Traffic.** Cars, black cabs and red buses drive the roads (a vehicle every 35 m of main road and 60 m of street, both ways, keeping left), trains of six carriages run on a survey world's railways, and boats and barges ply a river with a centre line.
+- **Railways** (a survey world's): ballast, sleepers and rails at their own heights, brick viaducts with arches down to the ground, bridges as decks (docs/08 §3).
 - **Round a city** (a world whose ground is a city's, such as London), the ground runs on from the map's edge without a cliff, the river carries on past both ends, and an ordinary city of blocks and the odd tower fills the rest out to 3.5 km, fading into the haze.
 - **Set shots.** `__view.setShot([n, e, h], [n, e, h])` in the dev console puts the camera at one point looking at another, for stills; `setShot(null)` gives the follow view back. `web/skyview/scripts/stills.mjs <out-dir> <shots.json>` takes a list of them at 1920×1080, headless (the pictures above).
 - **Fly-by videos.** `tools/flyby_path.py` turns camera keyframes into a smooth path checked clear of everything; `web/skyview/scripts/flyby.mjs` renders it and encodes an MP4 (docs/08 §7).

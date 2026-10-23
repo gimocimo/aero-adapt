@@ -278,6 +278,11 @@ def test_london_baked() -> None:
     # The Thames is level, and open water has nothing on it.
     tn, te = places["the-thames"].point_ne_m
     assert float(obs.at(tn, te)) < 2.0
+    # Railways: viaducts into London Bridge, bridges over the river, the stations' roofs.
+    carried = np.concatenate([r.carried for r in w.rails])
+    assert len(w.rails) > 100 and set(np.unique(carried)) == {0, 1, 2, 3}
+    deck = np.concatenate([r.points[r.carried == 1] for r in w.rails])
+    assert 5.0 < float(np.median(deck[:, 2] - w.dtm.at(deck[:, 0], deck[:, 1]))) < 15.0
     site = load_site("london")
     assert [z.id for z in site.safe_zones] == ["A"]
     ops = site.operations

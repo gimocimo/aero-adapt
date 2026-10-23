@@ -1,11 +1,13 @@
 // Post-processing for the cinematic chase view (docs/07 §15): ambient occlusion (the dark of
 // a street between tall buildings, under eaves and trees) and multisampled edges, then the
-// filmic grading. It draws into whatever viewport the renderer has set.
+// filmic grading and a lens's vignette. It draws into whatever viewport the renderer has set.
 import * as THREE from "three";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
+import { VignetteShader } from "three/examples/jsm/shaders/VignetteShader.js";
 
 export class Post {
   private readonly composer: EffectComposer;
@@ -28,6 +30,11 @@ export class Post {
     this.ao.blendIntensity = 0.85;
     this.composer.addPass(this.ao);
     this.composer.addPass(new OutputPass());
+    // A lens's slight fall-off towards the corners.
+    const vignette = new ShaderPass(VignetteShader);
+    vignette.uniforms.offset!.value = 0.95;
+    vignette.uniforms.darkness!.value = 0.65;
+    this.composer.addPass(vignette);
   }
 
   /** Draw the scene through the passes into the renderer's current viewport (w × h CSS px). */

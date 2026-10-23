@@ -19,7 +19,7 @@ import { HAZE, Look } from "./look";
 import { Post } from "./post";
 import { type LevelAt, Traffic } from "./traffic";
 import { groundMaterial } from "./materials";
-import { buildings, hedges, outskirts, roadSurfaces, skirt, structures, terrainGeometry, trees, waterSurfaces, wires } from "./meshes";
+import { buildings, hedges, outskirts, railways, roadSurfaces, skirt, structures, terrainGeometry, trees, waterSurfaces, wires } from "./meshes";
 import { type OverlayState, paintClasses, paintGround, paintOverlay } from "./paint";
 import { TreeField } from "./trees3d";
 import { flatWorld, Ground, type WorldPayload } from "./payload";
@@ -340,6 +340,8 @@ export class WorldView {
       if (this.water) this.worldGroup.add(this.water);
       const roads = roadSurfaces(world, this.ground);
       if (roads) this.worldGroup.add(roads);
+      const rails = railways(world, this.ground);
+      if (rails) this.worldGroup.add(rails);
       const levelAt = (this.water?.userData.levelAt as LevelAt | undefined) ?? null;
       if (city) this.worldGroup.add(outskirts(world, this.ground, levelAt));
       this.traffic = new Traffic(world, this.ground, levelAt);

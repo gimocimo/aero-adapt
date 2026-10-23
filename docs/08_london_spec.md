@@ -52,6 +52,7 @@ Two tools, as for the test map. `tools/london_fetch.py` fetches the three files 
   - **Colours.** From OSM's tags (2,200 buildings and 2,500 roofs have them), else the material, else a palette by kind. Only the landmarks and towers of 80 m or more keep their names.
   - **Bridges.** 47 bridge decks are drawn from the LiDAR. Tower Bridge is drawn from its parts.
 - **Trees.** 7,722 trees, at the tops of the LiDAR canopy away from buildings, bridges and water, with crowns sized by the canopy round them.
+- **Railways.** OSM's railways above ground (32 km of track in 218 lines, merged from many short pieces), with the height of the rails from the LiDAR: the lowest within 1.6 m (not a train), and between a station's ends under its roof. Each point is carried by the ground, a viaduct or a bridge. Over land, a bridge is a short span (a street under it); OSM's longer "bridges" are London Bridge's brick viaducts.
 - **The rest.**
   - 3,639 pieces of road, by class and width.
   - Parks, gardens, churchyards, squares, yards and water as land cover.
@@ -103,7 +104,8 @@ Until then the Aerosonde (3 m, 25 m/s) flies London.
 - **The look.** London takes the cinematic look (docs/07 §15) with what a city needs:
   - **Facades.** Curtain walls on the towers, offices with shop fronts, stone with tall windows, homes; each building its own shade.
   - **Roofs.** Plant rooms and air-handling units on the big flat roofs.
-  - **Movement.** Traffic keeping left (cars, black cabs, red buses), and boats and barges on the Thames.
+  - **Railways.** Ballast, sleepers and rails at their heights; brick viaducts with arches down to the ground; bridges as decks; trains of six carriages. Under a station's roof, the roof stands for them.
+  - **Movement.** Traffic keeping left (cars, black cabs, red buses), trains, and boats and barges on the Thames.
   - **Past the edge.** The ground runs on from the map's edge, the Thames carries on past both ends, and an ordinary city fills the rest out to 3.5 km.
 - **A fly-by video.** `tools/flyby_path.py london tools/flyby/london.json frames.json` turns camera keyframes into a smooth path, checked clear of everything measured by at least 12 m (this one by 44 m). `web/skyview/scripts/flyby.mjs` renders and encodes it, with the clock stepped frame by frame so traffic and boats move at their speed.
 - **Google's tiles.** `?map=real` shows Google's photorealistic 3D tiles over the same box, for comparison. Those may be shown, but their licence does not allow copying their geometry into the simulator.
@@ -120,7 +122,8 @@ Until then the Aerosonde (3 m, 25 m/s) flies London.
 
 - facades (windows, glass and stone are patterns);
 - roof detail finer than a metre (the plant on the roofs is placed at random);
-- the traffic and the boats;
+- the viaducts' arches (the viaducts are where the LiDAR has them; their arches are a pattern);
+- the traffic, the trains and the boats;
 - the city beyond the box;
 - the clouds.
 

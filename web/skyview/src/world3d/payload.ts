@@ -96,6 +96,9 @@ export interface WorldPayload {
   buildings: Building[];
   structures: Structure[];
   wires?: WireLine[];
+  /** Railways (survey worlds): points [n, e, height of the rails] and what carries each one
+   * (0 the ground, 1 a viaduct, 2 a bridge, 3 under a roof). */
+  rails?: { kind: string; points: [number, number, number][]; carried: number[] }[];
 }
 
 interface Wire extends Omit<WorldPayload, "dtm" | "hedges" | "trees"> {

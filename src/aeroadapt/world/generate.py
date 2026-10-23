@@ -161,6 +161,17 @@ class Wire:
 
 
 @dataclass(frozen=True)
+class Rail:
+    """A railway line (a survey world's; drawn, and in the measured obstacles): its points
+    (n, e, height of the rails above the datum) and what carries each point: 0 the ground,
+    1 a viaduct (solid to the ground), 2 a bridge (a deck), 3 under a roof (a station's)."""
+
+    kind: str  # rail | light_rail
+    points: np.ndarray  # (k, 3)
+    carried: np.ndarray  # (k,) int8
+
+
+@dataclass(frozen=True)
 class Trees:
     n: np.ndarray
     e: np.ndarray
@@ -190,6 +201,7 @@ class World:
     # Obstacle heights measured on the ground (a baked world from survey data: LiDAR surface
     # minus ground), merged into the obstacle raster, which then takes their cell size.
     measured: Obstacles | None = None
+    rails: list[Rail] = field(default_factory=list)
     _cache: dict = field(default_factory=dict, repr=False, compare=False)
 
     @property

@@ -10,7 +10,8 @@ A world from survey data (London, docs/08) also has buildings with their own foo
 (``outline``, ``holes``, ``bottom`` and a skillion roof's ``slope`` in each building's meta)
 and the obstacles measured on the ground (``measured``: uint16 heights above the terrain, in
 quanta, on the obstacle grid given by ``meta["measured"]``: centre of cell (0, 0), cell and
-quantum).
+quantum), and its railways (``meta["rails"]``: points with the height of the rails, and what
+carries each).
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from aeroadapt.world.generate import (
     Dtm,
     Hedge,
     Plot,
+    Rail,
     River,
     Road,
     Structure,
@@ -126,8 +128,24 @@ def load_baked(spec: WorldSpec) -> World:
     ]
     structures = [Structure(**x) for x in meta["structures"]]
     wires = [Wire(x["kind"], np.asarray(x["points"], float)) for x in meta["wires"]]
+    rails = [
+        Rail(x["kind"], np.asarray(x["points"], float), np.asarray(x["carried"], np.int8))
+        for x in meta.get("rails", [])
+    ]
     return World(
-        spec, dtm, river, roads, woods, plots, hedges, trees, buildings, structures, wires, measured
+        spec,
+        dtm,
+        river,
+        roads,
+        woods,
+        plots,
+        hedges,
+        trees,
+        buildings,
+        structures,
+        wires,
+        measured,
+        rails,
     )
 
 

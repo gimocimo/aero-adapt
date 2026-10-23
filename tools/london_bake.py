@@ -778,13 +778,18 @@ def bake() -> dict:
             })  # fmt: skip
     print(f"roads: {len(roads)}")
 
+    # Railways above ground: on the ground, on viaducts (brick, solid to the ground) or on
+    # bridges (a deck, over the river and the streets), their rails at the LiDAR's deck.
+    rails = railways(doc, areas, waters, bounds_poly, dtm, lidar)
+    print(f"railways: {len(rails)} lines, {sum(len(r['points']) for r in rails) * 4 / 1000:.1f} km")
+
     # Trees: the tops of the LiDAR canopy, away from buildings, bridges and water.
     trees = canopy_trees(measured, areas, waters, bounds_poly, dtm)
     print(f"trees: {len(trees)}")
 
     meta = {
         "plots": plots, "woods": [], "roads": roads, "structures": [], "wires": [],
-        "river": thames_line(waters), "buildings": bmeta,
+        "river": thames_line(waters), "buildings": bmeta, "rails": rails,
         "zones": [{"id": "A", "at_ne_m": _pt(zone_poly), "crop": "park",
                    "name": "Potters Fields Park"}],
         "places": places(areas, doc, waters),
@@ -799,6 +804,76 @@ def bake() -> dict:
         measured=measured,
     )
     return {"datum": datum, "zone": zone_poly, "areas": areas}
+
+
+def railways(doc, areas, waters, bounds_poly, dtm: Dtm, lidar: Lidar) -> list[dict]:
+    """OSM's railways above ground, merged into long lines and resampled every 4 m."""
+    ways = []
+    for tags, line, _ in osm_lines(doc):
+        if tags.get("railway") not in ("rail", "light_rail") or tags.get("tunnel"):
+            continue
+        layer = _int(tags.get("layer"))
+        if layer is not None and layer < 0:
+            continue
+        ways.append((tags, line))
+    if not ways:
+        return []
+    viaduct = unary_union([ln.buffer(1.5) for t, ln in ways if t.get("bridge") == "viaduct"])
+    bridge = unary_union([ln.buffer(1.5) for t, ln in ways if t.get("bridge") == "yes"])
+    roofed = unary_union([p for t, p, _ in areas if "building" in t])
+    water = unary_union(waters)
+    light = unary_union([ln.buffer(0.5) for t, ln in ways if t.get("railway") == "light_rail"])
+    out = []
+    for line in _lines(linemerge(unary_union([ln for _, ln in ways])).intersection(bounds_poly)):
+        if line.length < 30:
+            continue
+        k = max(2, round(line.length / 4.0) + 1)
+        pts = np.array([line.interpolate(d).coords[0] for d in np.linspace(0, line.length, k)])
+        n, e = pts[:, 0], pts[:, 1]
+        ground = dtm.at(n, e)
+        on_viaduct = shapely.contains_xy(viaduct, n, e)
+        on_bridge = shapely.contains_xy(bridge, n, e) | (
+            on_viaduct & shapely.contains_xy(water, n, e)
+        )
+        up = on_viaduct | on_bridge
+        if up.any():
+            # The deck: the lowest LiDAR within 1.6 m (not a train on it), not under a station's
+            # roof (there, between its ends), at least a metre over the ground.
+            deck = np.full(k, np.nan)
+            deck[up] = [float(lidar.inside(shapely.Point(a, b).buffer(1.6), 0.0).min())
+                        for a, b in zip(n[up], e[up], strict=True)]  # fmt: skip
+            deck[up & shapely.contains_xy(roofed, n, e)] = np.nan
+            ok = np.isfinite(deck)
+            if ok.any():
+                d = np.r_[0.0, np.cumsum(np.hypot(np.diff(n), np.diff(e)))]
+                deck = np.interp(d, d[ok], deck[ok])
+            else:
+                deck = ground + 8.0
+            deck = np.where(up, np.maximum(deck, ground + 1.0), ground + 0.3)
+        else:
+            deck = ground + 0.3
+        h = ndimage.median_filter(deck, size=5, mode="nearest")
+        carried = np.where(on_bridge, 2, np.where(on_viaduct, 1, 0)).astype(int)
+        # OSM calls long runs of brick viaduct bridges: over land, a bridge is a short span
+        # (a street under it); a longer one is a viaduct.
+        wet = shapely.contains_xy(water, n, e)
+        run = 0
+        for i in range(k + 1):
+            if i < k and carried[i] == 2 and not wet[i]:
+                run += 1
+                continue
+            if run * 4.0 > 40.0:
+                carried[i - run : i] = 1
+            run = 0
+        carried[shapely.contains_xy(roofed, n, e)] = 3  # under a station's roof
+        mid = pts[len(pts) // 2]
+        kind = "light_rail" if shapely.contains_xy(light, mid[0], mid[1]) else "rail"
+        out.append({
+            "kind": kind,
+            "points": np.round(np.c_[pts, h], 2).tolist(),
+            "carried": carried.tolist(),
+        })  # fmt: skip
+    return out
 
 
 def thames_line(waters) -> dict:

@@ -1,5 +1,5 @@
 // Traffic for the cinematic look (docs/07 §15): cars, black cabs and red buses along the
-// roads (keeping left), and boats on the river. Drawn only: the simulator has none of them
+// roads (keeping left), trains on the railways, and boats on the river. Drawn only: the simulator has none of them
 // (the measured surface of a survey world has whatever stood on the road that day).
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
@@ -10,6 +10,7 @@ interface Path {
   cum: number[]; // distance along to each point
   length: number;
   width: number;
+  hs?: number[]; // the height at each point (a railway's), else the ground's
 }
 
 interface Mover {
@@ -22,18 +23,18 @@ interface Mover {
   slot: number; // instance index in its mesh
 }
 
-function path(points: [number, number][], width: number): Path {
+function path(points: [number, number][], width: number, hs?: number[]): Path {
   const cum = [0];
   for (let k = 1; k < points.length; k++) {
     const [n1, e1] = points[k - 1]!;
     const [n2, e2] = points[k]!;
     cum.push(cum[k - 1]! + Math.hypot(n2 - n1, e2 - e1));
   }
-  return { pts: points, cum, length: cum[cum.length - 1]!, width };
+  return { pts: points, cum, length: cum[cum.length - 1]!, width, hs };
 }
 
-/** Point and unit direction (n, e) at a distance along a path. */
-function at(p: Path, s: number): [number, number, number, number] {
+/** Point, unit direction (n, e) and height (NaN: none given) at a distance along a path. */
+function at(p: Path, s: number): [number, number, number, number, number] {
   let lo = 0;
   let hi = p.cum.length - 1;
   while (hi - lo > 1) {
@@ -45,7 +46,8 @@ function at(p: Path, s: number): [number, number, number, number] {
   const [n2, e2] = p.pts[hi]!;
   const seg = Math.max(p.cum[hi]! - p.cum[lo]!, 1e-6);
   const t = Math.min(Math.max((s - p.cum[lo]!) / seg, 0), 1);
-  return [n1 + (n2 - n1) * t, e1 + (e2 - e1) * t, (n2 - n1) / seg, (e2 - e1) / seg];
+  const h = p.hs ? p.hs[lo]! + (p.hs[hi]! - p.hs[lo]!) * t : NaN;
+  return [n1 + (n2 - n1) * t, e1 + (e2 - e1) * t, (n2 - n1) / seg, (e2 - e1) / seg, h];
 }
 
 /** A box (x along, y up, z across), vertex-coloured. */
@@ -96,6 +98,15 @@ const BOAT = () =>
     box(3, 1.6, 3, 8, 4.6, 0, 0.85), // wheelhouse
   ]);
 const BARGE = () => merged([box(55, 2.0, 10, 0, 0, 0, 1), box(6, 3, 8, -23, 2.0, 0, 0.8)]);
+// A railway carriage: body tinted per train, a dark band of windows, a grey roof.
+const CARRIAGE = () =>
+  merged([
+    box(19.6, 1.3, 2.8, 0, 0.5, 0, 1),
+    box(19.4, 1.0, 2.82, 0, 1.8, 0, 0.12),
+    box(19.6, 0.5, 2.8, 0, 2.8, 0, 1),
+    box(19.0, 0.35, 2.5, 0, 3.3, 0, 0.55),
+  ]);
+const TRAIN_COLOURS = ["#e8eaec", "#d9dde0", "#f0f0ec", "#cfd5da"];
 
 const CAR_COLOURS = ["#e8e8e6", "#1c1d20", "#8b8f94", "#bfc3c6", "#2d3e5c", "#6b1f22", "#3c3f44", "#d9d4c6", "#4d5a3c", "#a0a4a8"];
 
@@ -122,8 +133,9 @@ export class Traffic {
       seed = (seed * 16807) % 2147483647;
       return seed / 2147483647;
     };
-    const kinds = [CAR(), CAB(), BUS(), BOAT(), BARGE()];
-    const counts = [0, 0, 0, 0, 0];
+    const kinds = [CAR(), CAB(), BUS(), BOAT(), BARGE(), CARRIAGE()];
+    const counts = [0, 0, 0, 0, 0, 0];
+    const trainColour: number[] = []; // per carriage mover: the train's colour
     const plan: Omit<Mover, "slot">[] = [];
     // Roads: a vehicle every 35 m of main road and 60 m of street, both ways.
     for (const r of world.roads) {
@@ -145,6 +157,23 @@ export class Traffic {
           offset: Math.max(Math.min(p.width / 4, 3.2), 1.4),
           kind,
         });
+      }
+    }
+    // Trains: six carriages each, a train every 900 m of line, on lines of 400 m or more.
+    for (const r of world.rails ?? []) {
+      const p = path(r.points.map(([n, e]) => [n, e] as [number, number]), 3, r.points.map(([, , h]) => h));
+      if (p.length < 400) continue;
+      const k = this.paths.push(p) - 1;
+      const trains = Math.max(1, Math.floor(p.length / 900));
+      for (let t = 0; t < trains; t++) {
+        const dir = rnd() < 0.5 ? 1 : -1;
+        const s0 = rnd() * p.length;
+        const speed = 7 + rnd() * 8;
+        const colour = Math.floor(rnd() * TRAIN_COLOURS.length);
+        for (let c = 0; c < 6; c++) {
+          plan.push({ path: k, s: s0 - dir * c * 20.2, dir, speed, offset: 0, kind: 5 });
+          trainColour.push(colour);
+        }
       }
     }
     // Boats on the river, both ways, off its middle.
@@ -174,13 +203,16 @@ export class Traffic {
       this.group.add(mesh);
       return mesh;
     });
-    const used = [0, 0, 0, 0, 0];
+    const used = [0, 0, 0, 0, 0, 0];
     const c = new THREE.Color();
+    let carriage = 0;
     for (const mv of plan) {
       const slot = used[mv.kind]!++;
       this.movers.push({ ...mv, slot });
       const colour =
-        mv.kind === 1 ? "#141414" : mv.kind === 2 ? "#c8102e" : mv.kind === 3 ? (rnd() < 0.5 ? "#f2f2f0" : "#22344f") : mv.kind === 4 ? "#3d3a36" : CAR_COLOURS[Math.floor(rnd() * CAR_COLOURS.length)]!;
+        mv.kind === 5
+          ? TRAIN_COLOURS[trainColour[carriage++]!]!
+          : mv.kind === 1 ? "#141414" : mv.kind === 2 ? "#c8102e" : mv.kind === 3 ? (rnd() < 0.5 ? "#f2f2f0" : "#22344f") : mv.kind === 4 ? "#3d3a36" : CAR_COLOURS[Math.floor(rnd() * CAR_COLOURS.length)]!;
       this.meshes[mv.kind]!.setColorAt(slot, c.set(colour));
     }
     this.update(0);
@@ -194,13 +226,18 @@ export class Traffic {
     for (const mv of this.movers) {
       const p = this.paths[mv.path]!;
       mv.s = (((mv.s + mv.dir * mv.speed * dt) % p.length) + p.length) % p.length;
-      const [n, e, dn, de] = at(p, mv.s);
+      const [n, e, dn, de, rh] = at(p, mv.s);
       // Keep left of the direction of travel.
       const [fn, fe] = [dn * mv.dir, de * mv.dir];
       const [ln, le] = [fe, -fn];
       const pn = n + ln * mv.offset;
       const pe = e + le * mv.offset;
-      const y = mv.kind >= 3 ? (this.waterLevel?.(pn, pe) ?? this.ground.at(pn, pe)) - 0.6 : this.ground.at(pn, pe);
+      const y =
+        mv.kind === 5
+          ? rh
+          : mv.kind >= 3
+            ? (this.waterLevel?.(pn, pe) ?? this.ground.at(pn, pe)) - 0.6
+            : this.ground.at(pn, pe);
       this.q.setFromAxisAngle(this.up, Math.atan2(fn, fe)); // local x along travel: (n, e) → (x = e, z = -n)
       this.m.compose(new THREE.Vector3(pe, y, -pn), this.q, new THREE.Vector3(1, 1, 1));
       this.meshes[mv.kind]!.setMatrixAt(mv.slot, this.m);

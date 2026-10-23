@@ -75,7 +75,7 @@ function species(): THREE.BufferGeometry[] {
     s.translate(x * 0.85, y, z * 0.85);
     lobes.push(s);
   });
-  const crown = paint(mergeGeometries(lobes.map((g) => g.toNonIndexed()))!, leaf([0.33, 0.55, 0.2]));
+  const crown = paint(mergeGeometries(lobes.map((g) => g.toNonIndexed()))!, leaf([0.17, 0.31, 0.09]));
   const bough1 = trunk(0.025, 0.04, 0.35);
   bough1.rotateZ(0.7);
   bough1.translate(0, 0.38, 0);
@@ -89,14 +89,14 @@ function species(): THREE.BufferGeometry[] {
     const r = 1.0 - 0.17 * k;
     const c = new THREE.ConeGeometry(r, 0.34, 9, 1, true);
     c.translate(0, 0.27 + 0.15 * k + 0.17, 0);
-    tiers.push(paint(lumpy(c, 0.18, 77 + k), leaf([0.17, 0.34, 0.18])));
+    tiers.push(paint(lumpy(c, 0.18, 77 + k), leaf([0.08, 0.18, 0.09])));
   }
   const conifer = mergeGeometries(tiers.map((g) => (g.index ? g.toNonIndexed() : g)))!;
   // A willow: a short trunk and a wide, drooping crown.
   const wl = lumpy(new THREE.SphereGeometry(1, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.62), 0.22, 5);
   wl.scale(1.05, 0.72, 1.05);
   wl.translate(0, 0.42, 0);
-  const willow = mergeGeometries([trunk(0.05, 0.08, 0.5), paint(wl.toNonIndexed(), leaf([0.45, 0.6, 0.3]))])!;
+  const willow = mergeGeometries([trunk(0.05, 0.08, 0.5), paint(wl.toNonIndexed(), leaf([0.25, 0.37, 0.14]))])!;
   // A shrub: a few lobes on the ground.
   const sl: THREE.BufferGeometry[] = [];
   [[0, 0.45, 0, 0.55], [0.4, 0.35, 0.15, 0.42], [-0.35, 0.36, -0.2, 0.44]].forEach(([x, y, z, r], k) => {
@@ -105,7 +105,7 @@ function species(): THREE.BufferGeometry[] {
     s.translate(x!, y!, z!);
     sl.push(s.toNonIndexed());
   });
-  const shrub = paint(mergeGeometries(sl)!, leaf([0.34, 0.5, 0.22]));
+  const shrub = paint(mergeGeometries(sl)!, leaf([0.18, 0.30, 0.11]));
   for (const g of [broadleaf, conifer, willow, shrub]) g.computeVertexNormals();
   return [broadleaf, conifer, willow, shrub];
 }
@@ -151,7 +151,7 @@ export class TreeField {
     }
     const m = new THREE.Matrix4();
     const c = new THREE.Color();
-    const tones = [[0.3, 0.5, 0.26], [0.36, 0.42, 0.2], [0.24, 0.46, 0.38]] as const;
+    const tones = [[0.28, 0.48, 0.18], [0.36, 0.4, 0.13], [0.24, 0.42, 0.26]] as const; // foliage is darker than it looks
     byKind.forEach((ks, kind) => {
       const mesh = new THREE.InstancedMesh(shapes[kind]!, new THREE.MeshLambertMaterial({ flatShading: true }), Math.max(ks.length, 1));
       mesh.count = ks.length;

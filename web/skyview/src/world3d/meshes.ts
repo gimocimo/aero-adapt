@@ -169,7 +169,7 @@ export function outskirts(w: WorldPayload, ground: Ground, levelAt: ((n: number,
       const parts = 2 + Math.floor(rnd() * 3);
       for (let k = 0; k < parts; k++) {
         const r = rnd();
-        const height = r > 0.995 ? 90 + rnd() * 70 : r > 0.96 ? 35 + rnd() * 45 : 9 + 18 * rnd() * rnd() + 6 * rnd();
+        const height = r > 0.998 ? 80 + rnd() * 50 : r > 0.985 ? 30 + rnd() * 30 : 8 + 16 * rnd() * rnd() + 6 * rnd();
         const l = 18 + rnd() * 30;
         const wd = 14 + rnd() * 22;
         const [on, oe] = [(rnd() - 0.5) * (BLOCK - 18 - l * 0.5), (rnd() - 0.5) * (BLOCK - 18 - wd * 0.5)];
@@ -712,6 +712,80 @@ function shoreLevel(rings: [number, number][][], ground: Ground): (n: number, e:
     }
     return ground.at(n, e);
   };
+}
+
+/** Railways (survey worlds): ballast and rails at their own heights; brick viaducts with
+ * arches down to the ground; bridges as decks (over the river and the streets). */
+export function railways(w: WorldPayload, ground: Ground): THREE.Group | null {
+  if (!w.rails?.length) return null;
+  const group = new THREE.Group();
+  // The track: a ribbon 3.2 m wide with the railway pattern (road material, kind 3).
+  const pos: number[] = [];
+  const col: number[] = [];
+  const attr: number[] = [];
+  const idx: number[] = [];
+  const c = new THREE.Color("#6f675c");
+  const hw = 1.6;
+  const B = new Builder();
+  const brick = "#7b4c3c";
+  const deck = "#6c6f72";
+  for (const r of w.rails) {
+    const pts = r.points;
+    let along = 0;
+    pts.forEach(([n, e, h], i) => {
+      if (i > 0) along += Math.hypot(n - pts[i - 1]![0], e - pts[i - 1]![1]);
+      const [an, ae] = pts[Math.max(i - 1, 0)]!;
+      const [bn, be] = pts[Math.min(i + 1, pts.length - 1)]!;
+      const len = Math.hypot(bn - an, be - ae) || 1;
+      const [pn, pe] = [-(be - ae) / len, (bn - an) / len];
+      for (const side of [1, -1]) {
+        pos.push(e + side * pe * hw, h + 0.05, -(n + side * pn * hw));
+        col.push(c.r, c.g, c.b);
+        attr.push(along, side * hw, hw, 3);
+      }
+      // Under a station's roof the roof stands for it.
+      if (i > 0 && r.carried[i] !== 3 && r.carried[i - 1] !== 3) {
+        const k = pos.length / 3 - 4;
+        idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3);
+      }
+      // What carries it, from this point to the next.
+      const [c1, c2] = [r.carried[i] ?? 0, r.carried[i + 1] ?? 0];
+      if (i + 1 >= pts.length || c1 === 0 || c2 === 0 || c1 === 3 || c2 === 3) return;
+      const [n2, e2, h2] = pts[i + 1]!;
+      const seg = Math.hypot(n2 - n, e2 - e) || 1;
+      const [qn, qe] = [-(e2 - e) / seg * 2.0, (n2 - n) / seg * 2.0]; // half the deck's width
+      const P = (pn_: number, pe_: number, y: number) => new THREE.Vector3(pe_, y, -pn_);
+      const viaduct = r.carried[i] === 1 && r.carried[i + 1] === 1;
+      const g1 = ground.at(n, e);
+      const g2 = ground.at(n2, e2);
+      const bottom1 = viaduct ? g1 - 0.5 : h - 2.2;
+      const bottom2 = viaduct ? g2 - 0.5 : h2 - 2.2;
+      const kind = viaduct ? 10 + Math.round(Math.min((h - g1 + h2 - g2) / 2, 80)) : FACADE.none;
+      for (const s of [1, -1]) {
+        const [an_, ae_] = [n + s * qn, e + s * qe];
+        const [bn_, be_] = [n2 + s * qn, e2 + s * qe];
+        B.quad(P(an_, ae_, bottom1), P(bn_, be_, bottom2), P(bn_, be_, h2 - 0.1), P(an_, ae_, h - 0.1), viaduct ? brick : deck,
+               [[along, bottom1 - g1], [along + seg, bottom2 - g2], [along + seg, h2 - 0.1 - g2], [along, h - 0.1 - g1]], kind); // prettier-ignore
+      }
+      B.quad(P(n + qn, e + qe, h - 0.05), P(n2 + qn, e2 + qe, h2 - 0.05), P(n2 - qn, e2 - qe, h2 - 0.05), P(n - qn, e - qe, h - 0.05), "#625b52");
+      if (!viaduct) B.quad(P(n + qn, e + qe, h - 2.2), P(n2 + qn, e2 + qe, h2 - 2.2), P(n2 - qn, e2 - qe, h2 - 2.2), P(n - qn, e - qe, h - 2.2), deck);
+    });
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  g.setAttribute("aRoad", new THREE.Float32BufferAttribute(attr, 4));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  const track = new THREE.Mesh(g, roadMaterial());
+  track.receiveShadow = true;
+  track.name = "rails";
+  group.add(track);
+  const structure = new THREE.Mesh(B.geometry(), buildingMaterial());
+  structure.castShadow = structure.receiveShadow = true;
+  structure.name = "viaducts";
+  group.add(structure);
+  return group;
 }
 
 /** Roads as surfaces of their own (cinematic): sharp edges, tarmac grain and centre lines

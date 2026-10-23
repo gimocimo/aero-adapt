@@ -833,15 +833,24 @@ the language layer moves to week 11. For Txt2Fly:
   which no plan can change. The checker and the builder's lift now allow the climb out of a
   start that is too low, as the checker already allowed leaving a no-fly area the aircraft
   started in; a plan that never climbs above the floor still fails.
+- **Climbing first.** From 60 m over Potters Fields, a circle of the Shard (lifted to 330 m)
+  or a pass over Tower Bridge at 100 m still failed K4: the aircraft climbed while it travelled
+  and passed buildings 4–5 m too low, with every leg already high enough, so lifting could not
+  help. The builder now finds such late climbs in the preview and climbs first: a circle of
+  the usual size (loiter turns) within 400 m of the aircraft, where the floor round it is
+  lowest and clear of no-fly areas, to the height the plan needs, then a route to the plan.
+  The turns start from 60 % of the stack's best climb rate and grow until the preview clears.
+  The note says so ("climbs to 330 m first (heights are above home), circling near Tower
+  Bridge, so the way there keeps 30 m above the trees and buildings"). Flown in the closed
+  loop, both plans stay above the planner's floor after the climb out of the low start (worst
+  1 m, the checker's tolerance), with 74 m and 43 m straight down at the least. London's
+  landmarks, towers, bridges and stations now name the obstacles in explanations.
 
 **Open**
 
 - **The paid runs (V27).** They need `ANTHROPIC_API_KEY` in the shell that runs them and the
   owner's go-ahead. Estimated from the measured prompt sizes: the Haiku test split (about 100
   cases × 3) about $0.07; with thinking about $0.15; the Opus reference about $7.
-- **London: climbing before the transit.** A plan that must climb far from a low start (a
-  circle of the Shard from 60 m) still fails K4 on the way, because the aircraft climbs while
-  it travels past towers; the builder should circle up first. A separate task.
 - V26 on the eval's accepted plans, the demo clip and write-up (T11), and the Shoulds (T9
   MAVLink export, T10 glide landing).
 

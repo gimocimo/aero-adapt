@@ -1251,11 +1251,102 @@ def _lift(
     for label, (alt, p) in by_label.items():
         what = landmark(ctx.gaz, p)
         if rel.by_obstacle(p[None], ops.min_agl_m)[0]:
-            why = f"{CLEARANCE_M:g} m above {what or 'the trees and hedges'}"
+            why = f"{CLEARANCE_M:g} m above {what or 'the trees and buildings'}"
         else:
             why = f"{ops.min_agl_m:g} m above the rising ground" + (f" at {what}" if what else "")
         notes.append(f"{label}: at {alt:g} m (heights are above home) to keep {why}")
     return items, home_alt, pv, notes
+
+
+CLIMB_SEARCH_M = 400.0  # how far from the aircraft a climb circle may be
+CLIMB_RATE_SHARE = 0.6  # of TECS's best climb rate, for the first guess at the turns needed
+
+
+def _near(gaz: Gazetteer, p: np.ndarray) -> str:
+    """A place to name a point by: the nearest one within 300 m (streets left out)."""
+    best, name = 300.0, None
+    for place in gaz.places.values():
+        if place.kind in ("road", "street", "lane", "home"):
+            continue
+        d = float(np.linalg.norm(place.point - p))
+        if d < best:
+            best, name = d, place.name
+    return f"near {name}" if name else "where it is"
+
+
+def _late_climb(ctx: _Ctx, items: list[Item], pv: Preview, home_alt: float) -> np.ndarray:
+    """Where the track passes too low only because the climb to its leg's height comes late:
+    the leg itself is high enough there (what ``_lift`` cannot fix by raising a leg)."""
+    rel = relief(ctx.gaz.site)
+    assert rel is not None
+    floor = rel.floor(pv.ne, ctx.ops.min_agl_m)
+    low = pv.alt < floor - 1.0
+    low[: climb_out(pv.alt, floor)] = False
+    flat = (ITEM_JUMP, ITEM_RTL)
+    leg = np.array([home_alt if items[int(k)].kind in flat else items[int(k)].alt for k in pv.item])
+    return low & (leg >= floor - 0.5)
+
+
+def _climb_first(
+    ctx: _Ctx, items: list[Item], pv: Preview, home_alt: float
+) -> tuple[list[Item], Preview, int, str] | None:
+    """On a world site, when the track passes too low because the aircraft climbs while it
+    travels (a long climb from a low start, past tall buildings), climb first: circle where the
+    ground and what stands on it are lowest, nearby and clear of no-fly areas, up to the height
+    the plan needs, then go. Returns the items (all shifted by the climb's), the preview, the
+    shift and a note; None if no climb is needed or none helps."""
+    rel = relief(ctx.gaz.site)
+    if rel is None or not ctx.adapt or not items:
+        return None
+    late = _late_climb(ctx, items, pv, home_alt)
+    if not late.any():
+        return None
+    flat = (ITEM_JUMP, ITEM_RTL)
+    last = int(pv.item[np.nonzero(late)[0][-1]])
+    height = max(it.alt for it in items[: last + 1] if it.kind not in flat)
+    first = next((it for it in items if it.kind not in flat), None)
+    if first is None:
+        return None
+    cruise = ctx.cruise
+    radius = _ceil10(max(ctx.cfg.l1.loiter_radius_m, ctx.r_min(cruise)))
+    need = ctx.route_need(cruise)
+    pos = np.asarray(ctx.ac.pos_ne, float)
+    # Candidate centres round the aircraft, best first: the lowest floor round the circle.
+    span = np.arange(-CLIMB_SEARCH_M, CLIMB_SEARCH_M + 1.0, 50.0)
+    grid = np.stack(np.meshgrid(span, span, indexing="ij"), -1).reshape(-1, 2) + pos
+    grid = grid[np.linalg.norm(grid - pos, axis=1) <= CLIMB_SEARCH_M]
+    grid = grid[ctx.cm.at(grid) >= radius + need]
+    if not len(grid):
+        return None
+    theta = np.linspace(0.0, 2.0 * np.pi, 24, endpoint=False)
+    ring = np.stack([np.cos(theta), np.sin(theta)], -1) * radius
+    worst = np.array([rel.floor(c + ring, ctx.ops.min_agl_m).max() for c in grid])
+    order = np.argsort(worst + 0.05 * np.linalg.norm(grid - pos, axis=1))
+    turn_s = 2.0 * math.pi * radius / cruise
+    rate = CLIMB_RATE_SHARE * ctx.cfg.tecs.climb_max_mps
+    for c in grid[order[:3]]:
+        way = ctx.cm.route(c, np.array([first.north, first.east]), need)
+        if way is None:
+            continue
+        turns = max(1, math.ceil((height - ctx.ac.alt_agl) / rate / turn_s))
+        for _ in range(4):
+            climb = [ctx.item(ITEM_LOITER_TURNS, c, height, radius=radius, p1=float(turns))]
+            climb += [ctx.item(ITEM_WAYPOINT, w, height) for w in way]
+            shift = len(climb)
+            new = climb + [it._replace(p1=it.p1 + shift) if it.kind == ITEM_JUMP else it
+                           for it in items]  # fmt: skip
+            pv2 = _preview(ctx, new, ctx.mission(new, home_alt))
+            late2 = _late_climb(ctx, new, pv2, home_alt)
+            if not late2.any():
+                where = _near(ctx.gaz, c)
+                note = (f"climbs to {height:g} m first (heights are above home), circling "
+                        f"{where}, so the way there keeps {CLEARANCE_M:g} m above the trees and "
+                        "buildings")  # fmt: skip
+                return new, pv2, shift, note
+            if (pv2.item[late2] < shift).any():
+                break  # too low while circling: another centre
+            turns += 1  # left the circle before it was high enough
+    return None
 
 
 ROOMS = (1.0, 2.0, 3.0)  # searches with more and more room to turn, while none keeps clear
@@ -1345,6 +1436,14 @@ def _assemble(ctx: _Ctx, best: _Node, errors: list[str]) -> Built:
     items, last_alt, pv, lifted = _lift(ctx, items, pv, last_alt, steps)
     if lifted:
         notes += lifted
+        mission = ctx.mission(items, last_alt)
+    climb = _climb_first(ctx, items, pv, last_alt)
+    if climb is not None:
+        items, pv, shift, note = climb
+        steps = [replace(g, items=(g.items[0] + shift, g.items[1] + shift)) for g in steps]
+        built.steps = steps
+        jump = None if jump is None else jump + shift
+        notes.append(note)
         mission = ctx.mission(items, last_alt)
     laps = lap_mah = None
     st: _Laps | None = None

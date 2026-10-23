@@ -281,3 +281,28 @@ def test_requests_are_adapted_and_explained(gaz: Gazetteer, ac: Aircraft) -> Non
     beyond = {"do": "goto", "target": _place("Saint Peter (Coton Parish Church)")}
     ok, notes = adapted(beyond, {"do": "return_home"})
     assert ok and "goes to the nearest place clear of it" in notes
+
+
+def test_a_long_climb_from_a_low_start_circles_up_first() -> None:
+    """London (docs/06 §16): from 60 m over Potters Fields, a circle of the Shard (lifted to
+    330 m) or a pass over Tower Bridge at 100 m would climb on the way, past buildings, with
+    less than 30 m to spare. The builder circles up first, over the river, then goes."""
+    from aeroadapt.airframes.fleet import fleet_path, load_fleet_airframe
+
+    fleet = fleet_path("configs/fleets/city")
+    trainer = load_fleet_airframe(fleet, "city-trainer")
+    ac = Aircraft(load_stack_cfg(fleet, "city-trainer"), trainer, (-691.0, 790.0), 60.0, 270.0,
+                  (1.5, 2.6))  # fmt: skip
+    london = load_gazetteer(load_site("london"))
+    shard = {"do": "orbit", "target": _place("the-shard"), "alt_m": 150}
+    bridge = {"do": "pass_over", "target": _place("tower-bridge"), "alt_m": 100}
+    for step, height in ((shard, 330.0), (bridge, 100.0)):
+        r = check(build(_plan(step), ac, london), london)
+        first = r.built.items[0]
+        assert r.ok, [c.reason for c in r.checks if not c.ok]
+        assert first.kind == ITEM_LOITER_TURNS and first.alt == height and first.p1 >= 1
+        note = next(n for n in r.built.notes if n.startswith("climbs to"))
+        assert f"climbs to {height:g} m first" in note
+        assert r.built.steps[0].items[0] >= 1  # the plan's steps come after the climb
+        literal = build(_plan(step), ac, london, adapt=False)
+        assert literal.items[0].kind != ITEM_LOITER_TURNS

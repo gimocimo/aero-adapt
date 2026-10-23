@@ -109,7 +109,8 @@ def relief(site: Site) -> Relief | None:
 
 
 LANDMARK_KINDS = ("wood", "village", "farm", "church", "mast", "silo", "airstrip", "hangar",
-                  "pub", "hall")  # fmt: skip
+                  "pub", "hall", "landmark", "tower", "bridge", "station", "ship",
+                  "market")  # fmt: skip
 
 
 def landmark(gaz, p: np.ndarray) -> str | None:  # gaz: Gazetteer (no import cycle)

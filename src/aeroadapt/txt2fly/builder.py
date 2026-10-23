@@ -67,7 +67,7 @@ from aeroadapt.txt2fly.plan import (
     SetSpeed,
 )
 from aeroadapt.txt2fly.routing import ClearanceMap, clearance_map
-from aeroadapt.txt2fly.terrain import CLEARANCE_M, ceil5, landmark, relief
+from aeroadapt.txt2fly.terrain import CLEARANCE_M, ceil5, climb_out, landmark, relief
 
 G0 = 9.806_65
 BANK_MARGIN_DEG = 5.0
@@ -1217,6 +1217,7 @@ def _lift(
     for _ in range(4):
         floor = rel.floor(pv.ne, ops.min_agl_m)
         short = pv.alt < floor - 0.5
+        short[: climb_out(pv.alt, floor)] = False  # the climb from a start already too low
         if not short.any():
             break
         rtl = pv.mode == MODE_RTL

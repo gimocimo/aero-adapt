@@ -60,6 +60,11 @@ class Relief:
         i, j = self._idx(ne)
         return self.hi_ground[i, j]
 
+    def top(self, ne: np.ndarray) -> np.ndarray:
+        """The highest ground or obstacle top within the margin."""
+        i, j = self._idx(ne)
+        return self.hi_surface[i, j]
+
 
 def _disc(radius_cells: int) -> np.ndarray:
     r = radius_cells
@@ -124,6 +129,16 @@ def landmark(gaz, p: np.ndarray) -> str | None:  # gaz: Gazetteer (no import cyc
         if d < best:
             best, name = d, place.name
     return name
+
+
+def climb_out(alt: np.ndarray, floor: np.ndarray) -> int:
+    """Where a track that starts below the floor (the aircraft is already too low: nothing a
+    plan can change) first reaches it; 0 if it starts above. A track that never reaches the
+    floor gets no allowance (0), so a plan that stays low still fails."""
+    if alt.size == 0 or alt[0] >= floor[0] - 1.0:
+        return 0
+    up = np.nonzero(alt >= floor - 1.0)[0]
+    return int(up[0]) if up.size else 0
 
 
 def ceil5(x: float) -> float:

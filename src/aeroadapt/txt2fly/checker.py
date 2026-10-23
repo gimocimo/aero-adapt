@@ -24,7 +24,7 @@ from aeroadapt.txt2fly import geometry as geo
 from aeroadapt.txt2fly.builder import Built, StepGeom, bank_for, r_min, stack_params
 from aeroadapt.txt2fly.energy import RESERVE
 from aeroadapt.txt2fly.gazetteer import Gazetteer
-from aeroadapt.txt2fly.terrain import CLEARANCE_M, ceil5, landmark, relief
+from aeroadapt.txt2fly.terrain import CLEARANCE_M, ceil5, climb_out, landmark, relief
 
 TRACK_MARGIN_M = 30.0  # the flown track may stray this far from the preview
 GLIDE_STEP_M = 50.0
@@ -212,6 +212,7 @@ def _k4_height(built: Built, gaz: Gazetteer) -> Check:
     if ops.ceiling_alt_m is not None:
         roof = np.minimum(roof, ops.ceiling_alt_m)
     low, high = pv.alt < floor - 1.0, pv.alt > roof + 1.0
+    low[: climb_out(pv.alt, floor)] = False  # the climb from a start already too low
     if low.any():
         k = int(np.argmax(floor - pv.alt))
         g = _step_of(built, int(pv.item[k]))

@@ -48,11 +48,13 @@ def world_gazetteer(world: World) -> dict:
                     "point_ne_m": _pt(green.polygon.centroid),
                 }
             )
-    # Named buildings; a church's tower joins its nave (the place is the whole church).
+    # Named buildings; a church's tower joins its nave (the place is the whole church). A tower
+    # with no nave (a city's office tower) is a building like any other.
     named = [b for b in world.buildings if b.name]
-    church = [b for b in named if b.kind in ("nave", "tower")]
+    has_nave = any(b.kind == "nave" for b in named)
+    church = [b for b in named if b.kind == "nave" or (b.kind == "tower" and has_nave)]
     if church:
-        nave = next((b for b in church if b.kind == "nave"), church[0])
+        nave = next(b for b in church if b.kind == "nave")
         shape = unary_union([b.footprint() for b in church])
         feats.append(
             {
@@ -65,7 +67,7 @@ def world_gazetteer(world: World) -> dict:
             }
         )
     for b in named:
-        if b.kind in ("nave", "tower") or b.name is None:
+        if any(b is c for c in church) or b.name is None:
             continue
         feats.append(
             {

@@ -143,6 +143,18 @@ float boxes(vec2 p, vec2 period, vec2 size) {
     // Windows on every floor; offices have shop fronts at street level.
     vec2 period = kind < 1.5 ? vec2(3.2, 2.9) : kind < 2.5 ? vec2(3.0, 3.6) : vec2(6.0, 4.5);
     vec2 size = kind < 1.5 ? vec2(1.1, 1.5) : kind < 2.5 ? vec2(2.2, 2.1) : vec2(2.2, 1.0);
+    // Each building its own rhythm: storeys a little taller or lower, and offices with
+    // punched windows, ribbon glazing or tall bays; homes with wider or narrower sashes.
+    float style = hash2(seed * 5.3 + 1.7);
+    float storey = 0.92 + 0.18 * hash2(seed * 2.9 + 0.3);
+    period.y *= storey;
+    size.y *= storey;
+    if (kind > 1.5 && kind < 2.5) {
+      if (style > 0.66) { period.x = 3.0; size = vec2(2.94, 1.6 * storey); }        // ribbons
+      else if (style > 0.4) { period.x = 1.8; size = vec2(1.15, 2.5 * storey); }    // tall bays
+    } else if (kind < 1.5 && style > 0.5) {
+      period.x = 2.6; size.x = 0.95;
+    }
     if (kind > 7.5) { period = vec2(4.2, 5.0); size = vec2(1.4, 2.6); } // tall stone windows
     float base = kind < 2.5 ? 4.4 : 1.2; // the ground floor
     float w = boxes(uv - vec2(0.0, 0.9), period, size) * step(base, uv.y);

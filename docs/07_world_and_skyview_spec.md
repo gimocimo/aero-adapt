@@ -391,7 +391,7 @@ For demo videos, Skyview's chase view has a look of its own. It is on by default
   - High open ground is moorland olive (it was khaki).
 - **Roads** are surfaces of their own, with sharp edges and tarmac grain. Roads have a dashed centre line and edge lines; tracks have wheel ruts with grass between. They fade into the painted roads beyond about a kilometre.
 - **Buildings.**
-  - Homes, offices and industrial buildings have windows on every floor, each pane a little different (dark, catching the sky, or with its blinds drawn), recessed under its head. Offices have shop fronts at street level, homes and stone buildings lintels.
+  - Homes, offices and industrial buildings have windows on every floor, each pane a little different (dark, catching the sky, or with its blinds drawn), recessed under its head. Each building has its own rhythm: storeys a little taller or lower, offices with punched windows, ribbon glazing or tall bays, homes with wider or narrower sashes. Offices have shop fronts at street level, homes and stone buildings lintels.
   - Towers have glass curtain walls: panels between mullions, an opaque band at each floor, each panel catching the sky differently up close.
   - Landmarks are stone with tall windows; churches plain stone. Pitched roofs are tiled, flat roofs gravelled and stained, and big flat roofs carry plant rooms and air-handling units, placed at random.
   - Each building has its own shade, and walls darken towards the street.

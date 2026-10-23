@@ -2,6 +2,8 @@
 
 **Status:** built, 23 Oct 2026, all but the small airframe (§5). The owner chose the area (the City and Bankside) and the vehicle (a small fixed-wing). Until that airframe exists, the Aerosonde flies London, above the roofs and along the river.
 
+![Tower Bridge, City Hall and HMS Belfast, the Shard to the left and the City's towers to the right](media/london_towerbridge.jpg)
+
 ![London from above Tower Bridge: the Thames, HMS Belfast, the Shard, the City's towers](media/london_overview.jpg)
 
 ![The City's towers from over the river: 22 Bishopsgate, the Leadenhall Building, the Gherkin, the Walkie-Talkie](media/london_cluster.jpg)
@@ -108,7 +110,7 @@ Until then the Aerosonde (3 m, 25 m/s) flies London.
   - **Movement.** Traffic keeping left (cars, black cabs, red buses), trains, and boats and barges on the Thames.
   - **Past the edge.** The ground runs on from the map's edge, the Thames carries on past both ends, and an ordinary city fills the rest out to 3.5 km.
 - **A fly-by video.** `tools/flyby_path.py london tools/flyby/london.json frames.json` turns camera keyframes into a smooth path, checked clear of everything measured by at least 12 m (this one by 44 m). `web/skyview/scripts/flyby.mjs` renders and encodes it, with the clock stepped frame by frame so traffic and boats move at their speed.
-- **Google's tiles.** `?map=real` shows Google's photorealistic 3D tiles over the same box, for comparison. Those may be shown, but their licence does not allow copying their geometry into the simulator.
+- **Google's tiles.** `?map=real` (Cesium with Google's photorealistic 3D tiles, docs/07) should show the same place from the site's origin, for comparison; it has not been tried with London yet. Those tiles may be shown, but their licence does not allow copying their geometry into the simulator.
 
 ## 8. Fidelity
 

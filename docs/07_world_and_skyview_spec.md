@@ -200,7 +200,7 @@ The instruments and controls are translucent panels over the picture. `?layout=q
 | View | Camera |
 |---|---|
 | Follow (the window) | **Chase:** behind and above, its heading smoothed: 13 m and 3 m for a 3 m aircraft, in proportion for others (about 5 m behind the 1.1 m city trainer). **Orbit:** 170 m out. **Free:** drag to orbit the aircraft. The aircraft model is at its real size |
-| Minimap (top right) | Orthographic and north up, 900 m across, following the aircraft; scroll to zoom. A double-click shows the whole site (drag to pan, double-click to refit), another follows again. It is drawn off-screen and cut into its circle, so the follow view shows round it. The aircraft (and ghost) are arrows of a fixed pixel size. In `?layout=quad`, the map panel is fitted to the geofence (or the world) |
+| Minimap (top right) | Orthographic and north up, 900 m across, following the aircraft; scroll to zoom. A double-click shows the whole site (drag to pan, double-click to refit), another follows again. It is drawn off-screen and cut into its circle, so the follow view shows round it; a label the rim would cut is hidden. The aircraft (and ghost) are arrows of a fixed pixel size. In `?layout=quad`, the map panel is fitted to the geofence (or the world) |
 
 **The world** is drawn from the server's payload (`world.export.viewer_payload`, 1.2 MB of msgpack). It arrives in the live `hello`, and `export-viz` writes it next to a replay as `world.msgpack`.
 

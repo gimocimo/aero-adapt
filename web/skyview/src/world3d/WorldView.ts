@@ -123,6 +123,7 @@ export class WorldView {
   private site: SiteLayers | null = null;
   private plans: { proposal: PlanReport | null; active: PlanReport | null } = { proposal: null, active: null };
   private labels: Label[] = [];
+  private labelSize = new WeakMap<HTMLDivElement, [number, number]>(); // measured once
   private hosts: Partial<Record<"chase" | "top", HTMLElement>> = {};
   private trailKey = "";
   private trailAt = -1;
@@ -567,14 +568,33 @@ export class WorldView {
 
   private placeLabels(view: "chase" | "top", cam: THREE.Camera, w: number, h: number): void {
     const v = new THREE.Vector3();
+    const round = view === "top" && this.minimap;
+    const R = (0.95 * Math.min(w, h)) / 2; // the minimap's circle, inside its bezel
     for (const l of this.labels) {
       const el = l.els[view];
       if (!el) continue;
       v.copy(l.pos).project(cam);
-      const visible = v.z < 1 && Math.abs(v.x) < 1.05 && Math.abs(v.y) < 1.05 && (!l.grid || this.showGrid);
+      let visible = v.z < 1 && Math.abs(v.x) < 1.05 && Math.abs(v.y) < 1.05 && (!l.grid || this.showGrid);
+      const [x, y] = [((v.x + 1) / 2) * w, ((1 - v.y) / 2) * h];
+      if (visible && round) visible = this.insideCircle(el, x - w / 2, y - h / 2, R);
       el.style.display = visible ? "" : "none";
-      if (visible) el.style.transform = `translate(${((v.x + 1) / 2) * w}px, ${((1 - v.y) / 2) * h}px) translate(-50%, -100%)`;
+      if (visible) el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%)`;
     }
+  }
+
+  /** Whether a label, anchored by its bottom centre at (dx, dy) from the circle's centre, lies
+   * wholly inside the circle: a label the rim would cut is not shown. */
+  private insideCircle(el: HTMLDivElement, dx: number, dy: number, R: number): boolean {
+    let size = this.labelSize.get(el);
+    if (!size) {
+      el.style.display = "";
+      size = [el.offsetWidth, el.offsetHeight];
+      if (size[0] === 0) return true; // not laid out yet
+      this.labelSize.set(el, size);
+    }
+    const ex = Math.abs(dx) + size[0] / 2; // the corner farthest from the centre
+    const ey = Math.max(Math.abs(dy), Math.abs(dy - size[1]));
+    return ex * ex + ey * ey <= R * R;
   }
 
   // ------------------------------------------------------------------ per frame

@@ -34,6 +34,32 @@ def ctx(gaz: Gazetteer, aerosonde: Airframe) -> tr.Context:
     return tr.Context(gaz, ac, None, (), 12.0)
 
 
+REPLY_KEYS = ("summary", "assumptions", "steps", "question", "options", "reason")
+STEP_KEYS = ("target", "targets", "alt_m", "radius_m", "direction", "turns", "duration_s",
+             "heading", "visit", "laps", "speed")  # fmt: skip
+TARGET_KEYS = ("id", "origin", "bearing_deg", "distance_m")
+
+
+def _full(flat: dict) -> dict:
+    """A reply with the fields it leaves out written as null (the schema requires them all)."""
+
+    def target(t: dict) -> dict:
+        return {**dict.fromkeys(TARGET_KEYS), **t}
+
+    def step(st: dict) -> dict:
+        st = {**dict.fromkeys(STEP_KEYS), **st}
+        if st["target"] is not None:
+            st["target"] = target(st["target"])
+        if st["targets"] is not None:
+            st["targets"] = [target(t) for t in st["targets"]]
+        return st
+
+    out = {**dict.fromkeys(REPLY_KEYS), **flat}
+    if out["steps"] is not None:
+        out["steps"] = [step(st) for st in out["steps"]]
+    return out
+
+
 def _model(gaz: Gazetteer):
     return tr.reply_model(tuple(p.id for p in tr.prompt_places(gaz)))
 
@@ -67,13 +93,22 @@ def test_places_are_an_enum_of_the_site(gaz: Gazetteer) -> None:
     m = _model(gaz)
     ok = {"kind": "plan", "summary": "s", "assumptions": [], "steps": [
         {"do": "orbit", "target": {"kind": "place", "id": "church"}, "alt_m": 80}]}  # fmt: skip
+    ok = _full(ok)
     m.model_validate(ok)
     bad = json.loads(json.dumps(ok).replace('"church"', '"atlantis"'))
     with pytest.raises(ValueError):
         m.model_validate(bad)
     with pytest.raises(ValueError):  # a map point is not something the model may give
-        m.model_validate(json.loads(json.dumps(ok).replace(
-            '{"kind": "place", "id": "church"}', '{"kind": "point", "ne_m": [0, 0]}')))  # fmt: skip
+        m.model_validate(json.loads(json.dumps(ok).replace('"kind": "place"', '"kind": "point"')))
+
+
+def test_every_field_is_required(gaz: Gazetteer) -> None:
+    """A small model skipped optional fields, the stated height among them (V27 baseline)."""
+    schema = _model(gaz).model_json_schema()
+    for node in [schema, *schema["$defs"].values()]:
+        assert set(node["required"]) == set(node["properties"])
+    with pytest.raises(ValueError):
+        _model(gaz).model_validate({"kind": "refuse", "reason": "no"})
 
 
 def test_the_schema_is_flat(gaz: Gazetteer) -> None:
@@ -92,7 +127,7 @@ def test_the_prompts_examples_are_valid_replies() -> None:
     m = tr.reply_model(ids)
     kinds = set()
     for e in examples:
-        flat = m.model_validate(json.loads(e)).model_dump(mode="json", exclude_none=True)
+        flat = m.model_validate(_full(json.loads(e))).model_dump(mode="json", exclude_none=True)
         kinds.add(flat["kind"])
         tr.to_reply(tr.nest(flat))  # a plan validates as a Plan
     assert kinds == {"plan", "clarify", "refuse"}
@@ -104,7 +139,7 @@ def test_a_replys_plan_is_a_plan(gaz: Gazetteer) -> None:
                                    "distance_m": 200}, "radius_m": 150, "direction": "ccw",
          "laps": None, "visit": None},
         {"do": "return_home", "alt_m": None}]}  # fmt: skip
-    flat = _model(gaz).model_validate(flat).model_dump(mode="json")
+    flat = _model(gaz).model_validate(_full(flat)).model_dump(mode="json")
     plan = tr.to_reply(tr.nest(flat))  # fields a step does not have, and nulls, are dropped
     assert isinstance(plan, Plan)
     assert isinstance(plan.steps[0], Orbit) and plan.steps[0].direction == "ccw"
@@ -184,7 +219,7 @@ class _Fake:
 def _resp(model: type, raw: dict | None, stop: str = "end_turn") -> SimpleNamespace:
     usage = SimpleNamespace(input_tokens=900, output_tokens=120, cache_read_input_tokens=7000,
                             cache_creation_input_tokens=0)  # fmt: skip
-    parsed = None if raw is None else model.model_validate(raw)
+    parsed = None if raw is None else model.model_validate(_full(raw))
     return SimpleNamespace(parsed_output=parsed, stop_reason=stop, model="claude-haiku-5-5",
                            usage=usage)  # fmt: skip
 

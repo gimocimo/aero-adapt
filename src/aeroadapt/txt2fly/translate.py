@@ -158,39 +158,41 @@ def reply_model(ids: tuple[str, ...]) -> type[BaseModel]:
     def m(name: str, **fields: Any) -> Any:
         return create_model(name, __base__=_M, **fields)
 
-    opt = (float | None, None)
+    # Every field required (null where it does not apply): a small model writing a long list
+    # of optional fields skips some, the stated height among them.
+    num = (float | None, ...)
     target = m(
         "Target",
         kind=(lit["place", "here", "home", "offset"], ...),
-        id=(lit[ids] | None, None),
-        origin=(lit[(*ids, "here", "home")] | None, None),
-        bearing_deg=opt,
-        distance_m=opt,
+        id=(lit[ids] | None, ...),
+        origin=(lit[(*ids, "here", "home")] | None, ...),
+        bearing_deg=num,
+        distance_m=num,
     )
     step = m(
         "Step",
         do=(lit[tuple(STEP_CLASSES)], ...),
-        target=(target | None, None),
-        targets=(list[target] | None, None),
-        alt_m=opt,
-        radius_m=opt,
-        direction=(lit["cw", "ccw"] | None, None),
-        turns=opt,
-        duration_s=opt,
-        heading=(lit["along", "into_wind"] | float | None, None),
-        visit=(lit["pass_over", "goto"] | None, None),
-        laps=(int | None, None),
-        speed=(lit["slow", "cruise", "fast"] | float | None, None),
+        target=(target | None, ...),
+        targets=(list[target] | None, ...),
+        alt_m=num,
+        radius_m=num,
+        direction=(lit["cw", "ccw"] | None, ...),
+        turns=num,
+        duration_s=num,
+        heading=(lit["along", "into_wind"] | float | None, ...),
+        visit=(lit["pass_over", "goto"] | None, ...),
+        laps=(int | None, ...),
+        speed=(lit["slow", "cruise", "fast"] | float | None, ...),
     )
     return m(
         "Reply",
         kind=(lit["plan", "clarify", "refuse"], ...),
-        summary=(str | None, None),
-        assumptions=(list[str] | None, None),
-        steps=(list[step] | None, None),
-        question=(str | None, None),
-        options=(list[str] | None, None),
-        reason=(str | None, None),
+        summary=(str | None, ...),
+        assumptions=(list[str] | None, ...),
+        steps=(list[step] | None, ...),
+        question=(str | None, ...),
+        options=(list[str] | None, ...),
+        reason=(str | None, ...),
     )
 
 

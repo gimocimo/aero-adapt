@@ -848,9 +848,27 @@ the language layer moves to week 11. For Txt2Fly:
 
 **Open**
 
-- **The paid runs (V27).** They need `ANTHROPIC_API_KEY` in the shell that runs them and the
-  owner's go-ahead. Estimated from the measured prompt sizes: the Haiku test split (about 100
-  cases × 3) about $0.07; with thinking about $0.15; the Opus reference about $7.
+- **The Opus reference and Haiku with thinking** (V27): the owner's go-ahead first (about $7
+  and $0.15).
 - V26 on the eval's accepted plans, the demo clip and write-up (T11), and the Shoulds (T9
   MAVLink export, T10 glide landing).
+
+### Week 11, continued (23 Oct 2026): the first real runs
+
+- **The key.** An organisation-wide key needs the workspace named on every request
+  (`anthropic-workspace-id`); the translator sends `ANTHROPIC_WORKSPACE_ID` when set. The key
+  lives in `~/.config/anthropic/api_key` (readable only by the owner) and `~/.zshrc` exports
+  both, outside the repository.
+- **The schema had to be flat.** The first request failed: "the compiled grammar is too large".
+  Structured outputs compile the schema into a grammar, and seven step kinds with four kinds of
+  target each, over the site's place ids, was too much. The model now writes one flat reply,
+  step and target object (places still an enum); `nest()` turns it into the typed plan. A site's
+  first request compiles its schema in about 30 s (then cached for a day), so the client waits
+  up to 60 s and the evaluation sends one untimed request per site first. After that a request
+  takes about 2 s and reads the 8,400-token system prompt from the cache.
+- **V27, run 1 (the baseline)**, Haiku 5.5 on the test half: clear 79 %, ambiguous 88 %,
+  infeasible 100 % (right reason 92 %), follow-ups 61 %, unsafe 100 %, adversarial 58 %;
+  latency p50 1.5 s, p95 2.7 s; $0.06 in all. Nothing unsafe was proposed. The failures, their
+  causes and the changes (every field required; five general prompt rules; two labels
+  corrected) are in [the V27 report](validation/txt2fly_v27.md).
 

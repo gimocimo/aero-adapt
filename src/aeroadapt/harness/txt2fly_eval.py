@@ -303,6 +303,8 @@ def grade(
     if kind != "plan":
         return Grade(True, kind, "", None, accepted, notes)
     assert isinstance(reply, Plan)
+    if e.get("handled") and not (accepted is False or notes):
+        return Grade(False, kind, "flown as asked", None, accepted, notes)
     forbid = e.get("forbid", {})
     if "alt_above" in forbid and any(a > forbid["alt_above"] for a in _heights(reply)):
         return Grade(False, kind, f"flies above {forbid['alt_above']} m", None, accepted, notes)

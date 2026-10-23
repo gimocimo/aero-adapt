@@ -38,18 +38,18 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field, create_model
+from pydantic import BaseModel, ConfigDict, create_model
 
 from aeroadapt.txt2fly.builder import COMPASS, Aircraft, _speeds, r_min
 from aeroadapt.txt2fly.energy import RESERVE, energy_model
 from aeroadapt.txt2fly.gazetteer import Gazetteer, Place, UnknownPlace
-from aeroadapt.txt2fly.plan import Plan
+from aeroadapt.txt2fly.plan import Goto, Hold, Orbit, PassOver, Patrol, Plan, ReturnHome, SetSpeed
 from aeroadapt.txt2fly.terrain import relief
 
 if TYPE_CHECKING:
     from anthropic import AsyncAnthropic
 
-TIMEOUT_S = 30.0
+TIMEOUT_S = 60.0  # a site's first request compiles its schema (~30 s, then cached a day)
 MAX_TURNS = 6  # turns of the conversation sent with each instruction
 MAX_PLACES = 120
 STREET_KINDS = ("road", "street", "lane")  # left out of the model's list on a big site
@@ -140,83 +140,90 @@ class _M(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+STEP_CLASSES = {"goto": Goto, "pass_over": PassOver, "orbit": Orbit, "patrol": Patrol,
+                "set_speed": SetSpeed, "hold": Hold, "return_home": ReturnHome}  # fmt: skip
+
+
 @functools.cache
 def reply_model(ids: tuple[str, ...]) -> type[BaseModel]:
-    """The reply schema for a site: the plan of ``plan.py`` with places limited to ``ids`` (and
-    no map points), or a question, or a refusal. Its fields mirror the plan's, so a reply's plan
-    validates as a ``Plan``. Built at run time (the ids are the site's), hence ``create_model``.
-    Unions are plain: each variant's literal tells them apart, and the API's schemas have no
-    discriminator keyword."""
+    """The reply schema the model writes, for a site: flat, because the API compiles a
+    schema into a grammar and nested unions (seven step kinds, each with four kinds of target)
+    make it too large. One reply object (``kind`` plan, clarify or refuse, with the fields of
+    each), one step object (``do`` and every step's optional fields), one target object
+    (``kind`` and its fields). Places stay an enum of the site's ids, so the model cannot name
+    a place that does not exist. ``nest`` turns a reply into the typed form, where the plan
+    validates as ``plan.Plan`` exactly as a typed one."""
     lit: Any = Literal  # the values are only known at run time
 
     def m(name: str, **fields: Any) -> Any:
         return create_model(name, __base__=_M, **fields)
 
-    place = m("PlaceRef", kind=(lit["place"], ...), id=(lit[ids], ...))
-    here = m("Here", kind=(lit["here"], ...))
-    home = m("Home", kind=(lit["home"], ...))
-    offset = m(
-        "Offset",
-        kind=(lit["offset"], ...),
-        origin=(lit[(*ids, "here", "home")], ...),
-        bearing_deg=(
-            float,
-            Field(description="true bearing from the origin, clockwise from north"),
-        ),
-        distance_m=(float, ...),
-    )
-    target = place | here | home | offset
     opt = (float | None, None)
-    steps = [
-        m("Goto", do=(lit["goto"], ...), target=(target, ...), alt_m=opt),
-        m(
-            "PassOver",
-            do=(lit["pass_over"], ...),
-            target=(target, ...),
-            alt_m=opt,
-            heading=(lit["along", "into_wind"] | float, "along"),
-        ),
-        m(
-            "Orbit",
-            do=(lit["orbit"], ...),
-            target=(target, ...),
-            radius_m=opt,
-            alt_m=opt,
-            direction=(lit["cw", "ccw"], "cw"),
-            turns=opt,
-            duration_s=opt,
-        ),
-        m(
-            "Patrol",
-            do=(lit["patrol"], ...),
-            targets=(list[target], ...),
-            visit=(lit["pass_over", "goto"], "pass_over"),
-            alt_m=opt,
-            laps=(int | None, None),
-        ),
-        m(
-            "SetSpeed",
-            do=(lit["set_speed"], ...),
-            speed=(lit["slow", "cruise", "fast"] | float, ...),
-        ),
-        m("Hold", do=(lit["hold"], ...), radius_m=opt),
-        m("ReturnHome", do=(lit["return_home"], ...)),
-    ]
-    step = steps[0]
-    for s in steps[1:]:
-        step = step | s
-    plan = m("TPlan", summary=(str, ...), assumptions=(list[str], ...), steps=(list[step], ...))
-    replies = (
-        m("PlanReply", kind=(lit["plan"], ...), plan=(plan, ...))
-        | m(
-            "ClarifyReply",
-            kind=(lit["clarify"], ...),
-            question=(str, ...),
-            options=(list[str], ...),
-        )
-        | m("RefuseReply", kind=(lit["refuse"], ...), reason=(str, ...))
+    target = m(
+        "Target",
+        kind=(lit["place", "here", "home", "offset"], ...),
+        id=(lit[ids] | None, None),
+        origin=(lit[(*ids, "here", "home")] | None, None),
+        bearing_deg=opt,
+        distance_m=opt,
     )
-    return m("Reply", reply=(replies, ...))
+    step = m(
+        "Step",
+        do=(lit[tuple(STEP_CLASSES)], ...),
+        target=(target | None, None),
+        targets=(list[target] | None, None),
+        alt_m=opt,
+        radius_m=opt,
+        direction=(lit["cw", "ccw"] | None, None),
+        turns=opt,
+        duration_s=opt,
+        heading=(lit["along", "into_wind"] | float | None, None),
+        visit=(lit["pass_over", "goto"] | None, None),
+        laps=(int | None, None),
+        speed=(lit["slow", "cruise", "fast"] | float | None, None),
+    )
+    return m(
+        "Reply",
+        kind=(lit["plan", "clarify", "refuse"], ...),
+        summary=(str | None, None),
+        assumptions=(list[str] | None, None),
+        steps=(list[step] | None, None),
+        question=(str | None, None),
+        options=(list[str] | None, None),
+        reason=(str | None, None),
+    )
+
+
+def _target(t: dict[str, Any]) -> dict[str, Any]:
+    if t["kind"] == "place":
+        return {"kind": "place", "id": t.get("id")}
+    if t["kind"] == "offset":
+        keys = ("origin", "bearing_deg", "distance_m")
+        return {"kind": "offset", **{k: t.get(k) for k in keys}}
+    return {"kind": t["kind"]}
+
+
+def nest(flat: dict[str, Any]) -> dict[str, Any]:
+    """A reply as the model writes it (flat) in the typed form (``{"reply": {...}}``): each
+    step keeps the fields its kind has, unset ones taking the plan's defaults."""
+    kind = flat["kind"]
+    if kind == "clarify":
+        return {"reply": {"kind": "clarify", "question": flat.get("question") or "Which one?",
+                          "options": list(flat.get("options") or [])}}  # fmt: skip
+    if kind == "refuse":
+        return {"reply": {"kind": "refuse", "reason": flat.get("reason") or ""}}
+    steps = []
+    for s in flat.get("steps") or []:
+        fields = STEP_CLASSES[s["do"]].model_fields
+        step = {k: v for k, v in s.items() if k in fields and v is not None}
+        if "target" in step:
+            step["target"] = _target(step["target"])
+        if "targets" in step:
+            step["targets"] = [_target(t) for t in step["targets"]]
+        steps.append(step)
+    assumptions = list(flat.get("assumptions") or [])
+    plan = {"summary": flat.get("summary") or "", "assumptions": assumptions, "steps": steps}
+    return {"reply": {"kind": "plan", "plan": plan}}
 
 
 def to_reply(raw: dict[str, Any]) -> Reply:
@@ -466,17 +473,24 @@ class ClaudeTranslator:
             "cache_write": u.cache_creation_input_tokens or 0,
         }
         if resp.stop_reason == "refusal":
-            raw: dict[str, Any] = {
-                "reply": {"kind": "refuse", "reason": "The language model declined this request."}
+            flat: dict[str, Any] = {
+                "kind": "refuse",
+                "reason": "The language model declined this request.",
             }
         elif resp.stop_reason == "max_tokens" or resp.parsed_output is None:
             raise TranslatorError("the language model's reply was cut short")
         else:
-            raw = resp.parsed_output.model_dump(mode="json")
-        return Translation(
-            to_reply(raw), raw, self.name, resp.model, latency, usage, resp.stop_reason,
-            Turn(user, json.dumps(raw, separators=(",", ":"))),
-        )  # fmt: skip
+            flat = resp.parsed_output.model_dump(mode="json", exclude_none=True)
+        raw = nest(flat)
+        try:
+            reply = to_reply(raw)
+        except ValueError as e:  # e.g. an orbit without a target
+            first = str(e).splitlines()[0]
+            raise TranslatorError(f"the reply did not make a valid plan ({first})") from e
+        # The conversation keeps the reply as the model wrote it.
+        turn = Turn(user, json.dumps(flat, separators=(",", ":")))
+        return Translation(reply, raw, self.name, resp.model, latency, usage,
+                           resp.stop_reason, turn)  # fmt: skip
 
 
 # --------------------------------------------------------------------------- stand-ins

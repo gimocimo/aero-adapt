@@ -65,8 +65,8 @@ def _walk(node: Any):
 
 def test_places_are_an_enum_of_the_site(gaz: Gazetteer) -> None:
     m = _model(gaz)
-    ok = {"reply": {"kind": "plan", "plan": {"summary": "s", "assumptions": [], "steps": [
-        {"do": "orbit", "target": {"kind": "place", "id": "church"}, "alt_m": 80}]}}}  # fmt: skip
+    ok = {"kind": "plan", "summary": "s", "assumptions": [], "steps": [
+        {"do": "orbit", "target": {"kind": "place", "id": "church"}, "alt_m": 80}]}  # fmt: skip
     m.model_validate(ok)
     bad = json.loads(json.dumps(ok).replace('"church"', '"atlantis"'))
     with pytest.raises(ValueError):
@@ -76,26 +76,36 @@ def test_places_are_an_enum_of_the_site(gaz: Gazetteer) -> None:
             '{"kind": "place", "id": "church"}', '{"kind": "point", "ne_m": [0, 0]}')))  # fmt: skip
 
 
+def test_the_schema_is_flat(gaz: Gazetteer) -> None:
+    """One object per level, few unions: the API compiles the schema into a grammar, and the
+    nested form (seven step kinds × four target kinds) was too large for it."""
+    schema = _model(gaz).model_json_schema()
+    assert set(schema["$defs"]) == {"Step", "Target"}
+    unions = sum(1 for n in _walk(schema) if "anyOf" in n)
+    assert unions <= 25
+
+
 def test_the_prompts_examples_are_valid_replies() -> None:
-    examples = re.findall(r'^(\{"reply".*\})$', tr._rules(), re.MULTILINE)
+    examples = re.findall(r'^(\{"kind".*\})$', tr._rules(), re.MULTILINE)
     assert len(examples) >= 8
     ids = ("church", "zone-a", "zone-b", "zone-c", "mill-wood", "long-wood", "the-mast")
     m = tr.reply_model(ids)
     kinds = set()
     for e in examples:
-        raw = m.model_validate(json.loads(e)).model_dump(mode="json")
-        kinds.add(raw["reply"]["kind"])
-        tr.to_reply(raw)  # a plan validates as a Plan
+        flat = m.model_validate(json.loads(e)).model_dump(mode="json", exclude_none=True)
+        kinds.add(flat["kind"])
+        tr.to_reply(tr.nest(flat))  # a plan validates as a Plan
     assert kinds == {"plan", "clarify", "refuse"}
 
 
 def test_a_replys_plan_is_a_plan(gaz: Gazetteer) -> None:
-    raw = {"reply": {"kind": "plan", "plan": {"summary": "s", "assumptions": ["a"], "steps": [
+    flat = {"kind": "plan", "summary": "s", "assumptions": ["a"], "steps": [
         {"do": "orbit", "target": {"kind": "offset", "origin": "church", "bearing_deg": 180,
-                                   "distance_m": 200}, "radius_m": 150, "direction": "ccw"},
-        {"do": "return_home"}]}}}  # fmt: skip
-    raw = _model(gaz).model_validate(raw).model_dump(mode="json")
-    plan = tr.to_reply(raw)
+                                   "distance_m": 200}, "radius_m": 150, "direction": "ccw",
+         "laps": None, "visit": None},
+        {"do": "return_home", "alt_m": None}]}  # fmt: skip
+    flat = _model(gaz).model_validate(flat).model_dump(mode="json")
+    plan = tr.to_reply(tr.nest(flat))  # fields a step does not have, and nulls, are dropped
     assert isinstance(plan, Plan)
     assert isinstance(plan.steps[0], Orbit) and plan.steps[0].direction == "ccw"
     assert isinstance(plan.steps[1], ReturnHome)
@@ -179,15 +189,11 @@ def _resp(model: type, raw: dict | None, stop: str = "end_turn") -> SimpleNamesp
                            usage=usage)  # fmt: skip
 
 
-PLAN = {
-    "reply": {
-        "kind": "plan",
-        "plan": {
-            "summary": "Circle the church.",
-            "assumptions": [],
-            "steps": [{"do": "orbit", "target": {"kind": "place", "id": "church"}, "alt_m": 80}],
-        },
-    }
+PLAN = {  # as the model writes it (flat)
+    "kind": "plan",
+    "summary": "Circle the church.",
+    "assumptions": [],
+    "steps": [{"do": "orbit", "target": {"kind": "place", "id": "church"}, "alt_m": 80}],
 }
 
 
@@ -207,7 +213,8 @@ def test_the_request_is_haiku_without_thinking_and_cached(ctx: tr.Context) -> No
     }
     assert kw["messages"][-1]["role"] == "user"  # no prefill
     assert isinstance(t.reply, Plan) and t.usage["cache_read"] == 7000
-    assert t.turn is not None and json.loads(t.turn.reply) == t.raw
+    assert t.turn is not None and json.loads(t.turn.reply) == PLAN  # as the model wrote it
+    assert t.raw == tr.nest(PLAN)
 
 
 def test_follow_ups_carry_the_conversation(ctx: tr.Context) -> None:
@@ -253,7 +260,7 @@ def test_the_reference_thinks_and_falls_back(ctx: tr.Context) -> None:
 
 def test_recorded_replies(ctx: tr.Context, tmp_path) -> None:
     path = tmp_path / "replies.json"
-    path.write_text(json.dumps({"wrenfold_vale|circle the church": PLAN}))
+    path.write_text(json.dumps({"wrenfold_vale|circle the church": tr.nest(PLAN)}))
     t = asyncio.run(tr.Recorded(path).translate(ctx, "circle the church "))
     assert isinstance(t.reply, Plan)
     with pytest.raises(tr.TranslatorError):

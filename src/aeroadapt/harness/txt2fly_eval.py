@@ -24,6 +24,7 @@ and the grader for free.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import hashlib
 import json
@@ -408,6 +409,15 @@ async def run(
             except tr.TranslatorError as e:
                 return case, k, None, str(e)
 
+    if isinstance(t, tr.ClaudeTranslator):
+        # One untimed request per site first: it compiles the site's reply schema (about 30 s
+        # the first time in a day) and writes the prompt cache, so the timed runs measure the
+        # steady state.
+        firsts = {situations[c.context].gaz.site.id: c for c in cases}
+        log(f"warming up {len(firsts)} site(s)…")
+        for c in firsts.values():
+            with contextlib.suppress(tr.TranslatorError):
+                await t.translate(situations[c.context].context(c), "go home")
     t0 = time.perf_counter()
     answers = await asyncio.gather(*(ask(c, k) for c in cases for k in range(repeats)))
     log(f"{len(answers)} replies in {time.perf_counter() - t0:.0f} s; grading…")

@@ -2,6 +2,7 @@
 # any prompt tuning. Split 50/50 into dev and test by a hash of the case id; prompt work uses
 # dev only, and results are reported on test.
 #
+# A case's ``history`` is earlier turns, each reply as the model writes it (the flat form).
 # Contexts give the aircraft's state: scenario (site, airframe and stack), a fleet airframe in
 # its place, position (site frame, NE m), height above home, heading, wind (m/s, from °), and
 # an active plan flown for 30 s before the instruction. ``extra_places`` adds places to the
@@ -382,7 +383,7 @@ cases:
     context: wren
     history:
       - text: "circle the church at 100 m"
-        reply: {reply: {kind: plan, plan: {summary: "Circle St Michael's Church at 100 m.", assumptions: ["the aircraft's usual circle size"], steps: [{do: orbit, target: {kind: place, id: church}, alt_m: 100}]}}}
+        reply: {kind: plan, summary: "Circle St Michael's Church at 100 m.", assumptions: ["the aircraft's usual circle size"], steps: [{do: orbit, target: {kind: place, id: church}, alt_m: 100}]}
     text: "make it 15 m higher"
     expect: {reply: plan, steps: [{do: orbit, target: church, alt_m: 115}]}
 

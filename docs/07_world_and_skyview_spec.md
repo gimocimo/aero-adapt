@@ -222,15 +222,15 @@ The tracks themselves (the trail by phase, the mission, a proposal, the active p
 
 **Avionics** (bottom left, `quad/Avionics.tsx`; the owner's design, chosen from sketches on 23 Oct 2026). One compact panel over the picture, without an edge:
 
-- **Header:** the autopilot mode, the contingency's phase (amber once it acts) and the safe zones, most relevant first: the chosen one amber, those within glide green, five at most and a count of the rest. Alerts and faults appear on a line beneath, only while active.
+- **Header:** the autopilot mode and the contingency's phase (amber once it acts). Alerts and faults appear on a line beneath, only while active.
 - **The attitude ball** under a heading-up arc:
   - the ball has a pitch ladder, a roll scale and pointer, and the flight director: magenta bars for the roll and pitch the stack demands, relative to the aircraft;
   - the arc carries ticks every 10°, a heading box, the ground track (green) and the bearing to home or the chosen zone (magenta), pinned to the arc's ends when out of view.
 - **Either side:** airspeed (IAS) and height (m above home on a world site) in large figures. Under each, the autopilot's target in cyan; then TAS (truth) and ground speed, or the climb rate, which also drives a small bar beside the height. The wind, in the top-right corner, is an arrow drawn nose-up with its speed and origin.
-- **Beneath:** the distance to home or the chosen zone, then four gauges: throttle (with rpm), state of charge (with volts), height above the ground and clearance above obstacles (amber under 30 m, red under 10 m). A value the flight did not record shows as a dash.
+- **Beneath:** the distance to home or the chosen zone, then four gauges: throttle, state of charge, height above the ground and clearance above obstacles (amber under 30 m, red under 10 m). A value the flight did not record shows as a dash.
 - The touchdown or collision card.
 
-In `?layout=quad`, `quad/Instruments.tsx` keeps the larger set: the primary flight display, a navigation display, the eight gauges and the badges.
+In `?layout=quad`, `quad/Instruments.tsx` keeps the larger set: the primary flight display, a navigation display, the eight gauges, the zone chips and the badges.
 
 **Controls** (bottom right, `quad/ControlDeck.tsx`):
 

@@ -111,30 +111,10 @@ function Ball({ s }: { s: Sample }) {
   );
 }
 
-/** The safe zones, most relevant first: the one chosen (amber), those within glide (green), then
- * the rest; five at most, and a count of the others. */
-function Zones({ s, replay }: { s: Sample; replay: Replay }) {
-  const zones = replay.manifest.site.safe_zones;
-  if (zones.length === 0) return null;
-  const state = (k: number) => (s.zone === k ? 2 : (s.reachMask & (1 << k)) !== 0 ? 1 : 0);
-  const order = zones.map((z, k) => ({ id: z.id, k, st: state(k) })).sort((a, b) => b.st - a.st || a.k - b.k);
-  const more = order.length - 5;
-  return (
-    <span className="zonechips" title="Safe zones: amber chosen, green within glide">
-      {order.slice(0, 5).map((z) => (
-        <span key={z.id} className={`zchip ${["", "reach", "sel"][z.st]}`}>
-          {z.id}
-        </span>
-      ))}
-      {more > 0 && <span className="zchip more">+{more}</span>}
-    </span>
-  );
-}
-
 /** ``x`` with its unit, or a dash when the flight did not record it. */
 const val = (x: number, unit: string, digits = 0) => (Number.isFinite(x) ? `${x.toFixed(digits)}${unit}` : "—");
 
-function Cell(props: { label: string; value: string; frac: number; tone: string; sub?: string; testid?: string }) {
+function Cell(props: { label: string; value: string; frac: number; tone: string; testid?: string }) {
   const f = Number.isFinite(props.frac) ? clamp(props.frac, 0, 1) : 0;
   return (
     <div className={`av-cell ${props.tone}`} data-testid={props.testid}>
@@ -142,7 +122,6 @@ function Cell(props: { label: string; value: string; frac: number; tone: string;
       <span className="bar">
         <i style={{ width: `${100 * f}%` }} />
       </span>
-      {props.sub && props.sub !== "—" && <small>{props.sub}</small>}
     </div>
   );
 }
@@ -163,7 +142,6 @@ export function Avionics({ s, replay }: { s: Sample; replay: Replay }) {
       <div className="av-head">
         <span className="av-mode">{modes[s.mode] ?? "?"}</span>
         <span className={s.failed ? "av-phase warn" : "av-phase"}>{s.failed ? phases[s.phase] : "monitoring"}</span>
-        <Zones s={s} replay={replay} />
       </div>
       {al.length > 0 && (
         <div className="av-alerts">
@@ -231,13 +209,12 @@ export function Avionics({ s, replay }: { s: Sample; replay: Replay }) {
         </text>
       </svg>
       <div className="av-cells">
-        <Cell label="THR" value={val(100 * s.throttle, "%")} frac={s.throttle} tone="neutral" sub={val(s.rpm, " rpm")} />
+        <Cell label="THR" value={val(100 * s.throttle, "%")} frac={s.throttle} tone="neutral" />
         <Cell
           label="SoC"
           value={val(100 * s.soc, "%")}
           frac={s.soc}
           tone={s.soc < 0.15 ? "alert" : s.soc < 0.3 ? "warn" : "ok"}
-          sub={val(s.batteryV, " V", 1)}
         />
         <Cell label="AGL" value={val(s.hagl, " m")} frac={s.hagl / 150} tone={s.hagl < 40 ? "warn" : "ok"} testid="gauge-agl" />
         <Cell label="CLR" value={val(clr, " m")} frac={clr / 150} tone={clr < 10 ? "alert" : clr < 30 ? "warn" : "ok"} testid="gauge-clearance" />

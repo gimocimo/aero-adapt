@@ -926,30 +926,6 @@ dd {
   color: #f0a830;
   font-weight: 600;
 }
-.av-head .zonechips {
-  margin: 0;
-  gap: 3px;
-  flex-wrap: nowrap;
-  overflow: hidden;
-}
-.av-head .zchip {
-  min-width: 15px;
-  padding: 0 3px;
-  border: 1px solid rgba(147, 161, 176, 0.6);
-  background: transparent;
-  color: #93a1b0;
-  font-weight: 500;
-}
-.av-head .zchip.reach {
-  border-color: #49c07a;
-  background: rgba(73, 192, 122, 0.25);
-  color: #bdf0cf;
-}
-.av-head .zchip.sel {
-  border-color: #f0a830;
-  background: rgba(240, 168, 48, 0.3);
-  color: #ffe7bf;
-}
 .av-wind {
   fill: #7fd0ff;
   font-size: 12px;
@@ -1100,12 +1076,6 @@ dd {
 }
 .av-cell.alert .av-v {
   color: #ff8a8d;
-}
-.av-cell small {
-  display: block;
-  margin-top: 3px;
-  color: #93a1b0;
-  font: 11px ui-monospace, monospace;
 }
 .avionics .touchdown-card {
   margin: 8px 14px 0;
@@ -1558,7 +1528,4 @@ dd {
   .quad .gl {
     position: fixed;
   }
-}
-.av-head .zchip.more {
-  border-style: dashed;
 }

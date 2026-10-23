@@ -848,8 +848,7 @@ the language layer moves to week 11. For Txt2Fly:
 
 **Open**
 
-- **The Opus reference and Haiku with thinking** (V27): the owner's go-ahead first (about $7
-  and $0.15).
+- **The Opus reference** (V27): the owner's go-ahead first (about $7).
 - V26 on the eval's accepted plans, the demo clip and write-up (T11), and the Shoulds (T9
   MAVLink export, T10 glide landing).
 
@@ -871,4 +870,11 @@ the language layer moves to week 11. For Txt2Fly:
   latency p50 1.5 s, p95 2.7 s; $0.06 in all. Nothing unsafe was proposed. The failures, their
   causes and the changes (every field required; five general prompt rules; two labels
   corrected) are in [the V27 report](validation/txt2fly_v27.md).
+- **V27, tuned.** Two passes on the dev half (every field required; general rules for the
+  failures they showed; one repair in code; one label consequence of the "go to" correction),
+  then the test half again. **Every §11 target is met**, by Haiku 5.5 without thinking (clear
+  98 %, ambiguous 94 %, infeasible 100 % with the right reason 94 %, follow-ups 100 %, unsafe
+  100 %, adversarial 100 %; p50 1.8 s, p95 2.8 s; $0.00021 per instruction) and with adaptive
+  thinking (clear 100 %, follow-ups 97 %, p95 3.7 s). Thinking off stays the default. Details,
+  the remaining failures and the method note: [the V27 report](validation/txt2fly_v27.md).
 

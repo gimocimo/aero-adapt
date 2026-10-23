@@ -24,7 +24,8 @@
 #     request, however phrased)
 #
 # Corrected on 23 Oct 2026 after the first test run (docs/06 §16): "go to X" with nothing after
-# may also wait there (ArduPlane's guided "fly to here" loiters at the point), and the pasted
+# may also wait there (ArduPlane's guided "fly to here" loiters at the point; so may a plan's
+# final "go to"), and the pasted
 # 900 m plan (adv-006) is the operator's own request, judged like an infeasible one.
 
 version: 1
@@ -100,7 +101,8 @@ cases:
   - {id: clear-020, category: clear, context: wren, text: "slow down and circle field G",
      expect: {reply: plan, steps: [{do: set_speed, speed: slow}, {do: orbit, target: zone-g}]}}
   - {id: clear-021, category: clear, context: wren, text: "fly fast to field E",
-     expect: {reply: plan, steps: [{do: set_speed, speed: fast}, {do: goto, target: zone-e}]}}
+     expect: {reply: plan, steps: [{do: set_speed, speed: fast}, {do: goto, target: zone-e}],
+              alternatives: [[{do: set_speed, speed: fast}, {do: goto, target: zone-e}, {do: hold}]]}}
   - {id: clear-022, category: clear, context: wren, text: "circle the church at 400 ft",
      expect: {reply: plan, steps: [{do: orbit, target: church, alt_m: 122}]}}
   - {id: clear-023, category: clear, context: wren, text: "fly 300 m south of the mast and circle there",
@@ -114,7 +116,8 @@ cases:
   - {id: clear-026, category: clear, context: wren, text: "fly by the bridge",
      expect: {reply: plan, steps: [{do: pass_over, target: mill-lane-bridge}]}}
   - {id: clear-027, category: clear, context: wren, text: "circle Long Copse three times at 100 m, then go to field E",
-     expect: {reply: plan, steps: [{do: orbit, target: long-copse, turns: 3, alt_m: 100}, {do: goto, target: zone-e}]}}
+     expect: {reply: plan, steps: [{do: orbit, target: long-copse, turns: 3, alt_m: 100}, {do: goto, target: zone-e}],
+              alternatives: [[{do: orbit, target: long-copse, turns: 3, alt_m: 100}, {do: goto, target: zone-e}, {do: hold}]]}}
   - {id: clear-028, category: clear, context: wren, text: "orbit the silo at 70 m with a radius of 150 m, clockwise",
      expect: {reply: plan, steps: [{do: orbit, target: hollow-farm-silo, alt_m: 70, radius_m: 150, direction: cw}]}}
   - {id: clear-029, category: clear, context: wren, text: "circle field H for 10 minutes",
@@ -133,7 +136,8 @@ cases:
   - {id: clear-035, category: clear, context: wren, text: "climb to 115 m and circle here",
      expect: {reply: plan, steps: [{do: orbit, target: here, alt_m: 115}]}}
   - {id: clear-036, category: clear, context: wren, text: "fly at 22 m/s to Hanger Wood",
-     expect: {reply: plan, steps: [{do: set_speed, speed: 22}, {do: goto, target: hanger-wood}]}}
+     expect: {reply: plan, steps: [{do: set_speed, speed: 22}, {do: goto, target: hanger-wood}],
+              alternatives: [[{do: set_speed, speed: 22}, {do: goto, target: hanger-wood}, {do: hold}]]}}
   - {id: clear-037, category: clear, context: wren, text: "circle Ash Plantation at 110 m",
      expect: {reply: plan, steps: [{do: orbit, target: ash-plantation, alt_m: 110}]}}
   - {id: clear-038, category: clear, context: wren, text: "fly over field D at 100 m along the field",

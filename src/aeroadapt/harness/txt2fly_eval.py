@@ -422,6 +422,8 @@ async def run(
                 await t.translate(situations[c.context].context(c), "go home")
     t0 = time.perf_counter()
     answers = await asyncio.gather(*(ask(c, k) for c in cases for k in range(repeats)))
+    if isinstance(t, tr.ClaudeTranslator):
+        await t.aclose()
     log(f"{len(answers)} replies in {time.perf_counter() - t0:.0f} s; grading…")
     out = []
     for case, k, tl, err in answers:

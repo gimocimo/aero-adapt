@@ -310,3 +310,14 @@ def test_a_workspace_id_is_sent_when_set(monkeypatch: pytest.MonkeyPatch) -> Non
     assert client.default_headers["anthropic-workspace-id"] == "wrkspc_test"
     monkeypatch.delenv("ANTHROPIC_WORKSPACE_ID")
     assert "anthropic-workspace-id" not in tr.ClaudeTranslator("haiku").client.default_headers
+
+
+def test_one_place_in_the_other_field_is_taken_as_meant() -> None:
+    church = {"kind": "place", "id": "church"}
+    plan = tr.to_reply(tr.nest({"kind": "plan", "steps": [
+        {"do": "patrol", "target": church, "targets": None},
+        {"do": "orbit", "target": None, "targets": [church]},
+    ]}))  # fmt: skip
+    assert isinstance(plan, Plan)
+    assert isinstance(plan.steps[0], Patrol) and len(plan.steps[0].targets) == 1
+    assert isinstance(plan.steps[1], Orbit)

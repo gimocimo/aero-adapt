@@ -217,6 +217,12 @@ def nest(flat: dict[str, Any]) -> dict[str, Any]:
     steps = []
     for s in flat.get("steps") or []:
         fields = STEP_CLASSES[s["do"]].model_fields
+        s = dict(s)
+        # One place given in the other field: unambiguous, so taken as meant.
+        if "targets" in fields and not s.get("targets") and s.get("target"):
+            s["targets"] = [s["target"]]
+        if "target" in fields and not s.get("target") and len(s.get("targets") or []) == 1:
+            s["target"] = s["targets"][0]
         step = {k: v for k, v in s.items() if k in fields and v is not None}
         if "target" in step:
             step["target"] = _target(step["target"])
@@ -423,6 +429,12 @@ class ClaudeTranslator:
             self._client = AsyncAnthropic(timeout=TIMEOUT_S, max_retries=1, default_headers=headers)
         return self._client
 
+    async def aclose(self) -> None:
+        """Close the HTTP client (in the event loop that used it)."""
+        if self._client is not None:
+            await self._client.close()
+            self._client = None
+
     async def translate(self, ctx: Context, text: str) -> Translation:
         import anthropic
 
@@ -487,8 +499,8 @@ class ClaudeTranslator:
         try:
             reply = to_reply(raw)
         except ValueError as e:  # e.g. an orbit without a target
-            first = str(e).splitlines()[0]
-            raise TranslatorError(f"the reply did not make a valid plan ({first})") from e
+            where = " ".join(line.strip() for line in str(e).splitlines()[1:3])[:200]
+            raise TranslatorError(f"the reply did not make a valid plan: {where}") from e
         # The conversation keeps the reply as the model wrote it.
         turn = Turn(user, json.dumps(flat, separators=(",", ":")))
         return Translation(reply, raw, self.name, resp.model, latency, usage,

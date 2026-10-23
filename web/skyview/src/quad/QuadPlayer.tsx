@@ -1,6 +1,7 @@
-// Skyview's four-panel player (docs/07 §8): top left the follow view, top right the map seen
-// from above, bottom left the instruments, bottom right the controls. Both 3D views show the
-// stylised world the simulator flies in; ?map=real keeps the Google 3D-tiles player.
+// Skyview's player (docs/07 §8): the follow view fills the window, the map seen from above is
+// a minimap in a circle (top right), the instruments sit bottom left and the controls float
+// bottom right. Both 3D views show the stylised world the simulator flies in. ?layout=quad
+// keeps the four panels; ?map=real keeps the Google 3D-tiles player.
 import { useEffect, useRef, useState } from "react";
 import { LiveClient, OFFLINE } from "../live/client";
 import { sample } from "../replay/interp";
@@ -21,6 +22,8 @@ function params() {
     quality: q.get("quality"),
     /** &film=1: the follow view alone, filling the window (for video). */
     film: q.get("film") === "1",
+    /** &layout=quad: the four panels (follow view, map, instruments, controls) side by side. */
+    quad: q.get("layout") === "quad",
     /** &t=<s>: open a replay paused at that moment (links and stills). */
     t: q.has("t") && Number.isFinite(t) ? t : null,
   };
@@ -31,11 +34,11 @@ function bundleUrl(id: string): string {
   return id.includes("/") ? `/${id.replace(/^\/+/, "")}` : `/replays/${id}`;
 }
 
-function InstrumentsContainer() {
+function InstrumentsContainer({ compact = false }: { compact?: boolean }) {
   const replay = useStore((s) => s.replay);
   const time = useStore((s) => s.time);
   if (!replay || replay.n === 0) return null;
-  return <Instruments s={sample(replay, time)} replay={replay} />;
+  return <Instruments s={sample(replay, time)} replay={replay} compact={compact} />;
 }
 
 /** Wind as seen in a view: an arrow (blowing towards) and its speed. */
@@ -70,7 +73,8 @@ export default function QuadPlayer() {
   // The renderer and the animation loop.
   useEffect(() => {
     if (!canvasRef.current) return;
-    const view = new WorldView(canvasRef.current, { thin: params().quality === "low" ? 3 : 1, film: params().film });
+    const p = params();
+    const view = new WorldView(canvasRef.current, { thin: p.quality === "low" ? 3 : 1, film: p.film, minimap: !p.quad && !p.film });
     view.setHosts(chaseRef.current, topRef.current);
     viewRef.current = view;
     if (import.meta.env.DEV) {
@@ -226,6 +230,41 @@ export default function QuadPlayer() {
   }, []);
 
   const cameraName = camera === "orbit" ? "orbit" : camera === "free" ? "free" : "chase";
+  const [collapsed, setCollapsed] = useState(false);
+  if (!params().quad) {
+    const mapName = world ? world.name : (replay?.manifest.site.name ?? "Map");
+    return (
+      <div className={params().film ? "fly film" : "fly"}>
+        <canvas ref={canvasRef} className="gl" />
+        <section ref={chaseRef} className="f-chase" data-testid="view-follow">
+          <div className="f-badges">
+            <span className="f-title">{cameraName === "free" ? "Free camera" : cameraName === "orbit" ? "Orbit" : "Chase"}</span>
+            <WindBadge view="chase" />
+          </div>
+        </section>
+        <div className="f-mapbox" data-testid="view-map">
+          <section ref={topRef} className="f-map" title="Scroll to zoom · double-click: the whole map, or follow">
+            <span className="f-north">N</span>
+          </section>
+          <div className="f-caption">
+            <span>{mapName}</span>
+            <WindBadge view="top" />
+          </div>
+          {!world && replay && <p className="f-note">Open ground: no world model for this site.</p>}
+        </div>
+        <section className="f-inst">
+          <InstrumentsContainer compact />
+        </section>
+        <section className={collapsed ? "f-deck collapsed" : "f-deck"}>
+          <button className="f-collapse" onClick={() => setCollapsed(!collapsed)} aria-label={collapsed ? "Show the controls" : "Hide the controls"}>
+            {collapsed ? "▴" : "▾"}
+          </button>
+          {replay ? <ControlDeck replay={replay} /> : <p className="q-note">Waiting for data…</p>}
+        </section>
+        {error && <div className="error">{error}</div>}
+      </div>
+    );
+  }
   return (
     <div className={params().film ? "quad film" : "quad"}>
       <canvas ref={canvasRef} className="gl" />

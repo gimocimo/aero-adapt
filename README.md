@@ -20,11 +20,13 @@ AeroAdapt is built simulation-first. It is validated rigorously and compared aga
 > - **The simulator touches all of it.** Terrain contact, and collisions with every tree, hedge and building at the CG and wingtips.
 > - **Safe zones come from a survey of the world**, with obstacle-aware approaches. Over 24 motor cuts the classical contingency lands 20 in a field and hits a hedge once, with no field in reach.
 > - **Txt2Fly plans keep clear** of the ground and the trees, and say when they had to fly higher.
-> - **Skyview is a four-panel cockpit:** follow view, map, instruments and controls, all drawn over the same world. The real-map player stays at `?map=real`.
+> - **Skyview flies full screen:** the chase view fills the window, with a round minimap top right, the instruments bottom left and the controls floating bottom right, all drawn over the same world. `?layout=quad` keeps the four panels; the real-map player stays at `?map=real`.
+>
+> A second world is real: **London** ([spec](docs/08_london_spec.md)), the City and Bankside from Environment Agency LiDAR and OpenStreetMap, flown by a 1.1 m city trainer along the Thames and among the towers.
 >
 > Before that, **Txt2Fly** (weeks 9 and 11, [spec](docs/06_txt2fly_spec.md)): tell the aircraft where to go in plain words. Week 9 built the deterministic core. A typed plan ("patrol fields A, B and C", "circle the church at 30 m") becomes the closest flyable version of the request, for the aircraft flying and the wind blowing. A checker judges it (turn radius, no-fly areas, height, battery, glide reach), and the plan is previewed and flown live. Week 11 adds the language layer (Claude Haiku 5.5). Then M3, one learned policy flying airframes it never trained on.
 
-![Skyview's four-panel view over Wrenfold Vale: the classical contingency flaring into field E after a motor cut](docs/media/skyview_quad.png)
+![Skyview's full-screen player over London: the city trainer above the City at about 135 m, St Paul's to the left, the minimap following it](docs/media/skyview_fullscreen.jpg)
 
 ## Plan and design documents
 
@@ -36,7 +38,8 @@ AeroAdapt is built simulation-first. It is validated rigorously and compared aga
 | [04 — M1 technical spec](docs/04_m1_technical_spec.md) | Interfaces, models, validation plan and work plan for M1 |
 | [05 — M2 technical spec](docs/05_m2_technical_spec.md) | The fleet: tabulated aero, airframe generator, JSBSim backend, auto-configuration, faultlab v1, bench v0, live mode |
 | [06 — Txt2Fly spec](docs/06_txt2fly_spec.md) | Plain-language missions: typed plans, a wind- and airframe-aware builder, a checker, the language layer and its evaluation |
-| [07 — Worlds and Skyview](docs/07_world_and_skyview_spec.md) | Synthetic worlds the simulator knows exactly (Wrenfold Vale): generator, terrain and obstacles, safe-zone survey, terrain-aware planning, the four-panel Skyview |
+| [07 — Worlds and Skyview](docs/07_world_and_skyview_spec.md) | Synthetic worlds the simulator knows exactly (Wrenfold Vale): generator, terrain and obstacles, safe-zone survey, terrain-aware planning, Skyview's player |
+| [08 — London](docs/08_london_spec.md) | A real city to fly through: the City and Bankside from LiDAR and OpenStreetMap, the cinematic look, the city trainer |
 | [ADRs](docs/adr/) | Architecture decision records |
 
 ## Quick start
@@ -108,7 +111,7 @@ Other commands: `aeroadapt campaign m1-mini` (the 50-cut V12 mini-campaign), `ma
 | `validation/` | Validation report builder (outside the package: it uses the reference implementation) |
 | `reference/bm_numpy` | Independent NumPy reference implementation, used only for N-version validation |
 | `configs/` | Airframes, worlds, sites (with their OpenStreetMap extracts), stack parameters, scenarios, campaigns, Txt2Fly example plans |
-| `web/skyview` | Skyview: the four-panel player over the simulator's world (three.js), live mode with faults and plans, the real-map player and fleet view (CesiumJS), React, Arrow |
+| `web/skyview` | Skyview: the full-screen player over the simulator's world (three.js), live mode with faults and plans, the real-map player and fleet view (CesiumJS), React, Arrow |
 
 ## Validation philosophy
 

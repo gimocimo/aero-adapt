@@ -1,6 +1,6 @@
 # 08. London: a real city to fly through
 
-**Status:** built, 23 Oct 2026; the small airframe (§5) followed on 24 Oct. The owner chose the area (the City and Bankside) and the vehicle (a small fixed-wing). The city trainer flies low along the river and among the City's towers; the Aerosonde flies the higher tours.
+**Status:** built, 23 Oct 2026; the small airframe (§5) followed the same day. The owner chose the area (the City and Bankside) and the vehicle (a small fixed-wing). The city trainer flies low along the river and among the City's towers; the Aerosonde flies the higher tours.
 
 ![Tower Bridge, City Hall and HMS Belfast, the Shard to the left and the City's towers to the right](media/london_towerbridge.jpg)
 
@@ -164,6 +164,6 @@ The code stays Apache-2.0. The baked world (`london.world.npz`, `london.yaml` an
 1. ~~Fetch the data.~~ 23 Oct.
 2. ~~Bake the terrain, buildings and river; look at it in Skyview.~~ 23 Oct.
 3. ~~The 1 m obstacle grid, and the simulator on it.~~ 23 Oct.
-4. ~~The small airframe.~~ 24 Oct.
+4. ~~The small airframe.~~ 23 Oct.
 5. ~~Operations and two scenarios.~~ 23 Oct.
 6. Landmarks: hand-made models for the few that matter most, drawn only. Later, if wanted.

@@ -180,16 +180,27 @@ The examples:
 
 `txt2fly-demo` now flies over Wrenfold. `txt2fly-cambridge` is the old demo, kept for the V24–V28 validation. Skyview's example buttons follow the site.
 
-## 8. Skyview: four panels
+## 8. Skyview: the player
 
 `web/skyview/src/quad/QuadPlayer.tsx` is the default view for replays and live sessions.
 
-**One WebGL canvas** sits behind the page. It is drawn twice per frame into two panels (scissored viewports, `world3d/WorldView.ts`):
+**The layout** (23 Oct 2026, the owner's design):
+
+- **The follow view** fills the window.
+- **The map** is a minimap in a circle, top right.
+- **The instruments** sit bottom left.
+- **The controls** float bottom right, and fold down to their timeline or live bar.
+
+The instruments and controls are translucent panels over the picture. `?layout=quad` keeps the earlier four panels side by side, and `&film=1` shows the picture alone.
+
+![The full-screen player over London: the city trainer above the City, the minimap following it](media/skyview_fullscreen.jpg)
+
+**One WebGL canvas** sits behind the page. It is drawn twice per frame (scissored viewports, `world3d/WorldView.ts`):
 
 | View | Camera |
 |---|---|
-| Follow (top left) | **Chase:** 13 m behind and 3 m above, its heading smoothed. **Orbit:** 170 m out. **Free:** drag to orbit the aircraft. The aircraft model is at its real size |
-| Map (top right) | Orthographic and north up. Fitted to the geofence (or the world). Scroll to zoom, drag to pan, double-click to refit. The aircraft (and ghost) are arrows of a fixed pixel size |
+| Follow (the window) | **Chase:** behind and above, its heading smoothed: 13 m and 3 m for a 3 m aircraft, in proportion for others (about 5 m behind the 1.1 m city trainer). **Orbit:** 170 m out. **Free:** drag to orbit the aircraft. The aircraft model is at its real size |
+| Minimap (top right) | Orthographic and north up, 900 m across, following the aircraft; scroll to zoom. A double-click shows the whole site (drag to pan, double-click to refit), another follows again. It is drawn off-screen and cut into its circle, so the follow view shows round it. The aircraft (and ghost) are arrows of a fixed pixel size. In `?layout=quad`, the map panel is fitted to the geofence (or the world) |
 
 **The world** is drawn from the server's payload (`world.export.viewer_payload`, 1.2 MB of msgpack). It arrives in the live `hello`, and `export-viz` writes it next to a replay as `world.msgpack`.
 
@@ -209,7 +220,7 @@ A transparent overlay canvas on the same terrain mesh carries:
 
 The tracks themselves (the trail by phase, the mission, a proposal, the active plan) are fat lines in 3D. Labels are HTML, projected per view.
 
-**Instruments** (bottom left, `quad/Instruments.tsx`):
+**Instruments** (bottom left, `quad/Instruments.tsx`; compact over the picture, with the gauges in one card):
 
 - the primary flight display (attitude, speed and height tapes; heights "m (home)" on a world site);
 - a heading-up navigation display: compass card, ground track, the wind, and a bearing and distance to the chosen zone or home;
@@ -239,7 +250,7 @@ The tracks themselves (the trail by phase, the mission, a proposal, the active p
 | V30 | 24 motor cuts (six points of the circuit × four winds): **20 in a field, 3 short in the next field, 1 hedge strike with no field within glide.** The gate is at least 18 in zone and at most 2 collisions | full |
 | V31 lift | Hanger Wood at 50 m: lifted, the note names the wood, and K4 passes. Built literally (`adapt=False`), it fails K4 with the wood named and a height suggested | fast |
 | V31 flown | Three plans flown by the full simulator and stock stack: at least 20 m above any obstacle and 35 m above the ground throughout (planned: 30 m and 40 m) | full |
-| Playwright | Live: faults over Wrenfold, the Txt2Fly flow (church notes, "Can fly", confirm, AUTO). Replay smoke in both the four-panel and real-map views | e2e |
+| Playwright | Live: faults over Wrenfold, the Txt2Fly flow (church notes, "Can fly", confirm, AUTO). Replay smoke in the full-screen, four-panel and real-map views | e2e |
 
 The golden flights, the V12 contingency cases and the Txt2Fly V24–V28 tests (now on `txt2fly-cambridge`) pass unchanged.
 
@@ -279,7 +290,7 @@ The world is synthetic. Wrenfold is not a real place, and its origin only sets t
 | `src/aeroadapt/txt2fly/terrain.py` | Relief grids, landmarks for explanations |
 | `configs/worlds/wrenfold.yaml`, `configs/sites/wrenfold_vale.yaml` | The world and its site |
 | `configs/scenarios/wrenfold-{nominal,motorcut}.yaml`, `txt2fly-demo.yaml`, `txt2fly-cambridge.yaml` | Scenarios |
-| `web/skyview/src/world3d/*`, `web/skyview/src/quad/*` | The stylised renderer and the four-panel player |
+| `web/skyview/src/world3d/*`, `web/skyview/src/quad/*` | The stylised renderer and the player |
 
 `aeroadapt serve` now defaults to `wrenfold-nominal`. It compiles one scenario of each other ground (the flat sites) in the background, so switching to one later is quick; `--no-warm-others` skips that.
 
@@ -335,6 +346,7 @@ The world is synthetic. Wrenfold is not a real place, and its origin only sets t
 - **22 Oct 2026, the test map flies.** The locked sketch is baked into a world (§14) and flown: `testmap-nominal` is a tour from its airstrip at 150 m. A headless 30-minute run is clean: no collision, at least 87 m above the ground and everything on it, never inside a zone closed at all heights, never out of the geofence.
 - **22 Oct 2026, the cinematic look.** Skyview's chase view gets a look for demo videos (§15): sunlight with soft shadows, a sky, haze and filmic grading; tree models up close; ground grain by land cover; roads, water and building facades of their own; turning turbines; and a film mode (`&film=1`) with nothing but the picture.
 - **23 Oct 2026, London** (docs/08). A second world, real: the City and Bankside from Environment Agency LiDAR and OpenStreetMap. Buildings on their own footprints and measured obstacles join the baked-world format; the cinematic look gains ambient occlusion, clouds, aerial haze, richer facades, rooftop plant, traffic, boats and a city beyond the map's edge.
+- **23 Oct 2026, the full-screen player** (§8). The follow view fills the window, the map becomes a minimap in a circle that follows the aircraft, and the instruments and controls float over the picture. `?layout=quad` keeps the four panels.
 
 ## 14. Baked worlds: the test map
 

@@ -1,7 +1,8 @@
 import { expect, test } from "@playwright/test";
 
 for (const [view, query] of [
-  ["four-panel view", "quality=low"],
+  ["full-screen view", "quality=low"],
+  ["four-panel view", "quality=low&layout=quad"],
   ["real-map view", "map=real&tiles=0"],
 ] as const) {
 test(`plays a replay (${view}): the HUD airspeed changes and the console stays clean`, async ({ page }) => {

@@ -149,12 +149,21 @@ export class WorldView {
   private shot: { eye: THREE.Vector3; at: THREE.Vector3 } | null = null;
   private traffic: Traffic | null = null;
   private clock: number | null = null;
+  // The minimap (the full-screen layout): the top view in a circle, following the aircraft
+  // (or the whole map: double-click), drawn off-screen and composited into its circle so the
+  // chase view shows round it.
+  readonly minimap: boolean;
+  private miniFollow = true;
+  private miniTarget: THREE.WebGLRenderTarget | null = null;
+  private miniQuad: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial> | null = null;
+  private readonly miniCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   last: Sample | null = null;
   private showGrid = true;
 
-  constructor(canvas: HTMLCanvasElement, opts: { thin?: number; film?: boolean } = {}) {
+  constructor(canvas: HTMLCanvasElement, opts: { thin?: number; film?: boolean; minimap?: boolean } = {}) {
     this.thin = opts.thin ?? 1;
     this.film = opts.film ?? false;
+    this.minimap = opts.minimap ?? false;
     this.cinematic = this.thin <= 1;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.thin > 1 ? 1 : 2));
@@ -229,8 +238,19 @@ export class WorldView {
       const mc = new MapControls(this.topCam, top);
       mc.enableRotate = false;
       mc.screenSpacePanning = true;
-      mc.zoomToCursor = true;
-      top.addEventListener("dblclick", () => (this.fitKey = ""));
+      mc.zoomToCursor = !this.minimap;
+      if (this.minimap) {
+        // The minimap follows the aircraft (scroll to zoom); a double-click shows the whole map
+        // (drag to pan, scroll to zoom), another follows again.
+        mc.enablePan = false;
+        top.addEventListener("dblclick", () => {
+          this.miniFollow = !this.miniFollow;
+          mc.enablePan = !this.miniFollow;
+          mc.zoomToCursor = !this.miniFollow;
+          this.topCam.zoom = 1;
+          this.fitKey = "";
+        });
+      } else top.addEventListener("dblclick", () => (this.fitKey = ""));
       this.topControls = mc;
     }
     this.rebuildLabels();
@@ -242,6 +262,9 @@ export class WorldView {
     this.clearWorld();
     this.look?.dispose();
     this.post?.dispose();
+    this.miniTarget?.dispose();
+    this.miniQuad?.geometry.dispose();
+    this.miniQuad?.material.dispose();
     for (const l of this.labels) for (const el of Object.values(l.els)) el?.remove();
     this.renderer.dispose();
   }
@@ -695,6 +718,61 @@ export class WorldView {
     cam.lookAt(pos.clone().addScaledVector(fwd, ahead).add(new THREE.Vector3(0, -2 * this.chaseScale, 0)));
   }
 
+  /** The minimap's framing: 900 m across round the aircraft (zoom kept from the wheel). */
+  private followTop(w: number, h: number): void {
+    const half = 450;
+    const aspect = w / Math.max(h, 1);
+    const cam = this.topCam;
+    cam.left = -half * aspect;
+    cam.right = half * aspect;
+    cam.top = half;
+    cam.bottom = -half;
+    const p = this.aircraft.position;
+    cam.position.set(p.x, 4000, p.z);
+    cam.lookAt(p.x, 0, p.z);
+    cam.updateProjectionMatrix();
+    this.topControls?.target.set(p.x, 0, p.z);
+  }
+
+  /** The minimap's circle: the off-screen top view, cut round, with a rim. */
+  private compositeMini(x: number, y: number, w: number, h: number): void {
+    const r = this.renderer;
+    if (!this.miniQuad) {
+      this.miniQuad = new THREE.Mesh(
+        new THREE.PlaneGeometry(2, 2),
+        new THREE.ShaderMaterial({
+          transparent: true,
+          depthTest: false,
+          depthWrite: false,
+          uniforms: { tMap: { value: null } },
+          vertexShader: "varying vec2 vUv;\nvoid main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }",
+          fragmentShader: `uniform sampler2D tMap;
+varying vec2 vUv;
+void main() {
+  float d = length(vUv * 2.0 - 1.0);
+  float aa = fwidth(d) * 1.5;
+  if (d > 1.0) discard;
+  vec3 c = texture2D(tMap, vUv).rgb;
+  float rim = smoothstep(0.955 - aa, 0.955, d);
+  c = mix(c, vec3(0.06, 0.08, 0.11), rim * 0.85); // a dark bezel
+  c = mix(c, vec3(0.75, 0.8, 0.86), smoothstep(0.955 - aa, 0.955, d) * (1.0 - smoothstep(0.962, 0.962 + aa, d)) * 0.8);
+  gl_FragColor = vec4(c, 1.0 - smoothstep(1.0 - aa, 1.0, d));
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`,
+        }),
+      );
+      this.miniQuad.frustumCulled = false;
+    }
+    this.miniQuad.material.uniforms.tMap!.value = this.miniTarget!.texture;
+    r.setViewport(x, y, w, h);
+    r.setScissor(x, y, w, h);
+    const auto = r.autoClear;
+    r.autoClear = false; // over the follow view, which shows round the circle
+    r.render(this.miniQuad, this.miniCam);
+    r.autoClear = auto;
+  }
+
   private fitTop(w: number, h: number): void {
     if (!this.world) return;
     const key = `${w}x${h}|${this.worldKey}|${this.site ? 1 : 0}`;
@@ -755,11 +833,23 @@ export class WorldView {
       const y = box.bottom - rect.bottom;
       r.setViewport(x, y, rect.width, rect.height);
       r.setScissor(x, y, rect.width, rect.height);
-      r.clear();
+      if (!(name === "top" && this.minimap)) r.clear(); // the minimap draws over the chase view
       for (const l of lines) (l.material as LineMaterial).resolution.set(rect.width, rect.height);
       if (!this.film) this.placeLabels(name, cam, rect.width, rect.height);
       if (name === "chase" && this.post) this.post.render(rect.width, rect.height);
-      else r.render(this.scene, cam);
+      else if (name === "top" && this.minimap) {
+        // Off-screen, then cut into its circle (the chase view shows round it).
+        const pr = r.getPixelRatio();
+        const [tw, th] = [Math.max(1, Math.round(rect.width * pr)), Math.max(1, Math.round(rect.height * pr))];
+        if (!this.miniTarget) this.miniTarget = new THREE.WebGLRenderTarget(tw, th, { type: THREE.HalfFloatType, samples: 4 });
+        if (this.miniTarget.width !== tw || this.miniTarget.height !== th) this.miniTarget.setSize(tw, th);
+        r.setRenderTarget(this.miniTarget);
+        r.setClearColor(SKY);
+        r.clear();
+        r.render(this.scene, cam);
+        r.setRenderTarget(null);
+        this.compositeMini(x, y, rect.width, rect.height);
+      } else r.render(this.scene, cam);
     };
     // Moving parts: the turbines turn (about 15 rpm), the water flows, the traffic drives.
     const now = this.clock ?? performance.now() / 1000;
@@ -781,7 +871,8 @@ export class WorldView {
       view(chase, this.chaseCam, "chase");
     }
     if (top && top.width > 0) {
-      this.fitTop(top.width, top.height);
+      if (this.minimap && this.miniFollow) this.followTop(top.width, top.height);
+      else this.fitTop(top.width, top.height);
       this.topControls?.update();
       // Pixel-sized symbols: the arrow is 24 px long whatever the zoom.
       const perPx = (this.topCam.right - this.topCam.left) / this.topCam.zoom / top.width;

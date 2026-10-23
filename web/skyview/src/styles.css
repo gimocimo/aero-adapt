@@ -737,6 +737,228 @@ dd {
   padding-left: 14px;
 }
 
+/* ---------------------------------------------------------------- full-screen player (docs/07 §8) */
+/* The follow view fills the window; the minimap is a circle top right; the instruments sit
+   bottom left and the controls float bottom right, over the picture. */
+.fly {
+  --edge: 14px;
+  --mini: clamp(180px, 30vh, 300px);
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #0b0e12;
+  color: var(--panel-fg);
+  font-size: 13px;
+}
+.fly .gl {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+}
+.fly .f-chase {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  touch-action: none;
+}
+.fly .f-badges {
+  position: absolute;
+  top: var(--edge);
+  left: var(--edge);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  pointer-events: none;
+}
+.fly .f-title,
+.fly .f-badges .windbadge,
+.fly .f-caption {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(10, 14, 20, 0.6);
+  backdrop-filter: blur(6px);
+  font-size: 12px;
+  font-weight: 600;
+}
+.fly .windbadge {
+  position: static;
+}
+.fly .f-mapbox {
+  position: absolute;
+  top: var(--edge);
+  right: var(--edge);
+  width: var(--mini);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.fly .f-map {
+  position: relative;
+  width: var(--mini);
+  height: var(--mini);
+  border-radius: 50%;
+  overflow: hidden;
+  touch-action: none;
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.45);
+}
+.fly .f-map .lbl {
+  font-size: 10px;
+}
+.fly .f-north {
+  position: absolute;
+  top: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #ff8a65;
+  font-size: 11px;
+  font-weight: 800;
+  pointer-events: none;
+  z-index: 3;
+}
+.fly .f-caption {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+.fly .f-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+.fly .f-inst,
+.fly .f-deck {
+  position: absolute;
+  bottom: var(--edge);
+  z-index: 3;
+  border-radius: 14px;
+  background: rgba(10, 14, 20, 0.58);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+}
+.fly .f-inst {
+  left: var(--edge);
+  max-width: calc(55vw - var(--edge));
+}
+.fly .f-deck {
+  right: var(--edge);
+  width: min(470px, calc(45vw - 2 * var(--edge)));
+  max-height: min(56vh, 600px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: rgba(12, 17, 24, 0.74);
+}
+.fly .f-deck .deck {
+  height: auto;
+  min-height: 0;
+  flex: 1;
+}
+.fly .f-deck .deck-bar .timeline,
+.fly .f-deck .ticker {
+  background: transparent;
+}
+.fly .f-deck.collapsed .tabs,
+.fly .f-deck.collapsed .deck-body {
+  display: none;
+}
+.fly .f-collapse {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 2;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  background: rgba(10, 14, 20, 0.6);
+  color: var(--panel-fg);
+  cursor: pointer;
+}
+.fly .f-deck .deck-bar {
+  padding-right: 34px; /* room for the collapse button */
+}
+.fly .f-deck .deck-bar .timeline {
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px;
+}
+.fly .f-deck .deck-bar .timeline .clock {
+  min-width: 0;
+}
+/* The instruments, compact: smaller dials, the gauges in one card, see-through cards. */
+.instruments.compact {
+  padding: 8px;
+  gap: 6px;
+}
+.fly .inst {
+  background: rgba(6, 9, 13, 0.55);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.instruments.compact .nav-svg {
+  width: 182px;
+  height: 182px;
+}
+.instruments.compact .inst.gauges.both {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 10px;
+  min-width: 0;
+}
+.instruments.compact .gauge {
+  grid-template-columns: 34px 1fr 66px;
+  margin: 2px 4px;
+  font-size: 11px;
+}
+.instruments.compact .cont-line {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 4px 4px 2px;
+}
+.instruments.compact .cont-line .cont-phase {
+  margin: 0;
+}
+.instruments.compact .cont-line .zonechips {
+  margin: 0;
+}
+/* &film=1: the picture alone. */
+.fly.film .f-badges,
+.fly.film .f-mapbox,
+.fly.film .f-inst,
+.fly.film .f-deck,
+.fly.film .lbl {
+  display: none;
+}
+@media (max-width: 900px) {
+  .fly {
+    --mini: clamp(120px, 26vw, 200px);
+  }
+  .fly .f-inst {
+    max-width: calc(100vw - 2 * var(--edge));
+    bottom: auto;
+    top: calc(var(--edge) + 40px);
+    transform: scale(0.8);
+    transform-origin: top left;
+  }
+  .fly .f-deck {
+    left: var(--edge);
+    width: auto;
+    max-height: 42vh;
+  }
+}
+
 /* ---------------------------------------------------------------- four-panel player (docs/07 §8) */
 .quad {
   position: fixed;

@@ -926,21 +926,6 @@ dd {
   color: #f0a830;
   font-weight: 600;
 }
-.av-wind {
-  fill: #7fd0ff;
-  font-size: 12px;
-}
-.av-wind path {
-  fill: none;
-  stroke: #7fd0ff;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.av-wind .av-wind-from {
-  fill: #7fb3d6;
-  font-size: 11px;
-}
 .av-alerts {
   display: flex;
   flex-wrap: wrap;
@@ -1103,6 +1088,15 @@ dd {
     left: var(--edge);
     width: auto;
     max-height: 42vh;
+  }
+}
+@media (max-width: 640px) {
+  /* A phone: the avionics go under the minimap and its caption, not beside them. */
+  .fly .f-inst {
+    top: calc(var(--edge) + var(--mini) + 44px);
+  }
+  .fly .f-mapbox {
+    align-items: flex-end; /* the caption, wider than the circle, stays on screen */
   }
 }
 

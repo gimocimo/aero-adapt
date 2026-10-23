@@ -129,9 +129,6 @@ function Cell(props: { label: string; value: string; frac: number; tone: string;
 export function Avionics({ s, replay }: { s: Sample; replay: Replay }) {
   const { mode: modes, phase: phases } = replay.manifest.enums;
   const world = !!replay.manifest.site.world;
-  const hdg = s.yaw * DEG;
-  const windFrom = Math.atan2(-s.windE, -s.windN) * DEG;
-  const windSpeed = Math.hypot(s.windN, s.windE);
   const target = navTarget(s, replay);
   const dist = target.dist >= 1000 ? `${(target.dist / 1000).toFixed(1)} km` : `${fmt(target.dist)} m`;
   const vs = clamp(s.climb * 4, -20, 20);
@@ -155,24 +152,6 @@ export function Avionics({ s, replay }: { s: Sample; replay: Replay }) {
       <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} className="av-main" data-testid="hud">
         <HeadingArc s={s} brg={target.brg} />
         <Ball s={s} />
-        <g className="av-wind">
-          <title>Wind: the arrow points where it blows, the aircraft's nose up</title>
-          {windSpeed > 0.5 ? (
-            <>
-              <path d="M 0 6 V -3 M -4 -1 L 0 -6 L 4 -1" transform={`translate(${W - 72} 13) rotate(${windFrom + 180 - hdg})`} />
-              <text x={W - 62} y={17}>
-                {fmt(windSpeed)} m/s
-              </text>
-              <text x={W - 78} y={31} className="av-wind-from">
-                from {fmt(wrap360(windFrom)).padStart(3, "0")}°
-              </text>
-            </>
-          ) : (
-            <text x={W - 78} y={17}>
-              calm
-            </text>
-          )}
-        </g>
         <text x={14} y={76} className="av-lbl">
           IAS m/s
         </text>

@@ -226,7 +226,7 @@ The tracks themselves (the trail by phase, the mission, a proposal, the active p
 - **The attitude ball** under a heading-up arc:
   - the ball has a pitch ladder, a roll scale and pointer, and the flight director: magenta bars for the roll and pitch the stack demands, relative to the aircraft;
   - the arc carries ticks every 10°, a heading box, the ground track (green) and the bearing to home or the chosen zone (magenta), pinned to the arc's ends when out of view.
-- **Either side:** airspeed (IAS) and height (m above home on a world site) in large figures. Under each, the autopilot's target in cyan; then TAS (truth) and ground speed, or the climb rate, which also drives a small bar beside the height. The wind, in the top-right corner, is an arrow drawn nose-up with its speed and origin.
+- **Either side:** airspeed (IAS) and height (m above home on a world site) in large figures. Under each, the autopilot's target in cyan; then TAS (truth) and ground speed, or the climb rate, which also drives a small bar beside the height. The wind is shown on the follow view and under the minimap, not here.
 - **Beneath:** the distance to home or the chosen zone, then four gauges: throttle, state of charge, height above the ground and clearance above obstacles (amber under 30 m, red under 10 m). A value the flight did not record shows as a dash.
 - The touchdown or collision card.
 

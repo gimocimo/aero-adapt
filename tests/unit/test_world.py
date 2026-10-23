@@ -288,3 +288,21 @@ def test_london_baked() -> None:
     ops = site.operations
     assert ops is not None and ops.ceiling_alt_m == 400.0
     assert {a.id for a in ops.no_fly} == {"tower-of-london", "st-pauls"}
+
+
+def test_the_city_trainer() -> None:
+    """London's small airframe (docs/08 §5): a one-airframe fleet with its tuned stack and
+    model, flown by london-city at its own cruise speed."""
+    from aeroadapt.airframes.fleet import fleet_path, load_fleet_airframe
+    from aeroadapt.scenarios.schema import load_scenario
+    from aeroadapt.stack.config import load_stack_cfg
+
+    sc = load_scenario("london-city")
+    assert sc.fleet is not None and sc.airframe == "city-trainer"
+    bundle = fleet_path(sc.fleet)
+    af = load_fleet_airframe(bundle, sc.airframe)
+    assert 1.0 < af.geometry.span_m < 1.2 and 0.9 < af.mass_inertia.mass_kg < 1.2
+    cfg = load_stack_cfg(sc.stack.params or "", sc.airframe)
+    assert cfg.airframe == af.id and 12.0 <= cfg.tecs.airspeed_cruise_mps <= 15.0
+    assert sc.mission.speed_mps == pytest.approx(cfg.tecs.airspeed_cruise_mps, abs=0.5)
+    assert (bundle / "gltf" / f"{af.id}.glb").stat().st_size > 1000

@@ -1,0 +1,107 @@
+{
+  "airframe": "city-trainer",
+  "site": "cambridge_west",
+  "passed": true,
+  "checks": {
+    "start trim residual (calm)": {
+      "value": 1.7276141949525086e-14,
+      "limit": 1e-06,
+      "ok": true
+    },
+    "roll step rise 10-90%": {
+      "value": 0.36000823974609375,
+      "limit": 1.0,
+      "ok": true
+    },
+    "roll step overshoot": {
+      "value": 5.044758319854736,
+      "limit": 10.0,
+      "ok": true
+    },
+    "roll step steady-state error": {
+      "value": 0.2942522144593772,
+      "limit": 1.0,
+      "ok": true
+    },
+    "|beta| in 30 deg turn": {
+      "value": 2.1142921012100286,
+      "limit": 3.0,
+      "ok": true
+    },
+    "pitch step rise 10-90%": {
+      "value": 0.12000274658203125,
+      "limit": 0.8,
+      "ok": true
+    },
+    "pitch step overshoot": {
+      "value": 3.580009937286377,
+      "limit": 15.0,
+      "ok": true
+    },
+    "alt step error after 20 s": {
+      "value": 0.1925973892211914,
+      "limit": 0.5831999778747559,
+      "ok": true
+    },
+    "alt step overshoot": {
+      "value": 0.1925973892211914,
+      "limit": 0.8747999668121338,
+      "ok": true
+    },
+    "alt step airspeed deviation": {
+      "value": 0.5899810791015625,
+      "limit": 1.08,
+      "ok": true
+    },
+    "speed step error after 15 s": {
+      "value": 0.07124977111816477,
+      "limit": 0.3,
+      "ok": true
+    },
+    "speed step altitude deviation": {
+      "value": 1.0712966918945312,
+      "limit": 3.0,
+      "ok": true
+    },
+    "limit cycle 0.3-5 Hz attitude RMS": {
+      "value": 0.21907311583095185,
+      "limit": 0.25,
+      "ok": true
+    },
+    "L1 cross-track RMS (calm)": {
+      "value": 1.442738818466955,
+      "limit": 2.756139146511712,
+      "ok": true
+    },
+    "servo saturation (calm)": {
+      "value": 0.0,
+      "limit": 5.0,
+      "ok": true
+    },
+    "no ground contact (calm)": {
+      "value": 0.0,
+      "limit": 0.0,
+      "ok": true
+    },
+    "start trim residual (turb)": {
+      "value": 1.7276141949525086e-14,
+      "limit": 1e-06,
+      "ok": true
+    },
+    "L1 cross-track RMS (turb)": {
+      "value": 1.4254623113070413,
+      "limit": 6.8903478662792805,
+      "ok": true
+    },
+    "servo saturation (turb)": {
+      "value": 0.0,
+      "limit": 5.0,
+      "ok": true
+    },
+    "no ground contact (turb)": {
+      "value": 0.0,
+      "limit": 0.0,
+      "ok": true
+    }
+  }
+}

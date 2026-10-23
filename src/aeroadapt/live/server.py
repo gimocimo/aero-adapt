@@ -41,7 +41,7 @@ from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
 from aeroadapt.airframes import Airframe
-from aeroadapt.airframes.fleet import load_fleet
+from aeroadapt.airframes.fleet import fleet_path, load_fleet
 from aeroadapt.live.session import CHUNK_S, LiveSession
 from aeroadapt.scenarios.schema import SCENARIO_DIR, load_scenario
 from aeroadapt.scenarios.site import load_site
@@ -97,6 +97,15 @@ class Catalogue:
         return LiveSession(
             sc, self.airframes[airframe_id], self.stacks[airframe_id], fleet=self.fleet
         )
+
+
+@functools.lru_cache(maxsize=8)
+def _fleet_model(fleet: str | None, airframe_id: str) -> bytes | None:
+    """The glTF model of a scenario's own fleet airframe (london-city's city trainer)."""
+    if fleet is None:
+        return None
+    glb = fleet_path(fleet) / "gltf" / f"{airframe_id}.glb"
+    return glb.read_bytes() if glb.exists() else None
 
 
 @functools.lru_cache(maxsize=4)
@@ -160,7 +169,9 @@ class Connection:
             "scenarios": cat.scenarios,
             "airframe": self.airframe_id,
             "airframes": cat.listing(),
-            "model": cat.models.get(self.airframe_id or ""),
+            "model": cat.models.get(self.airframe_id or "") or _fleet_model(
+                self.session.resolved.scenario.fleet, self.session.resolved.airframe.id
+            ),
             "site": site_layers(self.session.resolved.site),
             "world": _world(self.session.resolved.site.world),
             "plan": self.session.active_plan,

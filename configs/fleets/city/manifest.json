@@ -1,0 +1,13 @@
+{
+  "accepted": 1,
+  "designs_tried": 1,
+  "fleet_id": "city",
+  "generator_version": "1",
+  "per_class": {
+    "conventional": {
+      "accepted": 1,
+      "tried": 1
+    }
+  },
+  "rejection_reasons": {}
+}

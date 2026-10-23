@@ -1,0 +1,46 @@
+# London (docs/08 §5): the city trainer (configs/fleets/city, 1.1 m, 13.5 m/s) among the
+# buildings. Low along the Thames at 45 m above home (Potters Fields Park), under the bridges'
+# skyline from the Millennium Bridge to London Bridge; north over the bank climbing to 120 m;
+# then through the City's towers, threading their western edge with the towers rising 60 to
+# 160 m above it on either hand; round the north at 140 m and back down to the river at
+# Blackfriars.
+#
+# The corridor through the towers was planned on the measured obstacles (at least 30 m clear
+# of anything within 25 m of 120 m); every leg is at least 23 m clear of everything within
+# 25 m either side of the track, about the trainer's turning radius at 45° of bank.
+schema_version: 1
+id: london-city
+description: >-
+  London with the city trainer: low along the Thames at 45 m, then through the City's towers
+  at 120 m, round the north and back to the river.
+site: london
+fleet: configs/fleets/city
+airframe: city-trainer
+seed: 3
+duration_s: 1800
+initial: {pos_ne_m: [-115, -900], alt_agl_m: 45, heading_deg: 92, airspeed_mps: 13.5}
+mission:
+  alt_agl_m: 120
+  speed_mps: 13.5  # the trainer's cruise (the default is the Aerosonde's 25)
+  waypoints_ne_m:
+    - [-130, -600, 45]    # the Millennium Bridge: Tate Modern and St Paul's
+    - [-270, -150, 45]    # Southwark and Cannon Street bridges
+    - [-330, 148, 70]     # London Bridge, climbing
+    - [-18, 148, 110]     # north over the bank
+    - [126, 216, 120]
+    - [198, 248, 120]     # into the towers
+    - [284, 236, 120]
+    - [364, 292, 120]
+    - [528, 296, 120]
+    - [680, 436, 120]
+    - [760, 472, 120]     # out to the north
+    - [850, 300, 140]
+    - [820, -300, 140]    # west along the City's northern edge
+    - [600, -800, 130]    # north of St Paul's
+    - [200, -1150, 100]
+    - [-100, -1150, 55]   # down to the river at Blackfriars
+  on_complete: loop
+environment:
+  wind: {from_deg: 240, speed_mps: 3}
+  turbulence: {model: dryden_low_alt, intensity: light}
+stack: {autopilot: stock, contingency: classical_v0, estimator: navigator, params: configs/fleets/city}

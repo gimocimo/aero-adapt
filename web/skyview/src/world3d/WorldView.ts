@@ -133,6 +133,7 @@ export class WorldView {
   private fitKey = "";
   private loader = new GLTFLoader();
   private modelUri = "";
+  private chaseScale = 1;
   private worldKey = "";
   readonly thin: number;
   /** The cinematic look (docs/07 §15): sky, sunlight and shadows, haze, detailed trees,
@@ -404,6 +405,10 @@ export class WorldView {
         this.ghostCraft.clear();
         this.aircraft.add(make(false));
         this.ghostCraft.add(make(true));
+        // The chase camera keeps the same framing whatever the aircraft's size (13 m behind a
+        // 3 m aircraft; a 1.1 m trainer, about 5 m).
+        const size = new THREE.Box3().setFromObject(gltf.scene).getSize(new THREE.Vector3());
+        this.chaseScale = THREE.MathUtils.clamp(Math.max(size.x, size.z) / 3, 0.35, 1.5);
       },
       undefined,
       () => undefined,
@@ -679,14 +684,15 @@ export class WorldView {
     while (d < -Math.PI) d += 2 * Math.PI;
     this.smoothYaw += 0.05 * d;
     const yaw = mode === "orbit" ? 0.12 * time : this.smoothYaw;
-    const back = mode === "orbit" ? 170 : 13;
-    const up = mode === "orbit" ? 70 : 3.2;
+    const back = mode === "orbit" ? 170 : 13 * this.chaseScale;
+    const up = mode === "orbit" ? 70 : 3.2 * this.chaseScale;
     const fwd = new THREE.Vector3(Math.sin(yaw), 0, -Math.cos(yaw));
     cam.position.copy(pos).addScaledVector(fwd, -back);
     cam.position.y += up;
     const floor = this.groundAt(-cam.position.z, cam.position.x) + 2;
     if (cam.position.y < floor) cam.position.y = floor;
-    cam.lookAt(pos.clone().addScaledVector(fwd, mode === "orbit" ? 0 : 30).add(new THREE.Vector3(0, -2, 0)));
+    const ahead = mode === "orbit" ? 0 : 30 * this.chaseScale;
+    cam.lookAt(pos.clone().addScaledVector(fwd, ahead).add(new THREE.Vector3(0, -2 * this.chaseScale, 0)));
   }
 
   private fitTop(w: number, h: number): void {

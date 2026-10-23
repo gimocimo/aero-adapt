@@ -1,6 +1,6 @@
 # 08. London: a real city to fly through
 
-**Status:** built, 23 Oct 2026, all but the small airframe (§5). The owner chose the area (the City and Bankside) and the vehicle (a small fixed-wing). Until that airframe exists, the Aerosonde flies London, above the roofs and along the river.
+**Status:** built, 23 Oct 2026; the small airframe (§5) followed on 24 Oct. The owner chose the area (the City and Bankside) and the vehicle (a small fixed-wing). The city trainer flies low along the river and among the City's towers; the Aerosonde flies the higher tours.
 
 ![Tower Bridge, City Hall and HMS Belfast, the Shard to the left and the City's towers to the right](media/london_towerbridge.jpg)
 
@@ -74,15 +74,29 @@ Two tools, as for the test map. `tools/london_fetch.py` fetches the three files 
 - **Bridges are solid down to the water.** The grid holds one height per cell, so nothing can be flown under: not the bridges, not Tower Bridge's walkways. That is conservative; flying under them is not the point.
 - **The format is general.** Buildings on their own footprints (with skillion, dome and spire roofs, and parts clear of the ground) and measured obstacles are part of the baked-world format (`aeroadapt.world.baked`), not special to London.
 
-## 5. The vehicle (to do)
+## 5. The vehicle: the city trainer
 
-A new airframe: a small fixed-wing of about 1 m span and 1 kg, cruising at about 12 m/s.
+A small conventional tractor, `city-trainer` in `configs/fleets/city`, written down as one design in `tools/city_airframe.py` rather than sampled. The M2 machinery does the rest (docs/05 §4, §6):
 
-- **Turning.** At 45° of bank, it turns on a radius of about 15 m.
+- **Generator.** It lays the design out and computes its mass, aerodynamics (AeroSandbox and NeuralFoil tables) and propulsion.
+- **Filters.** aerojax's trim and stability filters pass it.
+- **Stack.** It is auto-configured and auto-tuned.
+- **Acceptance.** V20 passes it on all 20 of its checks, in calm air and in light turbulence.
+
+| | |
+|---|---|
+| Span, wing | 1.10 m, 0.20 m² (aspect ratio 6, Clark Y, 4° dihedral) |
+| Mass, wing loading | 1.03 kg, 50 N/m² |
+| Stall, cruise | 7.6 m/s; 13.5 m/s (the auto-configured cruise) |
+| Power | 3S, 206 W (200 W/kg); about 30 minutes |
+| Turning | 19 m radius at 45° of bank, at cruise |
+| Static margin | 10 % |
+
 - **What it can fly:** above the roofs; along the river (about 250 m wide); straight along the wider streets; through the gaps in the City's cluster of towers. It turns at junctions and open spaces.
 - **What it cannot:** weave down narrow streets; hover. That needs a multirotor, which is a different project.
+- **Its glTF model** travels with it. The live server sends a scenario's own fleet airframe's model to Skyview, whose chase camera keeps the same framing whatever the aircraft's size (about 5 m behind the trainer, 13 m behind the Aerosonde).
 
-Until then the Aerosonde (3 m, 25 m/s) flies London.
+**Fidelity.** It is a generated airframe, not a model of a real one. Its aerodynamics are computed from its geometry, and its mass budget and propeller family are approximate (docs/05 §12), as for every airframe in the fleet.
 
 ## 6. Operations
 
@@ -93,12 +107,15 @@ Until then the Aerosonde (3 m, 25 m/s) flies London.
   - The least height above the ground is 30 m.
 - **Contingency.** The Thames is the only large open space. A landing on water is not modelled (docs/07 §10), so a forced landing there would count as a ditching.
 - **No-fly zones.** Two, closed at all heights, round the Tower of London and St Paul's. They are invented for the exercise; real drone flights in central London need permissions this world does not model.
-- **Scenarios.** Both fly clean in a headless 30-minute run: no collision, never in a zone, never out of the geofence.
+- **Scenarios.** All three fly clean in a headless 30-minute run: no collision, never in a zone, never out of the geofence.
 
   | Scenario | Route | Least clearance |
   |---|---|---|
   | `london-tour` | 150 m: up the Thames to Blackfriars, round the north of the City, back by the Tower and Tower Bridge | 60 m above anything measured |
   | `london-river` | 90 m from Tower Bridge to Blackfriars, past HMS Belfast, the Shard, the Millennium Bridge and St Paul's; then the City's northern edge at 190 m | 58 m, over Tower Bridge's towers |
+  | `london-city` | The city trainer at 13.5 m/s. 45 m along the Thames from the Millennium Bridge to London Bridge; then through the City's towers at 120 m, along their western edge, with towers rising 60 to 160 m above it on either hand; round the north and back to the river at Blackfriars | 29 m above anything measured; 60 m from anything as tall as itself |
+
+  `london-city`'s way through the towers was planned on the measured obstacles: a search over the free space at 120 m for a path at least 30 m from anything within 25 m of that height. The trainer banks to 49° in its turns and ends the 30 minutes with 19 % of its battery.
 
 ## 7. Skyview
 
@@ -147,6 +164,6 @@ The code stays Apache-2.0. The baked world (`london.world.npz`, `london.yaml` an
 1. ~~Fetch the data.~~ 23 Oct.
 2. ~~Bake the terrain, buildings and river; look at it in Skyview.~~ 23 Oct.
 3. ~~The 1 m obstacle grid, and the simulator on it.~~ 23 Oct.
-4. The small airframe. Next.
+4. ~~The small airframe.~~ 24 Oct.
 5. ~~Operations and two scenarios.~~ 23 Oct.
 6. Landmarks: hand-made models for the few that matter most, drawn only. Later, if wanted.

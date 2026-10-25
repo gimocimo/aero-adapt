@@ -378,7 +378,7 @@ The owner's test map is not generated from a spec. It was drawn with the sketch 
   - Home is at the airstrip; the geofence sits 150 m inside the map's edge.
   - `ceiling_alt_m`, new, is a flat ceiling above the datum (500 m). It is the altitude fence, and the planner's roof wherever it is lower than the ceiling above the ground.
   - The 30 no-fly zones carry their heights (`ceiling_m`; `ceiling_from: centre` for the flat-topped cylinders round the turbines and masts).
-  - **The planner does not use those heights yet:** it keeps out of every zone at all heights, so Txt2Fly routes round the city rather than over it. Fixed-waypoint missions (`testmap-nominal`) were checked against the heights by hand.
+  - **The planner uses those heights** (since 25 Oct, [docs/06 §17](06_txt2fly_spec.md)): a plan may cross a zone 30 m above how high it is closed, so at 150 m Txt2Fly crosses the power lines but keeps out of the city. (Until then it kept out of every zone at all heights, and fixed-waypoint missions such as `testmap-nominal` were checked against the heights by hand.)
 - **Skyview** shows each zone's height: closed at all heights in red, up to a height in orange and dashed, labelled with how high it reaches. It also draws the turbines (rotors facing the wind), pylons, cooling towers and wires; buildings in their own colours; the water as land cover; and the town's streets, squares and parks.
 
 ## 15. The cinematic look (Skyview)

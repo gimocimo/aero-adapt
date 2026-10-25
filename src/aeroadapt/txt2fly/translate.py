@@ -11,10 +11,17 @@ The prompt:
 
 * **system**, cached: the rules and the plan reference with worked examples (the same for
   every site, ``prompt_rules.md``), then the site (places with their ground and top heights,
-  no-fly areas, the height band) and the aircraft (speeds, roll limit, tightest circles). Both
+  sizes and extents, lines with their course; no-fly areas with their extents and how high
+  they reach; the height band) and the aircraft (speeds, roll limit, tightest circles). Both
   are fixed for a session, so they are written once and then read from the cache.
+* **the map** (a setting, off by default), cached: a picture of the site
+  (``configs/sites/<site>.map.png``, drawn by ``tools/site_map.py`` from the same data), first
+  in the conversation.
 * **each instruction**: the state now (position, height, wind, the tightest circle in this
   wind, battery, the active plan), after the last few turns of the conversation.
+* **the review** (``translate_checked``): when the builder could not build the plan, or it
+  fails a hard check, the model is shown what would be flown and why, and answers once more:
+  the same plan, a corrected one, or a question to the operator.
 
 Translators:
 
@@ -27,12 +34,14 @@ Translators:
 
 from __future__ import annotations
 
+import asyncio
+import base64
 import functools
 import json
 import math
 import re
 import time
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol
@@ -40,21 +49,40 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 import numpy as np
 from pydantic import BaseModel, ConfigDict, create_model
 
+from aeroadapt.scenarios.site import SITE_DIR
 from aeroadapt.txt2fly.builder import COMPASS, Aircraft, _speeds, r_min
 from aeroadapt.txt2fly.energy import RESERVE, energy_model
-from aeroadapt.txt2fly.gazetteer import Gazetteer, Place, UnknownPlace
-from aeroadapt.txt2fly.plan import Goto, Hold, Orbit, PassOver, Patrol, Plan, ReturnHome, SetSpeed
-from aeroadapt.txt2fly.terrain import relief
+from aeroadapt.txt2fly.gazetteer import (
+    ABOVE_ZONE_M,
+    FIELD_WORDS,
+    Gazetteer,
+    NoFlyArea,
+    Place,
+    UnknownPlace,
+)
+from aeroadapt.txt2fly.plan import (
+    Around,
+    Follow,
+    Goto,
+    Hold,
+    Orbit,
+    PassOver,
+    Patrol,
+    Plan,
+    ReturnHome,
+    SetSpeed,
+    Survey,
+)
 
 if TYPE_CHECKING:
     from anthropic import AsyncAnthropic
+
+    from aeroadapt.txt2fly.checker import Report
 
 TIMEOUT_S = 60.0  # a site's first request compiles its schema (~30 s, then cached a day)
 MAX_TURNS = 6  # turns of the conversation sent with each instruction
 MAX_PLACES = 120
 STREET_KINDS = ("road", "street", "lane")  # left out of the model's list on a big site
-NO_TOP_KINDS = ("home", "safe zone", "field", "airstrip", "river", "road", "street", "lane",
-                "park", "green")  # fmt: skip
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 
@@ -68,12 +96,16 @@ class Setting:
     effort: str
     max_tokens: int
     fallbacks: bool = False  # the server-side refusal fallback (Opus)
+    map: bool = False  # send the site's map picture (docs/06 §17: off for Haiku, see V32)
 
 
 SETTINGS = {
     # The default: Haiku 5.5 without thinking, for latency (the owner's choice, 21 Oct 2026).
     "haiku": Setting("haiku", "claude-haiku-5-5", False, "low", 4096),
     "haiku-think": Setting("haiku-think", "claude-haiku-5-5", True, "low", 16000),
+    # With the map picture: measured, not the default (about 2 s slower, and Haiku trusted the
+    # picture's few labels over the list: docs/validation/txt2fly_spatial.md).
+    "haiku-map": Setting("haiku-map", "claude-haiku-5-5", False, "low", 4096, map=True),
     # The reference: what a larger model adds. Opus 5.5 always thinks; medium is its default.
     "opus": Setting("opus", "claude-opus-5-5", True, "medium", 16000, fallbacks=True),
 }
@@ -112,6 +144,8 @@ class Translation:
     usage: dict[str, int] = field(default_factory=dict)
     stop_reason: str | None = None
     turn: Turn | None = None  # to append to the conversation
+    review: str | None = None  # what the model was shown of its first plan, if anything
+    first: dict[str, Any] | None = None  # its first reply, when the review changed it
 
 
 class TranslatorError(RuntimeError):
@@ -141,11 +175,12 @@ class _M(BaseModel):
 
 
 STEP_CLASSES = {"goto": Goto, "pass_over": PassOver, "orbit": Orbit, "patrol": Patrol,
-                "set_speed": SetSpeed, "hold": Hold, "return_home": ReturnHome}  # fmt: skip
+                "around": Around, "follow": Follow, "survey": Survey, "set_speed": SetSpeed,
+                "hold": Hold, "return_home": ReturnHome}  # fmt: skip
 
 
 @functools.cache
-def reply_model(ids: tuple[str, ...]) -> type[BaseModel]:
+def reply_model(ids: tuple[str, ...], kinds: tuple[str, ...] = ()) -> type[BaseModel]:
     """The reply schema the model writes, for a site: flat, because the API compiles a
     schema into a grammar and nested unions (seven step kinds, each with four kinds of target)
     make it too large. One reply object (``kind`` plan, clarify or refuse, with the fields of
@@ -163,11 +198,15 @@ def reply_model(ids: tuple[str, ...]) -> type[BaseModel]:
     num = (float | None, ...)
     target = m(
         "Target",
-        kind=(lit["place", "here", "home", "offset"], ...),
+        kind=(
+            lit["place", "here", "home", "offset", "nearest", "furthest", "tallest", "beyond"],
+            ...,
+        ),
         id=(lit[ids] | None, ...),
         origin=(lit[(*ids, "here", "home")] | None, ...),
         bearing_deg=num,
         distance_m=num,
+        among=((lit[kinds] if kinds else str) | None, ...),
     )
     step = m(
         "Step",
@@ -183,6 +222,12 @@ def reply_model(ids: tuple[str, ...]) -> type[BaseModel]:
         visit=(lit["pass_over", "goto"] | None, ...),
         laps=(int | None, ...),
         speed=(lit["slow", "cruise", "fast"] | float | None, ...),
+        standoff_m=num,
+        start=(target | None, ...),
+        end=(target | None, ...),
+        side=(lit["over", "north", "south", "east", "west"] | None, ...),
+        offset_m=num,
+        spacing_m=num,
     )
     return m(
         "Reply",
@@ -196,12 +241,27 @@ def reply_model(ids: tuple[str, ...]) -> type[BaseModel]:
     )
 
 
+def site_schema(gaz: Gazetteer) -> type[BaseModel]:
+    """The reply schema for a site: its place ids, and its kinds of place (with the words for
+    its fields, which are its safe zones)."""
+    places = prompt_places(gaz)
+    kinds = {p.kind for p in places} | set(FIELD_WORDS)
+    return reply_model(tuple(p.id for p in places), tuple(sorted(kinds)))
+
+
 def _target(t: dict[str, Any]) -> dict[str, Any]:
     if t["kind"] == "place":
         return {"kind": "place", "id": t.get("id")}
     if t["kind"] == "offset":
         keys = ("origin", "bearing_deg", "distance_m")
         return {"kind": "offset", **{k: t.get(k) for k in keys}}
+    if t["kind"] in ("nearest", "furthest"):
+        return {"kind": t["kind"], "among": t.get("among"), "origin": t.get("origin") or "here"}
+    if t["kind"] == "tallest":
+        return {"kind": "tallest", "among": t.get("among")}
+    if t["kind"] == "beyond":
+        out = {"kind": "beyond", "id": t.get("id"), "origin": t.get("origin") or "here"}
+        return out | ({"distance_m": t["distance_m"]} if t.get("distance_m") is not None else {})
     return {"kind": t["kind"]}
 
 
@@ -224,8 +284,9 @@ def nest(flat: dict[str, Any]) -> dict[str, Any]:
         if "target" in fields and not s.get("target") and len(s.get("targets") or []) == 1:
             s["target"] = s["targets"][0]
         step = {k: v for k, v in s.items() if k in fields and v is not None}
-        if "target" in step:
-            step["target"] = _target(step["target"])
+        for k in ("target", "start", "end"):
+            if k in step:
+                step[k] = _target(step[k])
         if "targets" in step:
             step["targets"] = [_target(t) for t in step["targets"]]
         steps.append(step)
@@ -278,19 +339,62 @@ def _from_home(p: np.ndarray, home: np.ndarray) -> str:
     return f"{dist:.0f} m {_compass(brg)} of home (N {d[0]:.0f}, E {d[1]:.0f})"
 
 
+def _span(pts: np.ndarray, home: np.ndarray) -> str:
+    """Where an outline lies: its extent from home and its size."""
+    d = np.asarray(pts, float) - home
+    lo, hi = d.min(axis=0), d.max(axis=0)
+    return (f"N {lo[0]:.0f} to {hi[0]:.0f}, E {lo[1]:.0f} to {hi[1]:.0f} (about "
+            f"{hi[1] - lo[1]:.0f} m east-west by {hi[0] - lo[0]:.0f} m north-south)")  # fmt: skip
+
+
+def _course(line: np.ndarray, home: np.ndarray) -> str:
+    """A line's length and course: its ends and a few points between."""
+    from shapely.geometry import LineString
+
+    from aeroadapt.txt2fly.areas import points_along
+
+    ls = LineString(line)
+    pts = points_along(ls, 6) - home
+    via = (
+        " via " + ", ".join(f"(N {n:.0f}, E {e:.0f})" for n, e in pts[1:-1]) if len(pts) > 2 else ""
+    )
+    return (f"a line {ls.length:.0f} m long from (N {pts[0, 0]:.0f}, E {pts[0, 1]:.0f}){via} "
+            f"to (N {pts[-1, 0]:.0f}, E {pts[-1, 1]:.0f})")  # fmt: skip
+
+
+def _no_fly(gaz: Gazetteer) -> list[str]:
+    """The no-fly areas, one line per name (the 22 turbines as one), with the place that
+    stands for each, where it lies and how high it reaches."""
+    groups: dict[str, list[NoFlyArea]] = {}
+    for a in gaz.no_fly:
+        groups.setdefault(a.name, []).append(a)
+    ids = {p.id for p in gaz.places.values()}
+    lines = []
+    for name, areas in groups.items():
+        # The place for it: its own id (one area), else a place of the same name.
+        pid = areas[0].id if len(areas) == 1 and areas[0].id in ids else None
+        pid = pid or next((p.id for p in gaz.places.values() if p.name == name), None)
+        ref = f" (`{pid}`)" if pid else ""
+        a0 = areas[0]
+        if a0.ceiling_m is None:
+            height = "closed at all heights"
+        elif a0.base_m is None:
+            height = (f"closed up to {a0.ceiling_m:g} m above the ground: a plan may cross it "
+                      f"{a0.ceiling_m + ABOVE_ZONE_M:g} m or more above the ground")  # fmt: skip
+        else:
+            tops = sorted(a.top_m for a in areas if a.top_m is not None)
+            top = f"{tops[0]:.0f}" if tops[-1] - tops[0] < 1 else f"{tops[0]:.0f} to {tops[-1]:.0f}"
+            height = (f"closed up to {top} m above home: a plan may cross it "
+                      f"{ABOVE_ZONE_M:g} m higher")  # fmt: skip
+        count = f"{len(areas)} areas, " if len(areas) > 1 else ""
+        where = _span(np.vstack([r for a in areas for r in a.polygons]), gaz.home)
+        lines.append(f"- {json.dumps(name)}{ref}: {a0.reason}; {count}{height}; {where}")
+    return lines
+
+
 def place_heights(gaz: Gazetteer, p: Place) -> tuple[float, float | None]:
     """A place's ground and top, metres above home (the top: None where it means nothing)."""
-    rel = relief(gaz.site)
-    if rel is None:
-        top = p.height_m
-        return 0.0, top
-    ground = float(rel.ground(p.point[None])[0])
-    if p.kind in NO_TOP_KINDS:
-        return ground, None
-    top = float(rel.top(p.point[None])[0])
-    if p.height_m is not None:
-        top = max(top, ground + p.height_m)
-    return ground, top
+    return gaz.heights(p)
 
 
 _TRIVIAL_ALIAS = re.compile(r"^((safe )?zone )?[A-Z]\d*$")  # "zone A", "A": the id says it
@@ -315,16 +419,24 @@ def site_block(gaz: Gazetteer, ac: Aircraft) -> str:
         f"E {fence[:, 1].min():.0f} to {fence[:, 1].max():.0f}."
     )
     if gaz.no_fly:
-        lines += ["", "No-fly areas (the planner keeps out of them):"]
-        lines += [f"- {json.dumps(a.name)}: {a.reason}" for a in gaz.no_fly]
-    lines += ["", "Places (id: name, kind, where; ground and top in metres above home):"]
+        lines += ["", "No-fly areas (the planner keeps out of them, or crosses one closed up to "
+                      "a height above it):"]  # fmt: skip
+        lines += _no_fly(gaz)
+    lines += ["", "Places (id: name, kind, where; ground and top in metres above home; an area's "
+                  "extent and size, a line's length and course). The safe zones are the landing "
+                  "fields, where the aircraft may land after a failure:"]  # fmt: skip
     for p in prompt_places(gaz):
         ground, top = place_heights(gaz, p)
         h = f"ground {round(ground)} m" + (f", top {round(top)} m" if top is not None else "")
         also = [a for a in p.aliases if not _TRIVIAL_ALIAS.match(a)]
         aka = f" (also {', '.join(json.dumps(a) for a in also)})" if also else ""
+        shape = ""
+        if p.line is not None:
+            shape = f"; {_course(p.line, gaz.home)}"
+        elif p.polygon is not None and p.kind not in STREET_KINDS:
+            shape = f"; spans {_span(p.polygon, gaz.home)}"
         lines.append(f"- `{p.id}`: {json.dumps(p.name)}{aka}, {p.kind}, "
-                     f"{_from_home(p.point, gaz.home)}; {h}")  # fmt: skip
+                     f"{_from_home(p.point, gaz.home)}; {h}{shape}")  # fmt: skip
     cfg, af = ac.stack_cfg, ac.airframe
     sp = _speeds(cfg)
     roll = cfg.l1.roll_limit_deg
@@ -400,11 +512,41 @@ def turn_text(ctx: Context, text: str) -> str:
     return f"{state_text(ctx)}\n\n<operator>\n{text.strip()}\n</operator>"
 
 
-def _messages(ctx: Context, user: str) -> list[dict[str, str]]:
-    msgs: list[dict[str, str]] = []
+@functools.cache
+def site_map(site_id: str) -> tuple[str, float] | None:
+    """The site's map picture (PNG, base64) and its grid spacing, if one has been drawn."""
+    png, meta = SITE_DIR / f"{site_id}.map.png", SITE_DIR / f"{site_id}.map.json"
+    if not png.exists() or not meta.exists():
+        return None
+    grid = float(json.loads(meta.read_text())["grid_m"])
+    return base64.b64encode(png.read_bytes()).decode(), grid
+
+
+MAP_NOTE = (
+    "The map of this site, drawn from the data in the system prompt: north up; a grid every "
+    "{grid:g} m, labelled as positions are given (N and E, metres from home); the ground "
+    "(fields, woods, buildings, water), rivers and roads; safe zones outlined in green; no-fly "
+    "areas in red where closed at all heights, orange where closed up to a height; the "
+    "geofence dashed; home a blue star. Use it for sizes, shapes and what lies where."
+)
+
+
+def _messages(ctx: Context, user: str, with_map: bool = False) -> list[dict[str, Any]]:
+    """The last turns and the instruction; with the map first (cached: it opens every
+    request the same way, whatever the turns after it)."""
+    msgs: list[dict[str, Any]] = []
     for t in list(ctx.history)[-MAX_TURNS:]:
         msgs += [{"role": "user", "content": t.user}, {"role": "assistant", "content": t.reply}]
-    return [*msgs, {"role": "user", "content": user}]
+    msgs.append({"role": "user", "content": user})
+    found = site_map(ctx.gaz.site.id) if with_map else None
+    if found is not None:
+        data, grid = found
+        image = {"type": "image", "cache_control": {"type": "ephemeral"},
+                 "source": {"type": "base64", "media_type": "image/png", "data": data}}  # fmt: skip
+        msgs[0] = {"role": "user", "content": [
+            image, {"type": "text", "text": MAP_NOTE.format(grid=grid)},
+            {"type": "text", "text": msgs[0]["content"]}]}  # fmt: skip
+    return msgs
 
 
 # --------------------------------------------------------------------------- Claude
@@ -436,17 +578,30 @@ class ClaudeTranslator:
             self._client = None
 
     async def translate(self, ctx: Context, text: str) -> Translation:
+        user = turn_text(ctx, text)
+        return await self._ask(ctx, _messages(ctx, user, with_map=self.setting.map), user)
+
+    async def revise(self, ctx: Context, text: str, first: Translation, review: str) -> Translation:
+        """The model's second answer, having seen what was made of its first plan."""
+        assert first.turn is not None
+        user = turn_text(ctx, text)
+        msgs = _messages(ctx, user, with_map=self.setting.map)
+        msgs += [{"role": "assistant", "content": first.turn.reply},
+                 {"role": "user", "content": review}]  # fmt: skip
+        return await self._ask(ctx, msgs, user)
+
+    async def _ask(
+        self, ctx: Context, messages: list[dict[str, Any]], user: str, mend: bool = True
+    ) -> Translation:
         import anthropic
 
         s = self.setting
-        ids = tuple(p.id for p in prompt_places(ctx.gaz))
-        user = turn_text(ctx, text)
         kwargs: dict[str, Any] = {
             "model": s.model,
             "max_tokens": s.max_tokens,
             "system": system_blocks(ctx.gaz, ctx.aircraft),
-            "messages": _messages(ctx, user),
-            "output_format": reply_model(ids),
+            "messages": messages,
+            "output_format": site_schema(ctx.gaz),
             "output_config": {"effort": s.effort},
             "thinking": {"type": "adaptive"} if s.thinking else {"type": "disabled"},
         }
@@ -498,13 +653,115 @@ class ClaudeTranslator:
         raw = nest(flat)
         try:
             reply = to_reply(raw)
-        except ValueError as e:  # e.g. an orbit without a target
+        except ValueError as e:  # e.g. a patrol without its places
             where = " ".join(line.strip() for line in str(e).splitlines()[1:3])[:200]
+            if mend:  # once: the model sees what is missing and writes the reply again
+                again = [*messages, {"role": "assistant", "content": json.dumps(flat)},
+                         {"role": "user", "content": MEND.format(where=where)}]  # fmt: skip
+                t = await self._ask(ctx, again, user, mend=False)
+                t.latency_s += latency
+                t.usage = {k: usage.get(k, 0) + t.usage.get(k, 0) for k in {*usage, *t.usage}}
+                return t
             raise TranslatorError(f"the reply did not make a valid plan: {where}") from e
         # The conversation keeps the reply as the model wrote it.
         turn = Turn(user, json.dumps(flat, separators=(",", ":")))
         return Translation(reply, raw, self.name, resp.model, latency, usage,
                            resp.stop_reason, turn)  # fmt: skip
+
+
+MEND = (
+    "That reply is not a valid plan ({where}). Write it again, complete: every step with the "
+    "fields its kind needs (a patrol's places in `targets`, a target's `among` for nearest or "
+    "furthest)."
+)
+
+
+# --------------------------------------------------------------------------- the review
+REVIEW_ASK = (
+    "Check this against what the operator asked. If it does that, reply with your plan "
+    "unchanged: a wider circle or loop round the same place, a route round a no-fly area, or a "
+    "height raised to clear the ground, or a circle moved but still passing over the place "
+    "keeps the meaning. If not (a circle moved off the place, a different place, a failed "
+    "check), reply once more: a corrected plan (other "
+    "steps, places or numbers that do what they asked, a check's suggestion), or a question to "
+    "the operator (`clarify`) saying what stands in the way, when no plan can do what they "
+    "asked. The site's rules are fixed: do not plan round them."
+)
+
+
+def review_text(report: Report | None, error: str | None = None) -> str | None:
+    """What was made of a plan, for the model to check against the request: when it cannot be
+    built, or fails a hard check (what the model can mend). None when it passes: what the
+    builder changed to keep it within the rules is in its notes, for the operator."""
+    lines = ["<builder>"]
+    if report is None or report.built.errors:
+        why = [error] if report is None else report.built.errors
+        lines += ["Your plan cannot be built:", *(f"- {e}" for e in why if e)]
+    else:
+        b = report.built
+        failed = [c for c in report.checks if c.hard and not c.ok]
+        if not failed:
+            return None
+        lines.append("Your plan, built for this aircraft in this wind, would fly:")
+        for i, g in enumerate(b.steps):
+            extra = [f"at {g.alt:g} m" if g.alt is not None else "",
+                     f"radius {g.radius:g} m" if g.radius is not None else ""]  # fmt: skip
+            more = ", ".join(x for x in extra if x)
+            lines.append(f"{i + 1}. {g.label}" + (f" ({more})" if more else ""))
+        if b.notes:
+            lines += ["What the builder changed or chose, and why:", *(f"- {n}" for n in b.notes)]
+        if failed:
+            lines.append("It fails these checks, so it cannot fly as it is:")
+            for c in failed:
+                tip = f" Suggestion: {c.suggestion}." if c.suggestion else ""
+                lines.append(f"- {c.rule} {c.title}: {c.reason}{tip}")
+    return "\n".join([*lines, "</builder>", REVIEW_ASK])
+
+
+async def translate_checked(
+    translator: Translator,
+    ctx: Context,
+    text: str,
+    check: Callable[[Plan], Awaitable[Report]],
+) -> tuple[Translation, Report | None, str | None]:
+    """Translate, build and check: (the translation, its report, why it cannot be built). When
+    the builder could not build the plan, or it fails a hard check, the model sees what was
+    made of it and answers once more (a translator that can: the API's). The conversation
+    keeps the final answer."""
+    t = await translator.translate(ctx, text)
+    report, error = await check_reply(t.reply, check)
+    review = review_text(report, error) if isinstance(t.reply, Plan) else None
+    revise = getattr(translator, "revise", None)
+    if review is None or revise is None:
+        return t, report, error
+    t2: Translation = await revise(ctx, text, t, review)
+    t2.review, t2.latency_s = review, t.latency_s + t2.latency_s
+    t2.usage = {k: t.usage.get(k, 0) + t2.usage.get(k, 0) for k in {*t.usage, *t2.usage}}
+    if t2.reply == t.reply:  # kept: the first report stands
+        return t2, report, error
+    t2.first = t.raw
+    report, error = await check_reply(t2.reply, check)
+    return t2, report, error
+
+
+async def check_reply(
+    reply: Reply, check: Callable[[Plan], Awaitable[Report]]
+) -> tuple[Report | None, str | None]:
+    if not isinstance(reply, Plan):
+        return None, None
+    try:
+        return await check(reply), None
+    except ValueError as e:  # a plan the builder cannot take at all (K1)
+        return None, str(e)
+
+
+def in_thread(check: Callable[[Plan], Report]) -> Callable[[Plan], Awaitable[Report]]:
+    """A build-and-check function, run off the event loop."""
+
+    async def run(plan: Plan) -> Report:
+        return await asyncio.to_thread(check, plan)
+
+    return run
 
 
 # --------------------------------------------------------------------------- stand-ins

@@ -108,6 +108,15 @@ def relief(site: Site) -> Relief | None:
     return _CACHE[site.world]
 
 
+def ground_at(site: Site, ne: np.ndarray) -> np.ndarray:
+    """The highest ground within the tracking margin of each point, above home (0 on a flat
+    site)."""
+    rel = relief(site)
+    if rel is None:
+        return np.zeros(len(np.atleast_2d(ne)))
+    return rel.ground(ne)
+
+
 LANDMARK_KINDS = ("wood", "village", "farm", "church", "mast", "silo", "airstrip", "hangar",
                   "pub", "hall", "landmark", "tower", "bridge", "station", "ship",
                   "market")  # fmt: skip

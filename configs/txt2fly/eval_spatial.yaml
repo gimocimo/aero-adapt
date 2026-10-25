@@ -1,0 +1,145 @@
+# Txt2Fly spatial evaluation (docs/06 §17): does the system understand the map? Written on
+# 24 Oct 2026 before the map-aware changes, from the owner's report that "circle the whole
+# city" drew a small circle beside it.
+#
+# Unlike eval_v1, these cases are graded on what would be flown, not on the steps the model
+# chose: the plan is built and checked, and its preview (the expected track) is measured
+# against the map. So the grade does not depend on the plan vocabulary.
+#
+# Areas and lines are named by place id, or ``nofly:<id>`` for a no-fly area. Checks:
+#   encloses: <area>          the track winds once round the area's middle, stays out of it,
+#                             and keeps within max_out_m (default 1200) of its edge
+#   follows: <line or area>   share (default 0.6) of the feature's flyable length (clear of no-fly
+#                             areas, inside the geofence) lies within within_m (150) of the track;
+#                             an area means its edge
+#   covers: <area>            share (0.7) of the area lies within within_m (80) of the track
+#   circles_near: [id, m]     the plan's last circle is centred within m of the place (or of
+#                             any of a list of places)
+#   circles_at: {place, bearing, distance, tol}
+#   visits: [ids]             the track passes within within_m (150) of each, in order
+#   loop_alt: m               the track's height while it does the above is within 15 m of m
+# Contexts are those of eval_v1 (load_cases merges them), plus the test map.
+
+version: 1
+
+contexts:
+  testmap: {scenario: testmap-nominal, at: [-1095, 488], alt: 150, heading: 0, wind: [6, 250]}
+
+cases:
+  # ===================================================================== around (enclose)
+  - {id: around-001, category: around, context: testmap, text: "circle the whole city",
+     expect: {reply: plan, encloses: city}}
+  - {id: around-002, category: around, context: testmap, text: "fly a loop around the city at 200 m",
+     expect: {reply: plan, encloses: city, loop_alt: 200}}
+  # around-003, -009 and -013 were first labelled "encloses". Measured on 24 Oct: the wind
+  # farm's eastern turbines stand on the geofence, Hanger Wood lies mostly north of it, and
+  # Coton runs out past it on the west and almost touches the M11 on the east, so no loop can
+  # go all the way round any of them. Right is to say so and ask, or to fly the part of the
+  # edge that can be flown (with a note saying so). Coton's north side lies along Coton
+  # North's no-fly area and its east tip at the M11, so the one stretch to fly is its south
+  # side, about a third of the edge (share 0.3, first set at 0.4 before measuring).
+  - {id: around-003, category: around, context: testmap, text: "circle around the wind farm",
+     expect: {reply: [clarify, plan], follows: wind-farm, share: 0.6, within_m: 250}}
+  - {id: around-004, category: around, context: testmap, text: "orbit the power station, keeping well clear of it",
+     expect: {reply: plan, encloses: power-station}}
+  - {id: around-005, category: around, context: testmap, text: "fly around the north village",
+     expect: {reply: plan, encloses: north-village}}
+  - {id: around-006, category: around, context: testmap, text: "go round the solar farm twice",
+     expect: {reply: plan, encloses: solar-farm}}
+  # around-007 too (found on the first dev run, 25 Oct): the western woods run 150 m past the
+  # geofence on the west.
+  - {id: around-007, category: around, context: testmap, text: "make a big loop round the western woods",
+     expect: {reply: [clarify, plan], follows: wood-7, share: 0.6, within_m: 300}}
+  - {id: around-008, category: around, context: wren, text: "fly around the village",
+     expect: {reply: plan, encloses: wrenfold}}
+  - {id: around-009, category: around, context: wren, text: "circle all the way round Hanger Wood",
+     expect: {reply: [clarify, plan], follows: hanger-wood, share: 0.6, within_m: 250}}
+  - {id: around-010, category: around, context: wren, text: "go round Long Field",
+     expect: {reply: plan, encloses: zone-b}}
+  - {id: around-011, category: around, context: london, text: "circle around the Tower of London",
+     expect: {reply: plan, encloses: tower-of-london}}
+  - {id: around-012, category: around, context: london, text: "fly around St Paul's Cathedral at 150 m",
+     expect: {reply: plan, encloses: st-pauls, loop_alt: 150}}
+  - {id: around-013, category: around, context: cambridge, text: "circle the whole of Coton village",
+     expect: {reply: [clarify, plan], follows: "nofly:coton", share: 0.3, within_m: 250}}
+
+  # ===================================================================== along (follow a line)
+  - {id: along-001, category: along, context: testmap, text: "follow the river",
+     expect: {reply: plan, follows: river}}
+  - {id: along-002, category: along, context: testmap, text: "fly along the north road",
+     expect: {reply: plan, follows: road-1}}
+  - {id: along-003, category: along, context: testmap, text: "follow the south road out of town",
+     expect: {reply: plan, follows: road-4}}
+  - {id: along-004, category: along, context: testmap, text: "fly along the downs road at 120 m",
+     expect: {reply: plan, follows: road-5, loop_alt: 120}}
+  - {id: along-005, category: along, context: wren, text: "follow the River Wren",
+     expect: {reply: plan, follows: river-wren}}
+  - {id: along-006, category: along, context: wren, text: "fly along Vale Road",
+     expect: {reply: plan, follows: vale-road}}
+  - {id: along-007, category: along, context: wren, text: "fly along the edge of Hanger Wood",
+     expect: {reply: plan, follows: hanger-wood, within_m: 120}}
+  - {id: along-008, category: along, context: london, text: "fly along the Thames",
+     expect: {reply: plan, follows: thames}}
+  - {id: along-009, category: along, context: london, text: "follow the river from Blackfriars Bridge to Tower Bridge",
+     expect: {reply: plan, follows: thames, share: 0.5, visits: [blackfriars-bridge, tower-bridge], within_m: 200}}
+  - {id: along-010, category: along, context: cambridge, text: "fly along the motorway, keeping to the west of it",
+     expect: {reply: plan, follows: "nofly:m11", share: 0.3, within_m: 300}}
+
+  # ===================================================================== survey (cover an area)
+  - {id: survey-001, category: survey, context: wren, text: "survey field B",
+     expect: {reply: plan, covers: zone-b}}
+  - {id: survey-002, category: survey, context: wren, text: "map Long Copse with lines 80 m apart",
+     expect: {reply: plan, covers: long-copse, within_m: 60}}
+  - {id: survey-003, category: survey, context: testmap, text: "survey landing field L15",
+     expect: {reply: plan, covers: zone-l15}}
+  - {id: survey-004, category: survey, context: testmap, text: "survey the solar farm",
+     expect: {reply: plan, covers: solar-farm}}
+  - {id: survey-005, category: survey, context: cambridge, text: "survey field C",
+     expect: {reply: plan, covers: zone-c}}
+  # survey-006: the world names two woods "the eastern woods" (the bake adds "(10 ha)" to
+  # the smaller one to tell them apart), so asking which is right too (first: a plan only).
+  - {id: survey-006, category: survey, context: testmap, text: "search the eastern woods back and forth",
+     expect: {reply: [clarify, plan], covers: wood-14, share: 0.6}}
+
+  # ===================================================================== relative positions
+  - {id: rel-001, category: relative, context: testmap, text: "circle the landing field furthest from home",
+     expect: {reply: plan, circles_near: [zone-l2, 250]}}
+  - {id: rel-002, category: relative, context: testmap, text: "fly to the village south of the city and circle it",
+     expect: {reply: plan, circles_near: [south-village, 400]}}
+  - {id: rel-003, category: relative, context: testmap, text: "circle a point 1 km north of the city centre",
+     expect: {reply: plan, circles_at: {place: city, bearing: 0, distance: 1000, tol: 250}}}
+  - {id: rel-004, category: relative, context: testmap, text: "circle over the woods nearest the wind farm",
+     expect: {reply: plan, circles_near: [wood-14, 450]}}
+  # rel-005: field B is closest by its middle (359 m), field E by its edge (85 m); both readings
+  # are fair (first labelled field B alone).
+  - {id: rel-005, category: relative, context: wren, text: "circle the field closest to Hollow Farm",
+     expect: {reply: plan, circles_near: [[zone-b, zone-e], 200]}}
+  - {id: rel-006, category: relative, context: wren, text: "go to the wood furthest from the airstrip and circle it",
+     expect: {reply: plan, circles_near: [ash-plantation, 300]}}
+  - {id: rel-007, category: relative, context: london, text: "circle the bridge nearest the Shard",
+     expect: {reply: plan, circles_near: [london-bridge, 200]}}
+  - {id: rel-008, category: relative, context: london, text: "circle the tallest building on the map, 50 m above it",
+     expect: {reply: plan, circles_near: [the-shard, 200]}}
+  - {id: rel-009, category: relative, context: wren, text: "circle the wood north of the river, the eastern one",
+     expect: {reply: plan, circles_near: [cuckoo-wood, 300]}}
+  - {id: rel-010, category: relative, context: testmap, text: "circle the far side of the city from here",
+     expect: {reply: plan, circles_at: {place: city, bearing: 336, distance: 1000, tol: 700}}}
+
+  # ===================================================================== routes
+  - {id: route-001, category: route, context: testmap, text: "fly to the wind farm, then the power station, then home",
+     expect: {reply: plan, visits: [wind-farm, power-station], within_m: 600}}
+  - {id: route-002, category: route, context: wren, text: "go to Cuckoo Wood by way of the hangar",
+     expect: {reply: plan, visits: [the-hangar, cuckoo-wood], within_m: 200}}
+  - {id: route-003, category: route, context: testmap, text: "go round the city to the west village and circle it",
+     expect: {reply: plan, visits: [west-village], circles_near: [west-village, 400]}}
+  - {id: route-004, category: route, context: london, text: "fly down the river to Tower Bridge, then circle the Tower of London",
+     expect: {reply: plan, visits: [tower-bridge], encloses: tower-of-london}}
+  - {id: route-005, category: route, context: testmap, text: "fly over the north village, then the west village, then come home",
+     expect: {reply: plan, visits: [north-village, west-village], within_m: 250}}
+
+  # ===================================================================== spatially ambiguous (ask)
+  - {id: sp-ambig-001, category: ambiguous, context: testmap, text: "circle the woods", expect: {reply: clarify}}
+  - {id: sp-ambig-002, category: ambiguous, context: testmap, text: "follow the road", expect: {reply: clarify}}
+  - {id: sp-ambig-003, category: ambiguous, context: testmap, text: "survey it", expect: {reply: clarify}}
+  - {id: sp-ambig-004, category: ambiguous, context: wren, text: "fly along the lane", expect: {reply: clarify}}
+  - {id: sp-ambig-005, category: ambiguous, context: london, text: "follow the railway", expect: {reply: clarify}}

@@ -24,7 +24,7 @@ from aeroadapt.txt2fly import geometry as geo
 from aeroadapt.txt2fly.builder import Built, StepGeom, bank_for, r_min, stack_params
 from aeroadapt.txt2fly.energy import RESERVE
 from aeroadapt.txt2fly.gazetteer import Gazetteer
-from aeroadapt.txt2fly.terrain import CLEARANCE_M, ceil5, climb_out, landmark, relief
+from aeroadapt.txt2fly.terrain import CLEARANCE_M, ceil5, climb_out, ground_at, landmark, relief
 
 TRACK_MARGIN_M = 30.0  # the flown track may stray this far from the preview
 GLIDE_STEP_M = 50.0
@@ -123,12 +123,22 @@ def _k3_k8_areas(built: Built, gaz: Gazetteer) -> tuple[Check, Check]:
     ne = pv.ne
     join = _join_end(built)
     hits: list[tuple[str, np.ndarray]] = []  # (what, mask over the preview)
+    ground = ground_at(gaz.site, ne)
     for area in gaz.no_fly:
         hit = area.signed_distance(ne) < TRACK_MARGIN_M
+        what = f"{area.name} (no-fly: {area.reason})"
+        if area.ceiling_m is not None:  # closed up to a height: only too low counts
+            lowest = area.lowest_over(ground)
+            hit &= pv.alt < lowest
+            if hit.any():
+                k = int(np.argmax(hit))
+                what = (f"{area.name} (no-fly: {area.reason}; {area.reaches}) at "
+                        f"{pv.alt[k]:.0f} m, below the {lowest[k]:.0f} m it may be crossed at "
+                        "(heights above home)")  # fmt: skip
         if hit[0]:  # starting inside or at the edge: leaving it is allowed
             out = np.nonzero(~hit)[0]
             hit[: out[0] if len(out) else len(hit)] = False
-        hits.append((f"{area.name} (no-fly: {area.reason})", hit))
+        hits.append((what, hit))
     outside = geo.signed_distance(ne, gaz.geofence) > -TRACK_MARGIN_M
     if outside[0]:
         inside = np.nonzero(~outside)[0]

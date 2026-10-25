@@ -181,7 +181,7 @@ def test_plans_that_cannot_be_built(gaz: Gazetteer, ac: Aircraft) -> None:
     assert "never be flown" in build(endless, ac, gaz).errors[0]
     unknown = _plan({"do": "goto", "target": _place("the old mill")})
     assert "the old mill" in build(unknown, ac, gaz).errors[0]
-    many = _plan(*[{"do": "pass_over", "target": _place(z)} for z in "ABCFABCFABCF"])
+    many = _plan(*[{"do": "pass_over", "target": _place(z)} for z in "ABCF" * 4])
     assert "split it in two" in build(many, ac, gaz).errors[0]
 
 

@@ -170,14 +170,19 @@ builder expands the steps into at most 32 mission items.
 | `hold` | radius? | Circle where you are | LOITER_UNLIM at the current position | `NAV_LOITER_UNLIM` (17) |
 | `return_home` | — | Go home and circle | RTL | `NAV_RETURN_TO_LAUNCH` (20) |
 | `land` (Should) | safe zone | Glide landing in a safe zone: motor off, the contingency's approach and flare | LAND_ZONE | Nearest is `NAV_LAND` (21), but that is ArduPlane's powered landing; ours is a glide |
-| `survey` (Could) | area, alt, line spacing | Back-and-forth lines over a field | WAYPOINTs | `NAV_WAYPOINT` |
+| `survey` | area, spacing?, alt? | Back-and-forth lines over an area (§17) | WAYPOINTs | `NAV_WAYPOINT` |
+| `around` | area, standoff?, alt?, direction, turns? | Round the outside of an area, enclosing it: a loop following its shape, or a circle round it (§17) | WAYPOINTs + JUMP, or a LOITER | `NAV_WAYPOINT`, `DO_JUMP`; `NAV_LOITER_*` |
+| `follow` | line or area, start?, end?, side, offset?, alt? | Along a river or road, or an area's edge, once (§17) | WAYPOINTs | `NAV_WAYPOINT` |
 
 **Targets** are one of:
 - `place`: a gazetteer id, restricted in the schema to the site's ids, so the model cannot invent one;
 - `here` or `home`;
 - `offset`: a bearing and distance from a place;
 - `ne_m`: a point clicked on the map;
-- `latlon`: coordinates typed by the operator.
+- `latlon`: coordinates typed by the operator;
+- `nearest` / `furthest`: the place of a kind nearest to (or furthest from) another, measured by
+  the gazetteer (§17);
+- `beyond`: just past a place's far side, seen from another ("the far side of the city").
 
 **Units and conventions.**
 - Altitudes are metres above the (flat) ground. "80 m above the church" means 80 m above the
@@ -536,6 +541,7 @@ On confirmation the proposed path replaces the white mission line.
 | V26 | Flown plans: the eval's accepted plans flown on their context airframe and wind | Circle radius error p95 ≤ max(10 m, 10 %); altitude error p95 ≤ 10 m in steady flight; pass cross-track error over the target p95 ≤ 15 m; zero hard-rule breaches | full |
 | V27 | Natural-language evaluation (§11) | The §11 targets | on demand (paid API) |
 | V28 | Live plans | Applied at the next control step; a session with plans replays byte for byte with no API call; Playwright with the stand-in translator | fast |
+| V32 | Spatial evaluation (§17): 49 instructions about areas, lines, surveys, relative places and routes, graded on the built preview against the map's shapes | around ≥ 85 %, along ≥ 80 %, survey ≥ 80 %, relative ≥ 85 %, route ≥ 85 %, ambiguous ≥ 80 %; V27 still met | on demand (paid API) |
 
 ---
 
@@ -878,3 +884,181 @@ the language layer moves to week 11. For Txt2Fly:
   thinking (clear 100 %, follow-ups 97 %, p95 3.7 s). Thinking off stays the default. Details,
   the remaining failures and the method note: [the V27 report](validation/txt2fly_v27.md).
 
+### Week 12 (24 and 25 Oct 2026): Txt2Fly and the map
+
+The owner: "circle the whole city" drew a small circle beside the city; the system "doesn't
+really seem to understand the map". Five items, all done (§17):
+
+1. the map told to the model: sizes, extents, courses, zone heights, and a picture;
+2. area and line steps (`around`, `follow`, `survey`) and code-measured relations (`nearest`,
+   `furthest`, `tallest`, `beyond`);
+3. adaptation that keeps the meaning: wider round a place before moving off it, or say why not;
+4. a review: the model sees a plan that cannot be built, or fails a check, and answers once more;
+5. a spatial evaluation, V32, written before the changes.
+
+Zone heights came with them. The test map's power line, closed up to 100 m above the ground,
+runs from the city past the geofence, so a loop round the city has to cross it, and the planner
+now may, 30 m above.
+
+**Results** ([the V32 report](validation/txt2fly_spatial.md)), Haiku 5.5 without thinking:
+
+- **From the baseline:** around 0 → 100 %, along 10 → 100 %, survey 33 → 100 %, route
+  53 → 87 %, relative 10 → 67 %. Relative is the one V32 target missed: Haiku asks "which
+  woods?" where a `nearest` target would let the code measure. With adaptive thinking it is
+  100 %, and every V32 target is met.
+- **V27 still met** on its test half: clear 98 %, ambiguous 90 %, infeasible 100 % (right reason
+  93 %), follow-ups 100 %, unsafe 100 %, adversarial 100 %; p50 2.0 s, p95 2.8 s.
+
+**Two designs measured and dropped as defaults:**
+
+- **The map picture** (a setting, `haiku-map`): within noise on V32, about 2 s slower, and Haiku
+  trusted its labels over the list, so adversarial fell to 75 %.
+- **A review of every adaptation:** Haiku asked about changes that keep the meaning, and V27's
+  clear and follow-up scores fell to 82 % and 61 %.
+
+**Builder changes on the way:**
+
+- loops fitted round crowded corners;
+- circles joined on the circle;
+- an endless circle's preview cut after a full turn of bearing;
+- lines and surveys flown as every clear stretch;
+- routes searched with 30 m more room first (round the city, 25 and 29 waypoints became 4).
+
+V24–V31 and the unit tests pass (194); twelve passes over fields A, B, C and F
+now fit in one mission, so the "split it in two" test uses sixteen.
+
+**Open**
+
+- Relative positions without thinking (or switch the default to `haiku-think`: the owner's
+  call).
+- Surveys and edges over high ground: offer the height that clears a zone or a ridge.
+- The Opus reference pass (V27), as before.
+
+## 17. Txt2Fly and the map
+
+Added on 24 and 25 Oct 2026, after the owner's report that "circle the whole city" drew a small
+circle beside the city. Three things were missing:
+
+- **The model saw places as points.** It had each place's position, not its size or shape.
+- **A plan could not say "round the outside of it".** There was no step for it.
+- **The builder moved a circle that did not fit.** It shifted the circle to clear ground,
+  rather than widening it.
+
+The changes below are measured by V32 ([the report](validation/txt2fly_spatial.md)).
+
+### 17.1 What the planner knows of the map
+
+- **Shapes** (`txt2fly/features.py`). Every place gets its outline or its line. The source is,
+  in order:
+  1. the place's own outline;
+  2. a no-fly area with the same id;
+  3. the world's shapes: the river and named roads as lines; woods, plots and named buildings;
+     a town as the cluster of its buildings; the wind farm as the hull of its turbines; the
+     solar plots.
+
+  A no-fly area that no place stands for becomes a place itself (`nofly-<id>`, one per name).
+- **Zone heights.** A no-fly area may be closed only up to a height. That height is either
+  `ceiling_m` above the ground under each point, or a flat top over the ground at its centre
+  (the turbines and masts).
+  - A track may cross such an area 30 m above that height (`ABOVE_ZONE_M`).
+  - **The checker:** K3 and K8 count a preview sample over the area only when it is lower than
+    that. The ground used is the highest within the tracking margin.
+  - **The builder:** it plans with one clearance map per set of areas closed at a height. A
+    route between two steps uses the lower of their heights, since the aircraft may climb on
+    the way.
+
+  On the test map at 150 m, the power lines (closed up to 100 m above the ground) are open.
+  The city is not: it is closed up to 100 m above ground that rises to 26 m, so its top is at
+  126 m. Until now the planner kept out of every zone at all heights (docs/07 §14). The power
+  line touches the city and runs out past the geofence, so no loop could go round the city.
+
+### 17.2 What the model is told
+
+- **The site text.**
+  - Each area's extent and size ("spans N 296 to 2013, E -1396 to 381, about 1778 m east-west
+    by 1717 m north-south").
+  - Each line's length and course: its ends and up to four points between.
+  - Each no-fly area, one line per name (the 22 turbines as one): where it lies and how high it
+    is closed.
+  - That the safe zones are the landing fields.
+- **The map picture** (`tools/site_map.py` draws it; `configs/sites/<site>.map.png`).
+  - **What it shows:** 1024 px, north up, with a grid every 500 m labelled in the text's frame.
+    It has the ground, rivers and roads, the safe zones, the no-fly areas (red where closed at
+    all heights, orange up to a height), the geofence, the names and home.
+  - **Freshness:** a note beside it holds a hash of what it was drawn from, and a test checks
+    the two still agree.
+  - **How it is sent:** first in the conversation, cached, when the translator setting asks for
+    it (`haiku-map`).
+  - **Not the default.** Measured on V32, it did not improve Haiku's results beyond run-to-run
+    noise, and it added about 2 s to every request. The image is cached, yet still costs time.
+    It also cut V27's lookups: Haiku trusted the picture's few labels over the full list. It
+    asked about "Middle Field", which is listed but not labelled, and refused "the London Eye"
+    rather than asking. The picture stays available for a model that uses it better.
+
+### 17.3 New steps and targets
+
+- **`around`: the outside of an area, enclosing it.** The builder tries two shapes at four
+  standoffs: a circle round it, or a loop that follows its shape. A loop corner too close to a
+  no-fly area moves out from the area, or in towards it while staying outside, whichever is
+  the shorter move. Where no loop goes all the way round, the step fails with what stands in
+  the way and what can be flown instead: "no loop goes all the way round the wind farm: it
+  reaches city (no-fly) and the edge of the operating area (geofence); the plan can fly along
+  its north edge (follow it) instead".
+- **`follow`: along a river or road, or an area's edge, once.**
+  - **Lines:** every stretch of the line that is clear, each simplified so every leg stays
+    clear, with routes round the gaps between stretches. A stretch no route reaches is left out.
+  - **Edges:** an area's edge, on a `side` if asked. Points too close to a no-fly area move
+    out, or in, eased along the edge (no steeper than 1 in 2), and the longest stretch that can
+    be flown is kept.
+- **`survey`: back-and-forth lines over an area.** The passes are interleaved so each turn has
+  room. Each line is flown as the stretches of it that are clear, with routes between them.
+  Only a line's two outer ends, where the aircraft turns round, keep room to turn.
+- **`nearest`, `furthest` and `beyond` targets.** The model names the relation; the gazetteer
+  measures it. Haiku guessed distances and bearings badly in its head (picking field G as
+  "closest to Hollow Farm" when it is third).
+
+### 17.4 Keeping the meaning
+
+- **A circle that does not fit is widened round the place before it is moved off it.** The
+  options are tried in order:
+  1. a wider circle centred on the place, up to 500 m more;
+  2. for an area: a loop round its edge;
+  3. a point at a bearing from a place ("the far side of the city"): further out on the same
+     bearing;
+  4. only then the nearest clear circle, whose note says whether it still passes over the place.
+- **A circle's or loop's route joins it on the circle,** not at its centre, which may lie in
+  the no-fly area it goes round.
+- **Routes.** A route is first searched with 30 m more room than it needs. A path that hugs
+  the clearance it needs pulls taut into many short legs; one with room to spare, into few.
+  Leaving a tight start or end, a line may keep the clearance the spot itself has, as the
+  search allows. The two routes round the city between stretches of the river went from 25 and 29 waypoints to 4 each.
+
+### 17.5 The review
+
+When a plan cannot be built, or fails a hard check, the model is shown what would be flown:
+the steps, the builder's notes and the failed checks with their suggestions. It answers once
+more with the same plan, a corrected one, or a question. A plan that the builder adapted and
+that passes is not reviewed; its notes go to the operator. A first version also reviewed every
+adaptation above a cost. Haiku then asked about changes that keep the meaning ("the builder
+widened it to 380 m: shall I?"), and V27's clear and follow-up scores fell to 82 % and 61 %. A
+reply that is not a valid plan (a patrol with no places, about 1 in 10 for one phrasing) is
+sent back once with the validation error.
+
+### 17.6 The evaluation (V32)
+
+`configs/txt2fly/eval_spatial.yaml` holds 49 instructions on four sites:
+
+| Category | Cases | Example |
+|---|---|---|
+| around | 13 | "circle the whole city" |
+| along | 10 | "follow the river from Blackfriars Bridge to Tower Bridge" |
+| survey | 6 | "map Long Copse with lines 80 m apart" |
+| relative | 10 | "circle the field closest to Hollow Farm" |
+| route | 5 | "go round the city to the west village and circle it" |
+| ambiguous | 5 | "follow the road" |
+
+The cases were written before the changes. Each is graded on what would be flown: the built
+plan's preview is measured against the map's shapes. A case can ask that the track encloses an
+area, follows a line or edge, covers an area, circles near a place, visits places in order, or
+flies at a height. The grade therefore does not depend on which steps the model chose. Labels
+corrected after measuring are listed, with the reason, in the file and in the report.

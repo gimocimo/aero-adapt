@@ -272,11 +272,19 @@ class LiveSession:
         gaz = load_gazetteer(self.resolved.site)
         return check(build(plan, self.aircraft(), gaz), gaz)
 
-    def propose(self, plan: dict[str, Any] | Plan) -> tuple[str | None, dict[str, Any] | None]:
-        """Build and check a plan from the aircraft's state now: (error, proposal)."""
+    def check_plan(self, plan: Plan) -> Report:
+        """Build and check a plan from the aircraft's state now (raises ValueError for a plan
+        the builder cannot take at all)."""
+        return self._check(plan)
+
+    def propose(
+        self, plan: dict[str, Any] | Plan, report: Report | None = None
+    ) -> tuple[str | None, dict[str, Any] | None]:
+        """Build and check a plan from the aircraft's state now (or take its report, just
+        made): (error, proposal)."""
         try:
             plan = Plan.model_validate(plan)
-            report = self._check(plan)
+            report = report if report is not None else self._check(plan)
         except ValueError as e:
             return _message(e), None
         pid = f"plan-{next(self._proposal_ids)}"

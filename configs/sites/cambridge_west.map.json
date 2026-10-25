@@ -1,0 +1,14 @@
+{
+ "site": "cambridge_west",
+ "hash": "d5577f036dfa4db7",
+ "px": 1024,
+ "extent_e_m": [
+  -1184.0,
+  584.0
+ ],
+ "extent_n_m": [
+  -1234.0,
+  1034.0
+ ],
+ "grid_m": 500.0
+}

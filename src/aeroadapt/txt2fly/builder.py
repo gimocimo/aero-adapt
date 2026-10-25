@@ -34,6 +34,9 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 import numpy as np
+import shapely
+from shapely.geometry import LineString, Point, Polygon
+from shapely.geometry.base import BaseGeometry
 
 from aeroadapt.airframes import Airframe
 from aeroadapt.stack.autopilot import MODE_AUTO, MODE_RTL, _mission_step, ap_init
@@ -53,21 +56,28 @@ from aeroadapt.stack.types import (
     Mission,
     mission_from_items,
 )
+from aeroadapt.txt2fly import areas
 from aeroadapt.txt2fly import geometry as geo
 from aeroadapt.txt2fly.energy import RESERVE, EnergyModel, energy_model
 from aeroadapt.txt2fly.gazetteer import Gazetteer, Resolved, UnknownPlace
 from aeroadapt.txt2fly.plan import (
+    Around,
+    Beyond,
+    Follow,
     Goto,
     Hold,
+    Offset,
     Orbit,
     PassOver,
     Patrol,
+    PlaceRef,
     Plan,
     ReturnHome,
     SetSpeed,
+    Survey,
 )
-from aeroadapt.txt2fly.routing import ClearanceMap, clearance_map
-from aeroadapt.txt2fly.terrain import CLEARANCE_M, ceil5, climb_out, landmark, relief
+from aeroadapt.txt2fly.routing import ClearanceMap, clearance_map, closed_at
+from aeroadapt.txt2fly.terrain import CLEARANCE_M, ceil5, climb_out, ground_at, landmark, relief
 
 G0 = 9.806_65
 BANK_MARGIN_DEG = 5.0
@@ -81,9 +91,51 @@ ALT_TAU_S = 5.0  # height response of the preview aircraft (rate-limited by TECS
 BEAM = 3  # partial plans kept from step to step
 FINALISTS = 6  # complete plans flown in full, in order, until one keeps clear
 EVAL_EXTRA_M = 10.0  # the search keeps this much more clearance than the checker asks
+PARTIAL_COST = 0.3  # an option that flies only part of what was asked (all that can be)
+MIN_STANDOFF_M = TRACK_MARGIN_M + GRID_SLACK_M  # a loop round an area keeps outside it
+EASE_PAD_M = 12.0  # a moved edge point keeps this much more, for the lines between them
+NEAR_M = 200.0  # an area closed up to a height is measured exactly within this of its bounds
 MAX_OPTIONS = 12  # options per step tried in flight
 LANES = 16  # candidate previews flown per batch (one compiled shape)
 COMPASS = ("north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west")
+
+
+def _eased(v: np.ndarray, step: float, slope: float = 0.5) -> np.ndarray:
+    """Non-negative values round a closed loop of points ``step`` apart, raised so that none
+    falls faster than ``slope`` per metre from a neighbour's (a cone round each peak)."""
+    out = np.asarray(v, float).copy()
+    n, drop = len(out), slope * step
+    for _ in range(2):  # twice round, for the wrap
+        for i in range(1, 2 * n):
+            out[i % n] = max(out[i % n], out[(i - 1) % n] - drop)
+        for i in range(2 * n - 2, -1, -1):
+            out[i % n] = max(out[i % n], out[(i + 1) % n] - drop)
+    return out
+
+
+def points_along_(pts: np.ndarray) -> np.ndarray:
+    """A dense path's shape in at most 22 vertices (as flown without adapting)."""
+    return areas.points_along(LineString(pts), 22)
+
+
+def _longest_run(ok: np.ndarray) -> np.ndarray | None:
+    """Indices of the longest run of True in a closed loop of flags (wrapping round)."""
+    n = len(ok)
+    if not ok.any():
+        return None
+    if ok.all():
+        return np.arange(n)
+    start = int(np.argmin(ok))  # a False: no run wraps past it
+    best: list[int] = []
+    cur: list[int] = []
+    for k in range(start, start + n):
+        if ok[k % n]:
+            cur.append(k % n)
+            if len(cur) > len(best):
+                best = list(cur)
+        else:
+            cur = []
+    return np.asarray(best)
 
 
 def r_min(airspeed: float, wind: float, roll_limit_deg: float) -> float:
@@ -167,6 +219,7 @@ class Built:
     endless: bool  # the plan never ends by itself
     notes: list[str] = field(default_factory=list)  # what differs from the request, and why
     errors: list[str] = field(default_factory=list)  # K1: plans that cannot be built
+    cost: float = 0.0  # how far the plan departs from the request (0: as asked; routes aside)
 
 
 def _unit(deg: float) -> np.ndarray:
@@ -254,13 +307,47 @@ class _Ctx:
         self.room = room  # the room to turn kept round no-fly areas, in turn radii (× usual)
         self.cfg = ac.stack_cfg
         self.cruise = self.cfg.tecs.airspeed_cruise_mps
-        self.cm: ClearanceMap = clearance_map(gaz)
+        # The clearance maps: every area at all heights (for what is flown at heights not yet
+        # known), the areas closed at all heights alone, and the current step's (the areas
+        # closed at its height; set by ``options``).
+        self.cm_all: ClearanceMap = clearance_map(gaz)
+        self.cm_open: ClearanceMap = clearance_map(gaz, math.inf)
+        self.cm: ClearanceMap = self.cm_all
+        self._cms: dict[tuple[int, ...], ClearanceMap] = {}
         self.rmin: dict[float, float] = {}
         ops = gaz.site.operations
         assert ops is not None
         self.ops = ops
 
     # ------------------------------------------------------------------ helpers
+    def cm_at(self, alt: float) -> ClearanceMap:
+        """The clearance map for a track at ``alt`` above home."""
+        key = closed_at(self.gaz, alt)
+        if key not in self._cms:
+            self._cms[key] = clearance_map(self.gaz, alt)
+        return self._cms[key]
+
+    def flight_clear(self, ne: np.ndarray, alt: np.ndarray) -> np.ndarray:
+        """Clearance along a flown track, its heights known: from the geofence's edge and
+        the areas closed at all heights (the map), and from the others where it is too low to
+        cross them (exactly; only near them)."""
+        d = self.cm_open.at(ne) - GRID_SLACK_M
+        ground = None
+        for a in self.gaz.no_fly:
+            if a.ceiling_m is None:
+                continue
+            pts = np.vstack(a.polygons)
+            lo, hi = pts.min(axis=0) - NEAR_M, pts.max(axis=0) + NEAR_M
+            near = np.all((ne > lo) & (ne < hi), axis=1)
+            if not near.any():
+                continue
+            if ground is None:
+                ground = ground_at(self.gaz.site, ne)
+            low = near & (alt < a.lowest_over(ground))
+            if low.any():
+                d[low] = np.minimum(d[low], a.signed_distance(ne[low]))
+        return d
+
     def r_min(self, speed: float) -> float:
         if speed not in self.rmin:
             self.rmin[speed] = r_min(speed, self.ac.wind_speed, self.cfg.l1.roll_limit_deg)
@@ -284,11 +371,15 @@ class _Ctx:
             return f"{name} is within {area}"
         return f"{name} is too close to {area} for {what}"
 
-    def area_at(self, p: np.ndarray) -> str:
-        """What a point is too close to: the nearest no-fly area, or the geofence."""
+    def area_at(self, p: np.ndarray, cm: ClearanceMap | None = None) -> str:
+        """What a point is too close to: the nearest no-fly area closed at the current step's
+        height (or ``cm``'s), or the geofence."""
         fence = -float(geo.signed_distance(p[None], self.gaz.geofence)[0])
         best, name = fence, "the edge of the operating area (geofence)"
-        for a in self.gaz.no_fly:
+        closed = (cm or self.cm).closed
+        for k, a in enumerate(self.gaz.no_fly):
+            if closed is not None and k not in closed:
+                continue
             d = float(a.signed_distance(p[None])[0])
             if d < best:
                 best, name = d, f"{a.name} (no-fly)"
@@ -389,6 +480,7 @@ class _Ctx:
     def options(self, k: int, s, state: _State) -> list[_Option]:
         speed = state.speed
         g = StepGeom(k, s.do, s.do, speed=speed)
+        self.cm = self.cm_at(self.alt(getattr(s, "alt_m", None), state, "")[0])
         if isinstance(s, SetSpeed):
             t = self.cfg.tecs
             v = _speeds(self.cfg)[s.speed] if isinstance(s.speed, str) else float(s.speed)
@@ -428,6 +520,12 @@ class _Ctx:
             return self.circle_options(s, state, g)
         if isinstance(s, Patrol):
             return self.patrol_options(s, state, g)
+        if isinstance(s, Around):
+            return self.around_options(s, state, g)
+        if isinstance(s, Follow):
+            return self.follow_options(s, state, g)
+        if isinstance(s, Survey):
+            return self.survey_options(s, state, g)
         raise TypeError(s)
 
     def pass_options(self, s: PassOver, state: _State, g: StepGeom) -> list[_Option]:
@@ -499,6 +597,70 @@ class _Ctx:
                     out.append(_Option(items, a, b, cost, notes, geom, alt=alt))
         return self.prune(out, [(o.entry, o.exit) for o in out], rm)
 
+    def _join_at(self, c: np.ndarray, rad: float, pos: np.ndarray, need: float) -> np.ndarray:
+        """Where a route joins a circle: its centre, or, where that is not clear (a circle
+        round a no-fly area), the circle's point nearest the aircraft."""
+        if not self.adapt or float(self.cm.at(c[None])[0]) >= need:
+            return c
+        u = np.asarray(pos, float) - c
+        return c + rad * u / max(float(np.linalg.norm(u)), 1e-9)
+
+    def _loop_instead(
+        self, s: Orbit, r: Resolved, state: _State, g: StepGeom, notes: list[str]
+    ) -> list[_Option]:
+        """For an area no circle goes round clear of the no-fly areas: a loop round its edge
+        (``around``), which keeps the meaning, where moving the circle off it would not."""
+        whole = Around(target=s.target, alt_m=s.alt_m, direction=s.direction, turns=s.turns)
+        try:
+            opts = self.around_options(whole, state, g)
+        except ValueError:
+            return []
+        why = self.area_at(r.point)
+        for o in opts:
+            o.cost += 0.2
+            o.geom.label = f"circle {r.name}"
+            o.notes = [*notes, *o.notes, f"circle {r.name}: no circle round it keeps clear of "
+                                         f"{why}; a loop round its edge instead"]  # fmt: skip
+        g.label = f"circle {r.name}"
+        return opts
+
+    def _further_out(
+        self, u: np.ndarray, r: Resolved, r0: float, need: float, what: str
+    ) -> list[tuple[np.ndarray, float, float, list[str]]]:
+        """A circle at a bearing from a place (an offset, "the far side of X") that falls in or
+        by a no-fly area: further out along ``u``, the same bearing (up to 1.5 km), which keeps
+        it on that side, where the nearest clear point might not."""
+        th = np.linspace(0, 2 * np.pi, max(24, int(2 * np.pi * r0 / 20.0)), endpoint=False)
+        ring = np.stack([np.cos(th), np.sin(th)], 1)
+        for extra in np.arange(50.0, 1501.0, 50.0):
+            c = r.point + extra * u
+            if float(self.cm.at(c + r0 * ring).min()) >= need:
+                note = (f"{what} {r.name}: centred {extra:.0f} m further out on the same "
+                        f"bearing, to keep clear of {self.area_at(r.point)}")  # fmt: skip
+                return [(c, r0, 0.3 + extra / 4000.0, [note])]
+        return []
+
+    def _wider_round(
+        self, r: Resolved, r0: float, need: float, what: str
+    ) -> list[tuple[np.ndarray, float, float, list[str]]]:
+        """A circle round the place, wider than asked, when none of that size fits (the place
+        is in or by a no-fly area): centred on it (an area: on its smallest enclosing circle),
+        so it still goes round it, rather than moved away (docs/06 §17)."""
+        if r.polygon is not None:
+            centre, enc = areas.enclosing_circle(Polygon(r.polygon).buffer(0))
+        else:
+            centre, enc = r.point, 0.0
+        for extra in (need, need + 100.0, need + 250.0, need + 500.0):
+            rad = _ceil10(max(r0, enc + extra))
+            th = np.linspace(0, 2 * np.pi, max(24, int(2 * np.pi * rad / 20.0)), endpoint=False)
+            ring = np.stack([np.cos(th), np.sin(th)], 1)
+            if float(self.cm.at(centre + rad * ring).min()) >= need:
+                why = self.area_at(r.point)
+                note = (f"{what} {r.name}: a {rad:g} m circle round it (wider than {r0:g} m, "
+                        f"rather than moved off it), to keep clear of {why}")  # fmt: skip
+                return [(centre, rad, 0.3 + (rad - r0) / 2000.0, [note])]  # still round it
+        return []
+
     def circle_options(self, s: Orbit | Hold, state: _State, g: StepGeom) -> list[_Option]:
         speed = state.speed
         rm = self.r_min(speed)
@@ -534,7 +696,9 @@ class _Ctx:
             radii: list[tuple[float, float, str | None]] = [(r0, 0.0, None)]
         if self.adapt:
             r1 = _ceil10(1.25 * r0)
-            radii.append((r1, 0.4, f"{what} {r.name}: a {r1:g} m circle, to keep the turns clear"))
+            near = self.area_at(r.point)  # what the turns keep clear of
+            radii.append((r1, 0.4, f"{what} {r.name}: a {r1:g} m circle, to keep the turns clear "
+                                   f"of {near}"))  # fmt: skip
             if tight < r0:  # tighter (still over the place) before moving the centre
                 was = "" if asked is None else f" (asked {asked:.0f} m)"
                 note = f"{what} {r.name}: a {tight:g} m circle{was}, the tightest, to keep it clear"
@@ -567,16 +731,35 @@ class _Ctx:
                     ]
                 )
                 cands.append((c, rad, r_cost + 0.5 * f, ([r_note] if r_note else []) + note))
-        if not cands:  # the place is in or by a no-fly area: the nearest circle that fits
+        if not cands and self.adapt:  # in or by a no-fly area: wider, still round it
+            first = [n for n in (radii[0][2],) if n]  # why that size (the tightest, …)
+            cands = [(c, rad, cost, first + ns)
+                     for c, rad, cost, ns in self._wider_round(r, r0, need, what)]  # fmt: skip
+        if not cands and self.adapt and isinstance(s, Orbit) and r.polygon is not None:
+            loop = self._loop_instead(s, r, state, g, [n for n in (radii[0][2],) if n])
+            if loop:
+                return loop
+        if not cands and self.adapt and isinstance(s, Orbit) and isinstance(s.target, Offset):
+            u = _unit(s.target.bearing_deg)
+            cands = self._further_out(u, r, r0, need, what)  # same bearing, further out
+        if not cands and self.adapt and isinstance(s, Orbit) and isinstance(s.target, Beyond):
+            base = self.gaz.resolve(PlaceRef(id=s.target.id), np.asarray(self.ac.pos_ne, float))
+            u = (r.point - base.point) / max(float(np.linalg.norm(r.point - base.point)), 1e-9)
+            cands = self._further_out(u, r, r0, need, what)
+        if not cands:  # else the nearest circle that fits, moved off it
             c = self.cm.nearest_clear(r.point, r0 + need)
             if c is not None:
                 d = float(np.linalg.norm(c - r.point))
+                # Still over it (the circle passes over the place): the meaning is kept.
+                gap = Polygon(r.polygon).distance(Point(*c)) if r.polygon is not None else d
+                over = gap <= r0
                 note = (
                     f"{self.where(r.point, r.name, f'a {r0:g} m circle round it')}: circles the "
                     f"nearest place clear of it, centred {d:.0f} m {_compass(c - r.point)} of "
-                    f"{r.name}"
+                    f"{r.name}" + (", still passing over it" if over else ", off it")
                 )
-                cands.append((c, r0, 1.0 + d / 200.0, [n for n in (radii[0][2], note) if n]))
+                cost = 0.3 + d / 1000.0 if over else 1.0 + d / 200.0
+                cands.append((c, r0, cost, [n for n in (radii[0][2], note) if n]))
             else:
                 cands.append((r.point, r0, 0.0, [n for n in (radii[0][2],) if n]))
         signs: list[tuple[float, float, str | None]] = [(sign, 0.0, None)]
@@ -600,11 +783,12 @@ class _Ctx:
                     if kind == ITEM_LOITER_UNLIM
                     else None
                 )
+                join = self._join_at(c, rad, state.pos, need)
                 out.append(
                     _Option(
                         [it],
-                        c,
-                        c,
+                        join,
+                        join,
                         cost + s_cost,
                         notes + cnotes + ([s_note] if s_note else []),
                         geom,
@@ -695,6 +879,452 @@ class _Ctx:
             raise ValueError("the patrol's places cannot be joined clear of the no-fly areas")
         return out[: 2 * MAX_OPTIONS]
 
+    # ------------------------------------------------------------------ areas and lines (§17)
+    def _area(self, r: Resolved) -> BaseGeometry:
+        if r.polygon is not None:
+            return Polygon(r.polygon).buffer(0)
+        if r.line is not None:
+            return LineString(r.line).buffer(TRACK_MARGIN_M)
+        return Point(*r.point).buffer(TRACK_MARGIN_M)
+
+    def _joined(self, pts: np.ndarray, need: float, closed: bool) -> list[np.ndarray] | None:
+        """Waypoints through ``pts`` clear of the no-fly areas: the points too close to one
+        are left out, and where the line between two kept points is not clear, a route round
+        goes in between (None if there is none)."""
+        keep = [p for p, c in zip(pts, self.cm.at(pts), strict=True) if c >= need]
+        if len(keep) < 2:
+            return None
+        out = [keep[0]]
+        pairs = list(zip(keep, keep[1:] + ([keep[0]] if closed else []), strict=False))
+        for k, (a, b) in enumerate(pairs):
+            if self.cm.line(a, b) < need:
+                way = self.cm.route(a, b, need)
+                if way is None:
+                    return None
+                out += way
+            if not (closed and k == len(pairs) - 1):
+                out.append(b)
+        return out
+
+    def _along(
+        self, pts: np.ndarray, near: float, need: float, max_points: int
+    ) -> list[np.ndarray] | None:
+        """Waypoints along a path (points close together): every stretch of it clear by
+        ``near``, each simplified (``_taut``), with routes round the gaps between them (keeping
+        ``need``); a stretch no route reaches is left out. None if no stretch is clear."""
+        ok = self.cm.at(pts) >= near
+        edges = np.flatnonzero(np.diff(np.concatenate([[0], ok.astype(int), [0]])))
+        runs = [pts[i:j] for i, j in zip(edges[0::2], edges[1::2], strict=True) if j - i >= 2]
+        if not runs:
+            return None
+        for tol in areas.TOLERANCES:
+            parts = [self._taut(run, near, len(run), (tol,)) for run in runs]
+            if any(p is None for p in parts):
+                continue
+            way: list[np.ndarray] = []
+            for part in parts:
+                assert part is not None
+                if way and self.cm.line(way[-1], part[0]) < near:
+                    route = self.cm.route(way[-1], part[0], need)
+                    if route is None:
+                        continue  # out of reach (a pocket): left out
+                    way += route
+                way += list(part)
+            if 2 <= len(way) <= max_points:
+                return way
+        return None
+
+    def _taut(
+        self, pts: np.ndarray, need: float, max_points: int, tols=areas.TOLERANCES
+    ) -> np.ndarray | None:
+        """A path's shape in at most ``max_points`` vertices, both ends kept, every line clear
+        of the no-fly areas: Douglas-Peucker, splitting a line that strays more than ``tol``
+        from the path or is not clear (``tol`` grows until few enough). None if none fits."""
+        for tol in tols:
+            keep = {0, len(pts) - 1}
+            todo = [(0, len(pts) - 1)]
+            while todo:
+                i, j = todo.pop()
+                if j - i < 2:
+                    continue
+                a, b = pts[i], pts[j]
+                ab = b - a
+                t = np.clip((pts[i + 1 : j] - a) @ ab / max(float(ab @ ab), 1e-9), 0.0, 1.0)
+                dev = np.linalg.norm(pts[i + 1 : j] - (a + t[:, None] * ab), axis=1)
+                k = int(np.argmax(dev))
+                if dev[k] <= tol and self.cm.line(a, b) >= need:
+                    continue
+                m = i + 1 + k if dev[k] > tol else (i + j) // 2
+                keep.add(m)
+                todo += [(i, m), (m, j)]
+            if len(keep) <= max_points:
+                return pts[sorted(keep)]
+        return None
+
+    def _fitted(
+        self, loop: np.ndarray, area: BaseGeometry, need: float
+    ) -> tuple[np.ndarray, list[np.ndarray]] | None:
+        """A loop round ``area`` kept clear of the no-fly areas: a vertex too close to one moves
+        out, away from the area, or in towards it (staying outside it), whichever is the
+        shorter move (up to 600 m), and a side too close gets a vertex in its middle moved the
+        same way. Moving keeps the loop round the area, where dropping a vertex would cut
+        across it. None if that is not enough; else the loop and the points it moved at."""
+        edge = area.boundary
+
+        def moved(p: np.ndarray) -> np.ndarray | None:
+            q = edge.interpolate(edge.project(Point(*p)))
+            d = p - np.array([q.x, q.y])
+            room_in = float(np.linalg.norm(d)) - MIN_STANDOFF_M  # how far in it may move
+            d = d / max(float(np.linalg.norm(d)), 1e-9)
+            for k in range(1, 13):
+                for c in (p + 50.0 * k * d, p - 50.0 * k * d if 50.0 * k <= room_in else None):
+                    if c is not None and float(self.cm.at(c[None])[0]) >= need:
+                        return c
+            return None
+
+        pts: list[np.ndarray] = []
+        at: list[np.ndarray] = []
+        for p in loop:
+            c = moved(p) if float(self.cm.at(p[None])[0]) < need else p
+            if c is None:
+                return None
+            if c is not p:
+                at.append(p)
+            pts.append(c)
+        done: list[np.ndarray] = []
+        for a, b in zip(pts, pts[1:] + pts[:1], strict=True):
+            done.append(a)
+            if self.cm.line(a, b) < need:
+                m = moved(0.5 * (a + b))
+                if m is None or self.cm.line(a, m) < need or self.cm.line(m, b) < need:
+                    return None
+                at.append(0.5 * (a + b))
+                done.append(m)
+        return np.asarray(done), at
+
+    def _edge_runs(
+        self, area: BaseGeometry, so: float, rm: float, need: float, side: str | None,
+        inward: float = 0.0,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:  # fmt: skip
+        """Points every 20 m round a loop ``so`` out from ``area``'s edge, whether each can be
+        flown (clear of the no-fly areas, and facing ``side`` if given), and the outward
+        direction at each. A point too close to a no-fly area moves out from the edge, or in
+        by up to ``inward``, whichever is the shorter move (up to 300 m)."""
+        ring = areas.loop_round(area, so, rm, 400)
+        line = LineString(np.vstack([ring, ring[:1]]))
+        pts = shapely.get_coordinates(line.interpolate(np.arange(0.0, line.length, 20.0)))
+        foot = shapely.get_coordinates(shapely.shortest_line(area, shapely.points(pts)))[0::2]
+        normal = pts - foot
+        normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-9)
+        # The shortest move clear at each point, then the moves eased in and out along the
+        # loop (at most 1 in 2), so the path bends smoothly round what it keeps clear of.
+        need_pt = need + EASE_PAD_M
+        move = np.where(self.cm.at(pts) >= need_pt, 0.0, np.nan)
+        for m in sorted((m for m in np.arange(-inward, 301.0, 25.0) if m != 0.0), key=abs):
+            todo = np.flatnonzero(np.isnan(move))
+            if not len(todo):
+                break
+            good = self.cm.at(pts[todo] + m * normal[todo]) >= need_pt
+            move[todo[good]] = m
+        m = np.nan_to_num(move)
+        ease = _eased(np.maximum(m, 0.0), 20.0) - _eased(np.maximum(-m, 0.0), 20.0)
+        pts = pts + ease[:, None] * normal
+        ok = self.cm.at(pts) >= need
+        if side is not None:
+            ok &= normal @ np.asarray(areas.COMPASS[side]) >= 0.5
+        return pts, ok, normal
+
+    def _blockers(self, pts: np.ndarray, ok: np.ndarray) -> str:
+        names = list(dict.fromkeys(self.area_at(p) for p in pts[~ok][::5]))
+        return " and ".join(names) if names else "nothing"
+
+    def _impossible_round(self, r: Resolved, area: BaseGeometry, so: float, rm: float,
+                          need: float) -> str:  # fmt: skip
+        """Why no loop goes all the way round, and which part of the edge can be flown."""
+        pts, ok, normal = self._edge_runs(area, so, rm, need, None)
+        run = _longest_run(ok)
+        hints = []
+        if run is not None and len(run) >= 5:
+            hints.append(f"fly along its {_compass(normal[run].mean(axis=0))} edge (follow it)")
+        usual = _ceil10(max(self.cfg.l1.loiter_radius_m, rm))
+        th = np.linspace(0, 2 * np.pi, 36, endpoint=False)
+        ring = r.point + usual * np.stack([np.cos(th), np.sin(th)], 1)
+        if float(self.cm.at(ring).min()) >= TRACK_MARGIN_M + GRID_SLACK_M:
+            hints.append(f"circle over its middle (orbit, {usual:g} m)")
+        hint = f"; the plan can {' or '.join(hints)} instead" if hints else ""
+        return (f"no loop goes all the way round {r.name}: it reaches "
+                f"{self._blockers(pts, ok)}{hint}")  # fmt: skip
+
+    def around_options(self, s: Around, state: _State, g: StepGeom) -> list[_Option]:
+        speed = state.speed
+        rm = self.r_min(speed)
+        r = self.gaz.resolve(s.target, np.asarray(self.ac.pos_ne, float))
+        area = self._area(r)
+        alt, alt_notes = self.alt(s.alt_m, state, f"round {r.name}")
+        g.label, g.target, g.alt = f"round {r.name}", r, alt
+        need = self.route_need(speed)
+        base = float(s.standoff_m) if s.standoff_m is not None else need + 20.0
+        standoffs: list[tuple[float, float, str | None]] = [(base, 0.0, None)]
+        if self.adapt:
+            standoffs += [(so, cost, f"round {r.name}: {so:.0f} m out from its edge, to keep "
+                                     "clear of the no-fly areas near it")
+                          for so, cost in ((base * 1.6, 0.3), (base + 250.0, 0.5),
+                                           (base + 600.0, 0.8))]  # fmt: skip
+        cw = s.direction == "cw"
+        turns = s.turns
+        usual = max(self.cfg.l1.loiter_radius_m, rm)
+        out: list[_Option] = []
+        for so, so_cost, so_note in standoffs:
+            notes = alt_notes + ([so_note] if so_note else [])
+            # A circle round it: best for a compact area.
+            c, rad = areas.enclosing_circle(area)
+            rad = _ceil10(max(rad + so, usual))
+            th = np.linspace(0, 2 * np.pi, max(36, int(2 * np.pi * rad / 20.0)), endpoint=False)
+            unit = np.stack([np.cos(th), np.sin(th)], 1)
+            snug = area.area / (math.pi * rad * rad)
+            if not self.adapt or float(self.cm.at(c + rad * unit).min()) >= need:
+                sg = 1.0 if cw else -1.0
+                if turns is not None:
+                    it = self.item(
+                        ITEM_LOITER_TURNS, c, alt, speed, radius=sg * rad, p1=float(turns)
+                    )
+                    ev = it._replace(p1=min(float(turns), 1.0))
+                    endless = None
+                else:
+                    it = self.item(ITEM_LOITER_UNLIM, c, alt, speed, radius=sg * rad)
+                    ev, endless = (
+                        it,
+                        f"circling round {r.name} never ends (until the battery reserve)",
+                    )
+                geom = replace(g, centre=c, radius=rad)
+                join = self._join_at(c, rad, state.pos, need)
+                out.append(_Option([it], join, join, so_cost + (0.0 if snug > 0.35 else 0.4),
+                                   [*notes, f"round {r.name}: a {rad:g} m circle round it"],
+                                   geom, alt=alt, endless=endless, eval_items=[ev]))  # fmt: skip
+            # A loop that follows its shape: best for a long or awkward one.
+            loop = areas.oriented(areas.loop_round(area, so, rm, 16), cw, state.pos)
+            swing: list[str] = []
+            if self.adapt:
+                fitted = self._fitted(loop, area, need)
+                if fitted is None:
+                    continue
+                loop, moved = fitted
+                swing = [f"round {r.name}: bends to keep clear of {self.area_at(p)}"
+                         for p in moved]  # fmt: skip
+            way = list(loop)
+            if len(way) > 26:
+                continue
+            items = [self.item(ITEM_WAYPOINT, p, alt, speed) for p in way]
+            if turns is None:
+                jump, ev_jump = (self.item(ITEM_JUMP, p1=0, p2=-1),
+                                 self.item(ITEM_JUMP, p1=0, p2=1))  # fmt: skip
+            else:
+                laps = max(round(turns), 1)
+                jump = ev_jump = self.item(ITEM_JUMP, p1=0, p2=laps - 1) if laps > 1 else None
+            body = items + ([jump] if jump is not None else [items[0]])
+            ev_body = items + ([ev_jump] if ev_jump is not None else [items[0]])
+            exit_ = way[-1] if jump is not None else way[0]
+            out.append(_Option(body, way[0], exit_, so_cost + (0.2 if snug > 0.35 else 0.0),
+                               [*notes, f"round {r.name}: a loop following its shape",
+                                *dict.fromkeys(swing)],
+                               replace(g), alt=alt, until_reserve=turns is None,
+                               eval_items=ev_body))  # fmt: skip
+        out.sort(key=lambda o: o.cost)
+        if not out:
+            raise ValueError(self._impossible_round(r, area, base, rm, need))
+        return out[:MAX_OPTIONS]
+
+    def follow_options(self, s: Follow, state: _State, g: StepGeom) -> list[_Option]:
+        speed = state.speed
+        here = np.asarray(self.ac.pos_ne, float)
+        r = self.gaz.resolve(s.target, here)
+        if r.line is None:
+            if r.polygon is None:
+                raise ValueError(f"{r.name} has no line to follow: name a river, a road or an "
+                                 "area, whose edge it can follow")  # fmt: skip
+            return self.edge_options(s, r, state, g)
+        alt, notes = self.alt(s.alt_m, state, f"along {r.name}")
+        g.label, g.target, g.alt = f"along {r.name}", r, alt
+        need = self.route_need(speed)
+        # Along the line itself: the margin and room for its gentle bends (as a circle keeps),
+        # not a route's room to turn round; offsets to one side keep a route's.
+        near = TRACK_MARGIN_M + GRID_SLACK_M + EVAL_EXTRA_M + 0.25 * self.room * self.r_min(speed)
+        a = None if s.start is None else self.gaz.resolve(s.start, here).point
+        b = None if s.end is None else self.gaz.resolve(s.end, here).point
+        line = areas.section(LineString(r.line), a, b, state.pos)
+        if s.side != "over":
+            line = areas.offset_side(line, s.side, s.offset_m if s.offset_m is not None
+                                     else need + 20.0)  # fmt: skip
+        dense = shapely.get_coordinates(line.interpolate(np.append(
+            np.arange(0.0, line.length, 20.0), line.length)))  # fmt: skip
+        directions = [(dense, 0.0)]
+        if self.adapt and s.start is None and s.end is None:
+            directions.append((dense[::-1], 0.05))  # either way along it: the route decides
+        out: list[_Option] = []
+        for p, cost in directions:
+            way = self._along(p, near, need, 22) if self.adapt else list(points_along_(p))
+            if way is None or len(way) > 28:
+                continue
+            n = []
+            if self.adapt and (self.cm.at(p) < near).any():
+                worst = p[int(np.argmin(self.cm.at(p)))]
+                n.append(f"along {r.name}: goes round {self.area_at(worst)} where {r.name} "
+                         "runs too close to it")  # fmt: skip
+            items = [self.item(ITEM_WAYPOINT, q, alt, speed) for q in way]
+            out.append(_Option(items, way[0], way[-1], cost, notes + n, replace(g), alt=alt))
+        if not out:
+            raise ValueError(f"no stretch of {r.name} can be flown clear of the no-fly areas")
+        return out
+
+    def edge_options(self, s: Follow, r: Resolved, state: _State, g: StepGeom) -> list[_Option]:
+        """Along an area's edge, once: all the way round where that can be flown (and no side
+        is asked), else its longest stretch that can (on the side asked), from the end nearer
+        the aircraft. The edge itself, or ``offset_m`` outside it; an area closed at this
+        height is followed with the room a route keeps."""
+        speed = state.speed
+        rm = self.r_min(speed)
+        need = self.route_need(speed)
+        area = self._area(r)
+        alt, notes = self.alt(s.alt_m, state, f"along the edge of {r.name}")
+        label = f"along the {s.side} edge of {r.name}" if s.side != "over" else (
+            f"along the edge of {r.name}")  # fmt: skip
+        g.label, g.target, g.alt = label, r, alt
+        closed = float(self.cm.at(np.asarray(area.representative_point().coords)).min()) < 0
+        so = float(s.offset_m) if s.offset_m is not None else (need + 20.0 if closed else 0.0)
+        side = None if s.side == "over" else s.side
+        if side is None:
+            whole = Around(target=s.target, standoff_m=so, alt_m=s.alt_m, turns=1)
+            try:
+                opts = self.around_options(whole, state, g)
+            except ValueError:
+                opts = []
+            if opts:
+                for o in opts:
+                    o.geom.label = label
+                return opts
+            g.label, g.target, g.alt = label, r, alt
+        pts, ok, _ = self._edge_runs(area, so, rm, need, side, 0.0 if closed else 100.0)
+        run = _longest_run(ok)
+        if run is None or len(run) < 5:
+            where = f"its {side} edge" if side else "its edge"
+            raise ValueError(f"no stretch of {where} can be flown clear of "
+                             f"{self._blockers(pts, ok)}")  # fmt: skip
+        path = self._taut(pts[run], need, 22) if self.adapt else None
+        if path is None:
+            path = areas.points_along(LineString(pts[run]), 22)
+        if not ok.all() and side is None:
+            notes = [*notes, f"{label}: only part of the way round, where it can be flown (it "
+                             f"reaches {self._blockers(pts, ok)})"]  # fmt: skip
+        part = 0.0 if ok.all() or side is not None else PARTIAL_COST
+        out: list[_Option] = []
+        first = float(np.linalg.norm(path[0] - state.pos)) <= float(
+            np.linalg.norm(path[-1] - state.pos)
+        )
+        for p, cost in ((path, 0.0 if first else 0.05), (path[::-1], 0.05 if first else 0.0)):
+            way = self._joined(p, need, closed=False) if self.adapt else list(p)
+            if way is None or len(way) > 28:
+                continue
+            items = [self.item(ITEM_WAYPOINT, q, alt, speed) for q in way]
+            out.append(_Option(items, way[0], way[-1], cost + part, notes, replace(g), alt=alt))
+        if not out:
+            raise ValueError(f"no stretch of the edge of {r.name} can be flown clear of the "
+                             "no-fly areas")  # fmt: skip
+        out.sort(key=lambda o: o.cost)
+        return out
+
+    def _clear_parts(
+        self, a: np.ndarray, b: np.ndarray, need: float
+    ) -> list[tuple[np.ndarray, np.ndarray]]:
+        """The stretches of the line a-b straight passes can fly, in order from a: clear by the
+        tracking margin along them, each at least a run long. The line's two outer ends, where
+        the aircraft turns round, keep ``need`` (room to turn); between stretches it only steps
+        aside, round what splits them."""
+        n = max(int(np.linalg.norm(b - a) / 10.0), 2)
+        pts = np.linspace(a, b, n)
+        c = self.cm.at(pts)
+        ok = c >= TRACK_MARGIN_M + GRID_SLACK_M + EVAL_EXTRA_M
+        edges = np.flatnonzero(np.diff(np.concatenate([[0], ok.astype(int), [0]])))
+        runs = [(int(i), int(j) - 1) for i, j in zip(edges[0::2], edges[1::2], strict=True)]
+        roomy = np.flatnonzero(ok & (c >= need))
+        if not len(roomy):
+            return []
+        # The outer ends: trimmed in to where there is room to turn.
+        runs = [(max(i, int(roomy[0])), min(j, int(roomy[-1]))) for i, j in runs]
+        return [(pts[i], pts[j]) for i, j in runs
+                if j > i and np.linalg.norm(pts[j] - pts[i]) >= RUN_MIN_M]  # fmt: skip
+
+    def _passes(
+        self, lines: list[tuple[np.ndarray, np.ndarray]], need: float
+    ) -> tuple[list[np.ndarray], int, int] | None:
+        """Waypoints flying ``lines`` in order, each as the stretches of it that can be flown,
+        with routes round what lies between (None if a route is missing); and how many lines
+        are left out, and how many cut short or split."""
+        way: list[np.ndarray] = []
+        left = cut = 0
+        for p, q in lines:
+            parts = self._clear_parts(p, q, need) if self.adapt else [(p, q)]
+            if not parts:
+                left += 1
+                continue
+            whole = float(np.linalg.norm(q - p))
+            if len(parts) > 1 or float(np.linalg.norm(parts[0][1] - parts[0][0])) < whole - 1.0:
+                cut += 1
+            for a, b in parts:
+                if way and self.adapt and self.cm.line(way[-1], a) < need:
+                    route = self.cm.route(way[-1], a, need)
+                    if route is None:
+                        return None
+                    way += route
+                way += [a, b]
+        return way, left, cut
+
+    def survey_options(self, s: Survey, state: _State, g: StepGeom) -> list[_Option]:
+        speed = state.speed
+        rm = self.r_min(speed)
+        r = self.gaz.resolve(s.target, np.asarray(self.ac.pos_ne, float))
+        if r.polygon is None:
+            raise ValueError(
+                f"{r.name} is not an area: name a field, a wood or a village to survey"
+            )
+        alt, alt_notes = self.alt(s.alt_m, state, f"survey {r.name}")
+        g.label, g.target, g.alt = f"survey {r.name}", r, alt
+        need = self.route_need(speed)
+        area = Polygon(r.polygon).buffer(0)
+        spacing = float(s.spacing_m) if s.spacing_m is not None else 100.0
+        notes = list(alt_notes)
+        axis = geo.long_axis(r.polygon)[0]
+        out: list[_Option] = []
+        for ax_, a_cost in ((axis, 0.0), (np.array([-axis[1], axis[0]]), 0.2)):
+            sp = spacing
+            found: list[tuple[tuple[list[np.ndarray], int, int], float]] = []
+            for _ in range(12):  # the mission's room: wider lines until they fit
+                lines = areas.survey_lines(area, sp, ax_, rm, 0.5 * rm)
+                for flip, f_cost in ((False, 0.0), (True, 0.1)):
+                    seq = [(q, p) for p, q in reversed(lines)] if flip else lines
+                    passes = self._passes(seq, need)
+                    if passes is not None and 2 <= len(passes[0]) <= 28:
+                        found.append((passes, f_cost))
+                if found or len(lines) <= 1:
+                    break
+                sp *= 1.25
+            for (way, left, cut), f_cost in found:
+                n = []
+                if sp > spacing:
+                    n.append(f"survey {r.name}: lines {sp:.0f} m apart (asked {spacing:.0f} m), "
+                             "as many as one mission holds")  # fmt: skip
+                if left:
+                    n.append(f"survey {r.name}: leaves out {left} line(s) too close to a no-fly "
+                             "area")  # fmt: skip
+                if cut:
+                    n.append(f"survey {r.name}: shortens or splits {cut} line(s) where they come "
+                             "too close to a no-fly area")  # fmt: skip
+                items = [self.item(ITEM_WAYPOINT, pt, alt, speed) for pt in way]
+                cost = a_cost + f_cost + (PARTIAL_COST if left else 0.0)
+                out.append(_Option(items, way[0], way[-1], cost, notes + n, replace(g), alt=alt))
+        if not out:
+            raise ValueError(f"{r.name} cannot be surveyed clear of the no-fly areas")
+        return out
+
     def shape(
         self, items: list[Item], start: np.ndarray
     ) -> tuple[list[Item], list[int], list[str]]:
@@ -724,7 +1354,7 @@ class _Ctx:
                             if items[j].kind in (ITEM_WAYPOINT, ITEM_FLYOVER)), None)  # fmt: skip
                 if nxt is not None and np.linalg.norm(p - prev) < spacing:
                     q = np.array([nxt.north, nxt.east])
-                    if self.cm.line(prev, q) >= TRACK_MARGIN_M + GRID_SLACK_M:
+                    if self.cm_all.line(prev, q) >= TRACK_MARGIN_M + GRID_SLACK_M:
                         continue  # dropped: `where` points at the next item kept
             out.append(it)
             if it.kind not in (ITEM_JUMP, ITEM_RTL):  # a position the aircraft flies from
@@ -824,7 +1454,8 @@ class _Ctx:
                 normal = sign * np.array([-u_in[1], u_in[0]])
                 turn = p + 0.6 * rm * u_in + 1.5 * rm * normal
                 centre = p + 0.5 * rm * u_in + rm * normal
-                room = float(min(self.cm.at(turn[None])[0], self.cm.at(centre[None])[0] - rm))
+                room = float(min(self.cm_all.at(turn[None])[0],
+                                 self.cm_all.at(centre[None])[0] - rm))  # fmt: skip
                 if best is None or room > best[0]:
                     best = (room, side, turn)
             assert best is not None
@@ -864,7 +1495,8 @@ class _Ctx:
         return out
 
     def home_route(self, exit_: np.ndarray, speed: float, alt: float) -> list[Item] | None:
-        way = self.cm.route(exit_, self.gaz.home, self.route_need(speed)) if self.adapt else []
+        need = self.route_need(speed)
+        way = self.cm_at(alt).route(exit_, self.gaz.home, need) if self.adapt else []
         if way is None:
             return None
         return [self.item(ITEM_WAYPOINT, w, alt, speed) for w in way]
@@ -962,7 +1594,7 @@ def _evaluate(ctx: _Ctx, lanes: list[tuple[list[Item], _State, float, int]]) -> 
         pos, alt, item, mode = (np.asarray(x) for x in out[:4])
         for j, (items, st, _, tail) in enumerate(chunk):
             ne = pos[j]
-            d = ctx.cm.at(ne) - GRID_SLACK_M
+            d = ctx.flight_clear(ne, alt[j])
             hit = d < TRACK_MARGIN_M + EVAL_EXTRA_M
             if hit[0]:
                 out_ = np.nonzero(~hit)[0]
@@ -1035,9 +1667,12 @@ def _preview_n(ctx: _Ctx, items: list[Item], mission: Mission, n: int) -> tuple[
         cap = np.nonzero(captured & (kinds[np.minimum(item, len(kinds) - 1)] == ITEM_LOITER_UNLIM))[
             0
         ]
-        if len(cap):
-            r = abs(items[int(item[cap[0]])].radius)
-            end = min(n, cap[0] + int(2 * math.pi * r / float(v[cap[0]]) / PREVIEW_DT) + 1)
+        if len(cap):  # a full turn of bearing round the centre (in wind, not 2πr / airspeed)
+            it = items[int(item[cap[0]])]
+            rel = pos[cap[0] :] - np.array([it.north, it.east])
+            swept = np.abs(np.unwrap(np.arctan2(rel[:, 1], rel[:, 0])) - math.atan2(*rel[0][::-1]))
+            done = np.nonzero(swept >= 2 * math.pi)[0]
+            end = min(n, cap[0] + int(done[0]) + 1) if len(done) else n
     used = _energy(ac, ctx.gaz).used_mah(t, v, climb)
     sl = slice(0, end)
     pv = Preview(
@@ -1123,7 +1758,9 @@ def _search(ctx: _Ctx) -> tuple[list[_Node], list[str]]:
                         continue
                     speed = node.state.speed
                     need = ctx.route_need(speed)
-                    way = ctx.cm.route(node.state.pos, opt.entry, need) if ctx.adapt else []
+                    alt = opt.alt if opt.alt is not None else node.state.alt
+                    cm = ctx.cm_at(min(alt, node.state.alt))  # it may climb on the way
+                    way = cm.route(node.state.pos, opt.entry, need) if ctx.adapt else []
                     if way is None:
                         continue
                     starts = [[]]
@@ -1136,7 +1773,6 @@ def _search(ctx: _Ctx) -> tuple[list[_Node], list[str]]:
                     for dep in starts:
                         wps = [*dep, *way]
                         body = opt.eval_items or opt.items
-                        alt = opt.alt if opt.alt is not None else node.state.alt
                         items = ctx.leg_items(wps, opt, body, speed, 0)
                         home_at = len(items)
                         if opt.endless is None and opt.exit is not None:  # then home too
@@ -1185,12 +1821,15 @@ def _search(ctx: _Ctx) -> tuple[list[_Node], list[str]]:
 
 def _final_clear(ctx: _Ctx, pv: Preview) -> float:
     """Least exact clearance of a full preview from no-fly areas and the geofence's edge, as
-    the checker measures it (an area the aircraft starts in counts once it has left it)."""
+    the checker measures it (an area the aircraft starts in counts once it has left it; one
+    closed up to a height, where the track is too low to cross it)."""
     least = math.inf
-    edges = [lambda q: -geo.signed_distance(q, ctx.gaz.geofence)]
-    edges += [a.signed_distance for a in ctx.gaz.no_fly]
-    for dist in edges:
-        d = dist(pv.ne)
+    ground = ground_at(ctx.gaz.site, pv.ne)
+    edges = [-geo.signed_distance(pv.ne, ctx.gaz.geofence)]
+    for a in ctx.gaz.no_fly:
+        d = a.signed_distance(pv.ne)
+        edges.append(np.where(pv.alt < a.lowest_over(ground), d, np.inf))
+    for d in edges:
         near = d < TRACK_MARGIN_M
         start = 0
         if near[0]:
@@ -1315,7 +1954,7 @@ def _climb_first(
     span = np.arange(-CLIMB_SEARCH_M, CLIMB_SEARCH_M + 1.0, 50.0)
     grid = np.stack(np.meshgrid(span, span, indexing="ij"), -1).reshape(-1, 2) + pos
     grid = grid[np.linalg.norm(grid - pos, axis=1) <= CLIMB_SEARCH_M]
-    grid = grid[ctx.cm.at(grid) >= radius + need]
+    grid = grid[ctx.cm_all.at(grid) >= radius + need]
     if not len(grid):
         return None
     theta = np.linspace(0.0, 2.0 * np.pi, 24, endpoint=False)
@@ -1325,7 +1964,7 @@ def _climb_first(
     turn_s = 2.0 * math.pi * radius / cruise
     rate = CLIMB_RATE_SHARE * ctx.cfg.tecs.climb_max_mps
     for c in grid[order[:3]]:
-        way = ctx.cm.route(c, np.array([first.north, first.east]), need)
+        way = ctx.cm_all.route(c, np.array([first.north, first.east]), need)
         if way is None:
             continue
         turns = max(1, math.ceil((height - ctx.ac.alt_agl) / rate / turn_s))
@@ -1347,6 +1986,21 @@ def _climb_first(
                 break  # too low while circling: another centre
             turns += 1  # left the circle before it was high enough
     return None
+
+
+def _crossings(ctx: _Ctx, pv: Preview) -> list[str]:
+    """Notes for the areas closed up to a height that the track passes over, high enough."""
+    ground = ground_at(ctx.gaz.site, pv.ne)
+    out: dict[str, str] = {}
+    for a in ctx.gaz.no_fly:
+        if a.ceiling_m is None or a.name in out:
+            continue
+        over = a.signed_distance(pv.ne) < TRACK_MARGIN_M
+        if over.any() and (pv.alt[over] >= a.lowest_over(ground[over])).all():
+            low = float(pv.alt[over].min())
+            out[a.name] = (f"passes over {a.name} at {low:.0f} m or more (heights are above "
+                           f"home), clear of it: it is {a.reaches}")  # fmt: skip
+    return list(out.values())
 
 
 ROOMS = (1.0, 2.0, 3.0)  # searches with more and more room to turn, while none keeps clear
@@ -1385,6 +2039,7 @@ def _assemble(ctx: _Ctx, best: _Node, errors: list[str]) -> Built:
     until_reserve = False
     speed = ctx.cruise
     last_exit, last_alt = None, float(round(ac.alt_agl))
+    at = last_alt
     for wps, opt in best.legs:
         if opt.speed is not None:
             speed = opt.speed
@@ -1396,9 +2051,12 @@ def _assemble(ctx: _Ctx, best: _Node, errors: list[str]) -> Built:
                 until_reserve = opt.until_reserve
         items += leg
         steps.append(replace(opt.geom, items=(start, len(items))))
+        alt = opt.alt if opt.alt is not None else at
         if wps and opt.entry is not None:
-            areas = sorted({ctx.area_at(p) for p in wps})
+            cm = ctx.cm_at(min(alt, at))
+            areas = sorted({ctx.area_at(p, cm) for p in wps})
             notes.append(f"{opt.geom.label}: goes round {' and '.join(areas)} on the way")
+        at = alt
         notes += opt.notes
         if opt.exit is not None:
             last_exit, last_alt = opt.exit, opt.alt if opt.alt is not None else last_alt
@@ -1408,9 +2066,8 @@ def _assemble(ctx: _Ctx, best: _Node, errors: list[str]) -> Built:
     if not errors and not endless and last_exit is not None:
         home = ctx.home_route(last_exit, speed, last_alt)
         if home:
-            notes.append(
-                f"goes round {ctx.area_at(np.array([home[0].north, home[0].east]))} on the way home"
-            )
+            p = np.array([home[0].north, home[0].east])
+            notes.append(f"goes round {ctx.area_at(p, ctx.cm_at(last_alt))} on the way home")
         items += (home or []) + [ctx.item(ITEM_RTL)]
     if ctx.adapt and items:
         items, where, sides = ctx.shape(items, np.asarray(ac.pos_ne, float))
@@ -1426,7 +2083,8 @@ def _assemble(ctx: _Ctx, best: _Node, errors: list[str]) -> Built:
             f"{MAX_ITEMS}: split it in two"
         )
     notes = list(dict.fromkeys(notes))
-    built = Built(plan, ac, items, None, steps, None, None, ctx.rmin, endless, notes, errors)
+    built = Built(plan, ac, items, None, steps, None, None, ctx.rmin, endless, notes, errors,
+                  sum(opt.cost for _, opt in best.legs))  # fmt: skip
     if errors:
         return built
     model = _energy(ac, gaz)
@@ -1456,7 +2114,9 @@ def _assemble(ctx: _Ctx, best: _Node, errors: list[str]) -> Built:
                 items[jump] = items[jump]._replace(p2=float(laps - 1))
                 mission = ctx.mission(items, last_alt)
                 pv = _preview(ctx, items, mission)
-                notes.append(f"patrol: {laps} laps before the battery reserve (estimated)")
+                g = next((g for g in steps if g.items[0] <= jump < g.items[1]), None)
+                what = g.label if g is not None else "patrol"  # a patrol, or a loop round
+                notes.append(f"{what}: {laps} laps before the battery reserve (estimated)")
         else:
             laps = int(items[jump].p2) + 1
     returned = bool((pv.mode == MODE_RTL).any())
@@ -1477,6 +2137,7 @@ def _assemble(ctx: _Ctx, best: _Node, errors: list[str]) -> Built:
         more = max(laps - 2, 0)
         needed = float(pv.used_mah[-1]) + more * lap_mah + st.home_mah
         minutes = (float(pv.t[-1]) + more * st.lap_s + st.home_s) / 60.0
+    notes += _crossings(ctx, pv)
     built.items, built.mission, built.preview, built.notes = items, mission, pv, notes
     built.energy = Energy(available, needed, minutes, laps, lap_mah)
     return built

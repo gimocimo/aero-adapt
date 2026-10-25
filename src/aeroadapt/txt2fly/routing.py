@@ -3,7 +3,9 @@
 A clearance map holds, on a 10 m grid over the operating area, the distance from each point to
 the nearest no-fly area or the geofence's edge (negative inside a no-fly area or outside the
 fence). The planner uses it to try candidates quickly and to route around no-fly areas; the
-checker still measures every final track exactly.
+checker still measures every final track exactly. An area closed only up to a height counts
+for a track flown too low to cross it: there is a map for each set of areas closed at a
+height (``clearance_map(gaz, alt)``).
 """
 
 from __future__ import annotations
@@ -20,9 +22,13 @@ from aeroadapt.txt2fly.gazetteer import Gazetteer
 
 GRID_M = 10.0
 ROUTE_STEP = 2  # routing searches every 2nd grid cell (20 m)
+CORRIDOR_M = 30.0  # a route is searched with this much more room first (fewer, longer legs)
 
 
-class ClearanceMap:
+class _Grids:
+    """A site's distance grids, one for the geofence and one for each no-fly area (made when
+    first needed)."""
+
     def __init__(self, gaz: Gazetteer) -> None:
         lo = gaz.geofence.min(axis=0) - 100.0
         hi = gaz.geofence.max(axis=0) + 100.0
@@ -30,11 +36,29 @@ class ClearanceMap:
         self.n = np.arange(lo[0], hi[0] + GRID_M, GRID_M)
         self.e = np.arange(lo[1], hi[1] + GRID_M, GRID_M)
         nn, ee = np.meshgrid(self.n, self.e, indexing="ij")
-        pts = np.stack([nn.ravel(), ee.ravel()], 1)
-        d = -geo.signed_distance(pts, gaz.geofence)
-        for area in gaz.no_fly:
-            d = np.minimum(d, area.signed_distance(pts))
-        self.d = d.reshape(nn.shape)
+        self.shape = nn.shape
+        self.pts = np.stack([nn.ravel(), ee.ravel()], 1)
+        self.fence = -geo.signed_distance(self.pts, gaz.geofence).reshape(self.shape)
+        self.gaz = gaz
+        self._areas: dict[int, np.ndarray] = {}
+
+    def area(self, k: int) -> np.ndarray:
+        if k not in self._areas:
+            d = self.gaz.no_fly[k].signed_distance(self.pts).reshape(self.shape)
+            self._areas[k] = d.astype(np.float32)
+        return self._areas[k]
+
+
+class ClearanceMap:
+    def __init__(self, gaz: Gazetteer, closed: tuple[int, ...] | None = None) -> None:
+        """The map for the no-fly areas ``closed`` (indices into ``gaz.no_fly``; None: all)."""
+        g = _grids(gaz)
+        self.lo, self.n, self.e = g.lo, g.n, g.e
+        d = g.fence
+        for k in range(len(gaz.no_fly)) if closed is None else closed:
+            d = np.minimum(d, g.area(k))
+        self.d = d
+        self.closed = closed
         self.gaz = gaz
         self._reach: dict[float, np.ndarray] = {}
 
@@ -94,22 +118,33 @@ class ClearanceMap:
     def route(self, a: np.ndarray, b: np.ndarray, need: float) -> list[np.ndarray] | None:
         """Waypoints (a and b excluded) of the shortest route from a to b that keeps ``need``
         of clearance (A* on a 20 m grid, then pulled taut). [] if the straight line is clear;
-        None if no route exists. A start or end inside the margin is allowed (leaving it)."""
+        None if no route exists. A start or end inside the margin is allowed (leaving it).
+        The search first keeps ``CORRIDOR_M`` more: a path that hugs the clearance it needs
+        pulls taut into many short legs, one with room to spare into few."""
         a, b = np.asarray(a, float), np.asarray(b, float)
         if self.line(a, b) >= need:
             return []
+        for corridor in (need + CORRIDOR_M, need):
+            way = self._route(a, b, need, corridor)
+            if way is not None:
+                return way
+        return None
+
+    def _route(
+        self, a: np.ndarray, b: np.ndarray, need: float, corridor: float
+    ) -> list[np.ndarray] | None:
         d = self.d[::ROUTE_STEP, ::ROUTE_STEP]
         gn, ge = self.n[::ROUTE_STEP], self.e[::ROUTE_STEP]
-        free = d >= need
+        free = d >= corridor
         cell = GRID_M * ROUTE_STEP
         # A start or end in a tight spot: within 300 m of it, the route may keep the clearance
         # the spot itself has (leaving it directly, rather than via a distant clear cell).
         nn, ee = np.meshgrid(gn, ge, indexing="ij")
         for p in (a, b):
             here = float(self.at(p[None])[0])
-            if here < need:
+            if here < corridor:
                 near = (nn - p[0]) ** 2 + (ee - p[1]) ** 2 < 300.0**2
-                free |= near & (d >= min(here, need) - 5.0)
+                free |= near & (d >= min(here, corridor) - 5.0)
 
         def idx(p: np.ndarray) -> tuple[int, int]:
             i = int(np.clip(round((p[0] - gn[0]) / cell), 0, len(gn) - 1))
@@ -153,12 +188,23 @@ class ClearanceMap:
         while cells[-1] != s:
             cells.append(came[cells[-1]])
         path = [a] + [np.array([gn[i], ge[j]]) for i, j in reversed(cells)] + [b]
-        # Pull taut: from each kept point, jump to the farthest point still in clear sight.
+        # Pull taut: from each kept point, jump to the farthest point still in clear sight. A
+        # line from or to a tight start or end keeps what the search allowed there.
+        here = {0: float(self.at(a[None])[0]), len(path) - 1: float(self.at(b[None])[0])}
+        tight = [p for p, c in ((a, here[0]), (b, here[len(path) - 1])) if c < need]
+
+        def enough(k: int, m: int) -> float:
+            for p in tight:
+                if min(np.linalg.norm(path[k] - p), np.linalg.norm(path[m] - p)) < 300.0:
+                    ends = self.at(np.array([path[k], path[m]]))
+                    return min(need, float(ends.min()) - 5.0)
+            return need
+
         out, k = [], 0
         while k < len(path) - 1:
             far = k + 1
             for m in range(len(path) - 1, k, -1):
-                if self.line(path[k], path[m]) >= need or m == k + 1:
+                if self.line(path[k], path[m]) >= enough(k, m) or m == k + 1:
                     far = m
                     break
             if far != len(path) - 1:
@@ -167,11 +213,25 @@ class ClearanceMap:
         return out
 
 
-_MAPS: dict[str, ClearanceMap] = {}
+_GRIDS: dict[str, _Grids] = {}
+_MAPS: dict[tuple[str, tuple[int, ...]], ClearanceMap] = {}
 
 
-def clearance_map(gaz: Gazetteer) -> ClearanceMap:
+def _grids(gaz: Gazetteer) -> _Grids:
     key = gaz.site.model_dump_json()
+    if key not in _GRIDS:
+        _GRIDS[key] = _Grids(gaz)
+    return _GRIDS[key]
+
+
+def closed_at(gaz: Gazetteer, alt: float | None) -> tuple[int, ...]:
+    """The no-fly areas (indices) a track at ``alt`` above home keeps out of (None: all)."""
+    return tuple(k for k, a in enumerate(gaz.no_fly) if alt is None or a.closed_at(alt))
+
+
+def clearance_map(gaz: Gazetteer, alt: float | None = None) -> ClearanceMap:
+    """The map for a track at ``alt`` above home (None: every area, at all heights)."""
+    key = (gaz.site.model_dump_json(), closed_at(gaz, alt))
     if key not in _MAPS:
-        _MAPS[key] = ClearanceMap(gaz)
+        _MAPS[key] = ClearanceMap(gaz, key[1])
     return _MAPS[key]

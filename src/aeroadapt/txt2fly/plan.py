@@ -64,7 +64,37 @@ class LatLon(_Strict):
     lon_deg: float
 
 
-Target = Annotated[PlaceRef | Here | Home | Offset | Point | LatLon, Field(discriminator="kind")]
+class Nearest(_Strict):
+    """The place of a kind nearest another, middle to middle ("the field closest to the
+    farm"); ``furthest``: the one furthest from it. Measured by the gazetteer, not guessed."""
+
+    kind: Literal["nearest", "furthest"] = "nearest"
+    among: str = Field(description="a kind of place, as the place list gives kinds")
+    origin: str = Field(default="here", description="a place id, 'here' or 'home'")
+
+
+class Tallest(_Strict):
+    """The place with the highest top above home, of a kind if given ("the tallest building")."""
+
+    kind: Literal["tallest"] = "tallest"
+    among: str | None = Field(default=None, description="a kind of place; None: any")
+
+
+class Beyond(_Strict):
+    """Just past a place's far side as seen from another ("the far side of the city from
+    here"): on the bearing from ``origin`` to the place, ``distance_m`` (None: 300 m) beyond its
+    far edge."""
+
+    kind: Literal["beyond"] = "beyond"
+    id: str
+    origin: str = Field(default="here", description="a place id, 'here' or 'home'")
+    distance_m: float | None = None
+
+
+Target = Annotated[
+    PlaceRef | Here | Home | Offset | Point | LatLon | Nearest | Tallest | Beyond,
+    Field(discriminator="kind"),
+]
 
 
 # --------------------------------------------------------------------------- steps
@@ -112,6 +142,42 @@ class Patrol(_Strict):
     laps: int | None = Field(default=None, description="None: until the battery reserve")
 
 
+class Around(_Strict):
+    """Fly round an area, outside it, enclosing it ("circle the whole city"): a loop that keeps
+    ``standoff_m`` beyond its edge (None: room to turn), following its shape or a circle round
+    it, whichever keeps clear. Lap after lap until told otherwise, or ``turns`` laps."""
+
+    do: Literal["around"] = "around"
+    target: Target
+    standoff_m: float | None = None
+    alt_m: float | None = None
+    direction: Literal["cw", "ccw"] = "cw"
+    turns: float | None = None
+
+
+class Follow(_Strict):
+    """Fly along a line (a river, a road), or round an area's edge, once: from ``start`` to
+    ``end`` where given (places along it), else end to end from the end nearer the aircraft;
+    over it, or ``offset_m`` to one ``side`` of it."""
+
+    do: Literal["follow"] = "follow"
+    target: Target
+    start: Target | None = None
+    end: Target | None = None
+    side: Literal["over", "north", "south", "east", "west"] = "over"
+    offset_m: float | None = None
+    alt_m: float | None = None
+
+
+class Survey(_Strict):
+    """Back-and-forth lines over an area ("survey field B"), ``spacing_m`` apart."""
+
+    do: Literal["survey"] = "survey"
+    target: Target
+    spacing_m: float | None = None
+    alt_m: float | None = None
+
+
 class SetSpeed(_Strict):
     """Airspeed for the steps that follow."""
 
@@ -131,9 +197,11 @@ class ReturnHome(_Strict):
 
 
 Step = Annotated[
-    Goto | PassOver | Orbit | Patrol | SetSpeed | Hold | ReturnHome, Field(discriminator="do")
+    Goto | PassOver | Orbit | Patrol | Around | Follow | Survey | SetSpeed | Hold | ReturnHome,
+    Field(discriminator="do"),
 ]
-STEP_KINDS = ("goto", "pass_over", "orbit", "patrol", "set_speed", "hold", "return_home")
+STEP_KINDS = ("goto", "pass_over", "orbit", "patrol", "around", "follow", "survey", "set_speed",
+              "hold", "return_home")  # fmt: skip
 
 
 class Plan(_Strict):

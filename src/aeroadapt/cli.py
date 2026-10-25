@@ -297,7 +297,7 @@ def _txt2fly(args: argparse.Namespace) -> int:
         only = tuple(x for x in (args.cases or "").split(",") if x)
         out = Path(args.out) if args.out else RUNS / "txt2fly-eval" / time.strftime("%Y%m%d-%H%M%S")
         evaluate(args.split, tuple(args.translator.split(",")), args.repeats, only, out,
-                 args.concurrency)  # fmt: skip
+                 args.concurrency, args.set)  # fmt: skip
         return 0
     from aeroadapt.txt2fly.builder import build
     from aeroadapt.txt2fly.checker import check, describe
@@ -400,9 +400,10 @@ def main(argv: list[str] | None = None) -> int:
     sv.add_argument(
         "--translator",
         default="auto",
-        choices=("auto", "claude", "haiku-think", "opus", "stand-in", "none"),
+        choices=("auto", "claude", "haiku-think", "haiku-map", "opus", "stand-in", "none"),
         help="Txt2Fly's language layer: auto = Claude (Haiku 5.5) when ANTHROPIC_API_KEY is "
-        "set, else a stand-in that reads a few fixed phrasings",
+        "set, else a stand-in that reads a few fixed phrasings; haiku-map also sends the "
+        "site's map picture",
     )
     sv.set_defaults(func=_serve)
     tx = sub.add_parser("txt2fly", help="Txt2Fly's language layer: ask, or evaluate (docs/06 §9)")
@@ -411,7 +412,8 @@ def main(argv: list[str] | None = None) -> int:
     tx.add_argument(
         "--translator",
         default="haiku",
-        help="haiku, haiku-think, opus, stand-in (eval: also gold; several, comma-separated)",
+        help="haiku, haiku-think, haiku-map, opus, stand-in (eval: also gold; several, "
+        "comma-separated)",
     )
     tx.add_argument("--scenario", default="txt2fly-demo", help="ask: site, airframe and weather")
     tx.add_argument("--airframe", help="ask: a sample-fleet airframe id")
@@ -420,6 +422,8 @@ def main(argv: list[str] | None = None) -> int:
     tx.add_argument("--heading", type=float, default=0.0)
     tx.add_argument("--wind", default="6@250", help="ask: speed@from (m/s, deg)")
     tx.add_argument("--split", default="test", choices=("dev", "test", "all"))
+    tx.add_argument("--set", default="v1", choices=("v1", "spatial"),
+                    help="eval: the set (spatial: graded on what would be flown)")  # fmt: skip
     tx.add_argument("--repeats", type=int, default=3)
     tx.add_argument("--cases", help="eval: only these case ids or categories (comma-separated)")
     tx.add_argument("--concurrency", type=int, default=4)

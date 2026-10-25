@@ -202,7 +202,9 @@ class Connection:
         ctx = tr.Context(load_gazetteer(session.resolved.site), session.aircraft(),
                          session.active_plan, tuple(self.turns), session.time_s)  # fmt: skip
         try:
-            t = await cat.translator.translate(ctx, text)
+            t, report, build_error = await tr.translate_checked(
+                cat.translator, ctx, text, tr.in_thread(session.check_plan)
+            )
         except tr.TranslatorError as e:
             reply.update(kind="error", message=str(e))
             self.conversation.append({"time_s": session.time_s, "text": text, "error": str(e)})
@@ -221,6 +223,8 @@ class Connection:
                 "model": t.model,
                 "latency_s": round(t.latency_s, 3),
                 "usage": t.usage,
+                **({"review": t.review} if t.review else {}),
+                **({"first_reply": t.first} if t.first else {}),
             }
         )
         reply.update(translator=t.translator, latency_s=round(t.latency_s, 3))
@@ -230,7 +234,10 @@ class Connection:
             reply.update(kind="refuse", reason=t.reply.reason)
         else:
             assert isinstance(t.reply, Plan)
-            err, prop = await asyncio.to_thread(session.propose, t.reply)
+            if report is None:
+                err, prop = (build_error or "").splitlines()[0] if build_error else None, None
+            else:
+                err, prop = session.propose(t.reply, report)
             if prop is None:
                 reply.update(kind="error", message=err or "the plan could not be built")
             else:

@@ -36,8 +36,9 @@ def ctx(gaz: Gazetteer, aerosonde: Airframe) -> tr.Context:
 
 REPLY_KEYS = ("summary", "assumptions", "steps", "question", "options", "reason")
 STEP_KEYS = ("target", "targets", "alt_m", "radius_m", "direction", "turns", "duration_s",
-             "heading", "visit", "laps", "speed")  # fmt: skip
-TARGET_KEYS = ("id", "origin", "bearing_deg", "distance_m")
+             "heading", "visit", "laps", "speed", "standoff_m", "start", "end", "side",
+             "offset_m", "spacing_m")  # fmt: skip
+TARGET_KEYS = ("id", "origin", "bearing_deg", "distance_m", "among")
 
 
 def _full(flat: dict) -> dict:
@@ -52,6 +53,9 @@ def _full(flat: dict) -> dict:
             st["target"] = target(st["target"])
         if st["targets"] is not None:
             st["targets"] = [target(t) for t in st["targets"]]
+        for k in ("start", "end"):
+            if st[k] is not None:
+                st[k] = target(st[k])
         return st
 
     out = {**dict.fromkeys(REPLY_KEYS), **flat}
@@ -61,7 +65,7 @@ def _full(flat: dict) -> dict:
 
 
 def _model(gaz: Gazetteer):
-    return tr.reply_model(tuple(p.id for p in tr.prompt_places(gaz)))
+    return tr.site_schema(gaz)
 
 
 def _keys(node: Any) -> set[str]:
@@ -113,18 +117,20 @@ def test_every_field_is_required(gaz: Gazetteer) -> None:
 
 def test_the_schema_is_flat(gaz: Gazetteer) -> None:
     """One object per level, few unions: the API compiles the schema into a grammar, and the
-    nested form (seven step kinds × four target kinds) was too large for it."""
+    nested form (seven step kinds × four target kinds) was too large for it. (28 with the
+    area and line steps and the relation targets, compiled by the API on 25 Oct 2026.)"""
     schema = _model(gaz).model_json_schema()
     assert set(schema["$defs"]) == {"Step", "Target"}
     unions = sum(1 for n in _walk(schema) if "anyOf" in n)
-    assert unions <= 25
+    assert unions <= 28
 
 
 def test_the_prompts_examples_are_valid_replies() -> None:
     examples = re.findall(r'^(\{"kind".*\})$', tr._rules(), re.MULTILINE)
     assert len(examples) >= 8
-    ids = ("church", "zone-a", "zone-b", "zone-c", "mill-wood", "long-wood", "the-mast")
-    m = tr.reply_model(ids)
+    ids = ("church", "zone-a", "zone-b", "zone-c", "mill-wood", "long-wood", "the-mast", "ashby",
+           "the-brook", "old-mill")  # fmt: skip
+    m = tr.reply_model(ids, ("church", "mast", "river", "safe zone", "village", "wood"))
     kinds = set()
     for e in examples:
         flat = m.model_validate(_full(json.loads(e))).model_dump(mode="json", exclude_none=True)
@@ -157,7 +163,9 @@ def test_the_site_block_is_fixed_and_complete(gaz: Gazetteer, ctx: tr.Context) -
         assert f"`{p.id}`" in a
     church = next(line for line in a.splitlines() if line.startswith("- `church`"))
     assert "top 39 m" in church  # its tower, from the planner's own relief
-    assert '"Wrenfold village": houses and people below' in a
+    village = next(line for line in a.splitlines() if line.startswith('- "Wrenfold village"'))
+    assert "houses and people below" in village and "closed at all heights" in village
+    assert "about" in village and "m east-west" in village  # its extent and size
     assert "Roll limit 45°" in a
 
 

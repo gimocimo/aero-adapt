@@ -1,5 +1,5 @@
 // A fly-by video of a world in film mode (docs/07 §15): renders each camera of a path from
-// tools/flyby_path.py, with the clock (traffic, boats, turbines, water) stepped frame by
+// tools/flyby_path.py, with the clock (turbines, water) stepped frame by
 // frame, then encodes them with ffmpeg. The dev server must be on :5173 and a live server
 // serving the world (default ws://localhost:8765).
 // Usage: node scripts/flyby.mjs <frames.json> <out.mp4> <ffmpeg> [live ws url] [width] [height]

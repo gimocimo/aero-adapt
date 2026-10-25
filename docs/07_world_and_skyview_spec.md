@@ -391,13 +391,13 @@ For demo videos, Skyview's chase view has a look of its own. It is on by default
 
 - **Light.**
   - The sun is in the west-south-west, 32° up, as in the sketches.
-  - Soft shadows fall within 320 m of what the camera follows. For a distant shot the shadowed box grows (to 1.4 km), between the camera and what it looks at.
+  - Shadows fall over the whole map. They are cast once when a world loads: one shadow map, fitted to the map as the sun sees it (on the test map 8192 × 5106 texels, 0.78 m each), with hardware-filtered edges. What moves (the aircraft, the turbines' blades) casts none, so nothing appears or changes as the camera travels. (Until 25 Oct they were drawn every frame within 320 m of what the camera followed, and grew in as it came near.)
   - A sky dome runs from deep blue overhead to the haze at the horizon, with the sun's glow and fair-weather cumulus 1.5 km up. Its light falls on every surface, and water and glass reflect it.
   - Haze thickens with distance (exponentially: a few per cent at a kilometre, a quarter at three, half at five).
-  - Ambient occlusion (GTAO, reaching about 5 m) darkens streets between buildings, eaves and the feet of trees. The picture is multisampled, then graded with ACES filmic tone mapping, with a lens's slight vignette. The ground's colours are a fifth less saturated than the map's; foliage and water are the darker greens and grey-greens they are.
+  - The picture is multisampled (4×), then graded with ACES filmic tone mapping, with a lens's slight vignette. (Ambient occlusion, which darkened streets between buildings, eaves and the feet of trees, went on 25 Oct: it rendered the scene a second time, about 4 ms of a frame, for 60 frames a second.) The ground's colours are a fifth less saturated than the map's; foliage and water are the darker greens and grey-greens they are.
 - **Trees.**
-  - Within 340 m of the camera, each tree is a model of its kind (broadleaf, conifer, willow or shrub): a trunk and a lobed crown, casting a shadow.
-  - Beyond that, the simple instanced shapes stand in. The near set is refreshed every 30 m the camera moves.
+  - Every tree is a model of its kind wherever the camera is (broadleaf, conifer, willow or shrub): a trunk and a crown from a third of its height to its top, of 50 to 100 triangles, casting a shadow. Nothing is swapped as the camera comes near. (Until 25 Oct a detailed model replaced a simple shape within 340 m of the camera, and the swap showed.)
+  - They are grouped in 500 m tiles, one instanced mesh per tile and kind, so tiles out of view are not drawn; the hedges likewise. The round minimap leaves the trees out: the woods are painted on its ground.
   - Hedges are continuous lumpy rows: each bush is long along its hedge, over a lower core that fills the dips between them.
 - **Ground.**
   - The painted land cover, as before, has grain by kind up close: grass, crops in rows, ploughed soil, tarmac, a wood's floor.
@@ -414,7 +414,7 @@ For demo videos, Skyview's chase view has a look of its own. It is on by default
   - Buildings on their own footprints (a survey world such as London, docs/08) are drawn with flat, skillion, pyramidal and domed roofs, and parts that stand clear of the ground.
 - **Water** fills each water cover bank to bank, rippled and reflecting the sky. It is level at its lowest shore nearby, so a river steps down as it falls. The painted water at its edge reads as shallows.
 - **Turbines** turn at about 15 rpm, by the wall clock: in a replay at 4×, they still turn at 1×. `__view.setClock(t)` fixes the clock (for a recording, frame by frame); `setClock(null)` gives the wall clock back.
-- **Traffic.** Cars, black cabs and red buses drive the roads (a vehicle every 35 m of main road and 60 m of street, both ways, keeping left), trains of six carriages run on a survey world's railways, and boats and barges ply a river with a centre line.
+- **No traffic.** Cars, buses, trains and boats were drawn until 25 Oct; they went at the owner's request.
 - **Railways** (a survey world's): ballast, sleepers and rails at their own heights, brick viaducts with arches down to the ground, bridges as decks (docs/08 §3).
 - **Round a city** (a world whose ground is a city's, such as London), the ground runs on from the map's edge without a cliff, the river carries on past both ends, and an ordinary city of blocks and the odd tower fills the rest out to 3.5 km, fading into the haze.
 - **Set shots.** `__view.setShot([n, e, h], [n, e, h])` in the dev console puts the camera at one point looking at another, for stills; `setShot(null)` gives the follow view back. `web/skyview/scripts/stills.mjs <out-dir> <shots.json>` takes a list of them at 1920×1080, headless (the pictures above).
@@ -423,8 +423,17 @@ For demo videos, Skyview's chase view has a look of its own. It is on by default
 - **Loading and frame cost** (25 Oct 2026, after the owner found the map slow to appear).
   - **A live session starts when its world is on screen.** Skyview connects with `?hold=1`, so the server holds the session's clock. Skyview shows "Loading …" and says `ready` once the world's first frame is drawn; the server starts anyway after 30 s. Before this, the first two to three seconds of flight passed while the 5.3 MB world was still being received, built and drawn.
   - **The ground's detail textures** (0.6 s of noise) are made while the page waits for the server. Building the test map's world then takes about 0.3 s, and its first frame, which compiles the shaders, about 0.25 s. The page records each stage as a `skyview: …` performance measure.
-  - **Ambient occlusion runs at half resolution, without the far trees.** The far trees are about 104,000 simple shapes, most of the triangles, at a distance where a few metres of occlusion is nothing. A test-map frame went from 36.5 ms to 26.7 ms, measured with forced frames in the app's browser at 1024×768. The traffic (1,640 vehicles) costs about 1 ms of that, so it stays.
-  - **A frame draws at most 4.5 million pixels**: the pixel ratio comes down for a big window on a high-density screen.
+  - **60 frames a second, at up to 1080p** (the owner's request). A frame draws at most 1920 × 1080 pixels: a bigger window, or a high-density screen, gets a lower pixel ratio. Measured with forced frames in the app's browser at that pixel count, from each world's start:
+
+    | World | Mean | 90th percentile |
+    |---|---|---|
+    | Test map | 10.1 ms | 10.8 ms |
+    | Wrenfold | 7.6 ms | 8.5 ms |
+    | London | 11.6 ms | 12.9 ms |
+
+    (The test map's frame was 36.5 ms the same morning, at 3.1 million pixels.)
+
+    What it took: shadows cast once (no shadow pass a frame); no ambient occlusion; trees and hedges in tiles; hedge bushes of 20 triangles (71,000 of them were 5.7 million triangles); no trees in the minimap; hardware-filtered shadow edges; no traffic; and a survey's ground mesh within 1.2 million triangles (London's 2 m grid drawn every 4 m).
 
 **Fidelity.** None of this changes the simulator; the views draw the same payload, at the same positions and heights. The look is a drawing:
 
@@ -432,4 +441,5 @@ For demo videos, Skyview's chase view has a look of its own. It is on by default
 - windows are patterns on the walls, not modelled;
 - the river's surface is drawn level at its banks, while the simulator has the channel's ground;
 - the rotors turn for the eye only. The simulator keeps each rotor as a wall across the wind (§14);
-- the traffic, the boats, the rooftop plant, the clouds and the city beyond a map's edge are drawn only.
+- the rooftop plant, the clouds and the city beyond a map's edge are drawn only;
+- the shadows are the sun's at one moment, cast once: the turbines' blades and the aircraft cast none.

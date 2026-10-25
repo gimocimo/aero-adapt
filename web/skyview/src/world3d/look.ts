@@ -1,5 +1,5 @@
 // The cinematic look (docs/07 §15): a sky with the sun in it, sunlight with soft
-// shadows round the aircraft, haze with distance, the sky's light on every surface (so water
+// shadows over the whole map, haze with distance, the sky's light on every surface (so water
 // and glass reflect it) and filmic colour grading. For video; ``?quality=low`` turns it off.
 import * as THREE from "three";
 
@@ -7,7 +7,8 @@ import * as THREE from "three";
 export const SUN_AZIMUTH_DEG = 250;
 export const SUN_ELEVATION_DEG = 32;
 export const HAZE = new THREE.Color("#bfd2e4");
-const SHADOW_HALF_M = 320; // shadows within this of the chase camera's target
+const SHADOW_MAP_MAX = 8192; // texels along the shadow map's longer side, at most
+const SHADOW_TEXEL_BIAS = 1.5; // the normal bias, in shadow-map texels
 
 export function sunDirection(): THREE.Vector3 {
   const az = THREE.MathUtils.degToRad(SUN_AZIMUTH_DEG);
@@ -97,7 +98,7 @@ export class Look {
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 0.62;
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap; // the soft kind cost 1.5 ms a frame more
 
     this.sky = skyDome(24000);
     scene.add(this.sky);
@@ -115,47 +116,53 @@ export class Look {
     this.sun = new THREE.DirectionalLight("#fff0da", 4.6);
     this.sun.castShadow = true;
     const s = this.sun.shadow;
-    s.mapSize.set(4096, 4096);
-    s.camera.left = -SHADOW_HALF_M;
-    s.camera.right = SHADOW_HALF_M;
-    s.camera.top = SHADOW_HALF_M;
-    s.camera.bottom = -SHADOW_HALF_M;
-    s.camera.near = 1;
-    s.camera.far = 4000;
-    s.bias = -0.0004;
-    s.normalBias = 0.5;
     s.radius = 2.5;
     scene.add(this.hemi, this.sun, this.sun.target);
+    // Shadows are cast once a world is loaded (``shadowWorld``), not every frame.
+    renderer.shadowMap.autoUpdate = false;
   }
 
-  /** Keep the sunlit, shadowed box over what the chase camera looks at: round its target
-   * when it is close (following the aircraft); for a distant shot, a larger box (coarser
-   * shadows) between the camera and its target, so the whole near view is shadowed. */
-  follow(target: THREE.Vector3, eye?: THREE.Vector3): void {
-    const dir = sunDirection();
-    let half = SHADOW_HALF_M;
-    let centre = target;
-    const d = eye ? eye.distanceTo(target) : 0;
-    if (eye && d > 250) {
-      half = THREE.MathUtils.clamp(d * 0.75, SHADOW_HALF_M, 1400);
-      centre = eye.clone().lerp(target, Math.min(1, half / d));
-    }
-    const cam = this.sun.shadow.camera;
-    if (cam.right !== half) {
-      cam.left = cam.bottom = -half;
-      cam.right = cam.top = half;
-      cam.updateProjectionMatrix();
-    }
-    // Snap to shadow-map texels so shadows do not shimmer as the box moves.
-    const texel = (2 * half) / this.sun.shadow.mapSize.x;
-    const t = new THREE.Vector3(
-      Math.round(centre.x / texel) * texel,
-      Math.round(centre.y / texel) * texel,
-      Math.round(centre.z / texel) * texel,
-    );
-    this.sun.target.position.copy(t);
-    this.sun.position.copy(t).addScaledVector(dir, 2000);
+  /** Cast the sun's shadows over the whole of ``box`` (a world's ground and what stands on it),
+   * once: one shadow map, fitted to the box as the sun sees it, drawn on the next frame. What
+   * moves (the aircraft, the turbines' blades) casts none, so nothing appears or changes as
+   * the camera travels. On the test map a texel is 0.78 m. */
+  shadowWorld(box: THREE.Box3): void {
+    const centre = box.getCenter(new THREE.Vector3());
+    const reach = box.getSize(new THREE.Vector3()).length();
+    this.sun.target.position.copy(centre);
+    this.sun.position.copy(centre).addScaledVector(sunDirection(), reach);
     this.sun.target.updateMatrixWorld();
+    this.sun.updateMatrixWorld();
+    // The tightest frame round the box's corners, in the light's view.
+    const cam = this.sun.shadow.camera;
+    cam.position.copy(this.sun.position);
+    cam.lookAt(centre);
+    cam.updateMatrixWorld();
+    const lo = new THREE.Vector3(Infinity, Infinity, Infinity);
+    const hi = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+    for (const x of [box.min.x, box.max.x])
+      for (const y of [box.min.y, box.max.y])
+        for (const z of [box.min.z, box.max.z]) {
+          const p = new THREE.Vector3(x, y, z).applyMatrix4(cam.matrixWorldInverse);
+          lo.min(p);
+          hi.max(p);
+        }
+    [cam.left, cam.right, cam.bottom, cam.top] = [lo.x, hi.x, lo.y, hi.y];
+    cam.near = Math.max(1, -hi.z - 10);
+    cam.far = -lo.z + 10;
+    cam.updateProjectionMatrix();
+    const [w, h] = [hi.x - lo.x, hi.y - lo.y];
+    const most = Math.min(SHADOW_MAP_MAX, this.renderer.capabilities.maxTextureSize);
+    const sx = w >= h ? most : Math.ceil((most * w) / h);
+    const sy = w >= h ? Math.ceil((most * h) / w) : most;
+    const s = this.sun.shadow;
+    s.mapSize.set(sx, sy);
+    s.map?.dispose();
+    s.map = null; // made again at the new size
+    const texel = Math.max(w / sx, h / sy);
+    s.normalBias = SHADOW_TEXEL_BIAS * texel;
+    s.bias = -0.5 / (cam.far - cam.near); // half a metre, in the map's depth
+    this.renderer.shadowMap.needsUpdate = true;
   }
 
   dispose(): void {

@@ -17,7 +17,6 @@ import type { Layers } from "../state/store";
 import { rWorldFromModel } from "./frame";
 import { HAZE, Look } from "./look";
 import { Post } from "./post";
-import { type LevelAt, Traffic } from "./traffic";
 import { detailTextures } from "./detail";
 import { groundMaterial } from "./materials";
 import { buildings, hedges, outskirts, railways, roadSurfaces, skirt, structures, terrainGeometry, trees, waterSurfaces, wires } from "./meshes";
@@ -30,11 +29,13 @@ export type ChaseMode = "chase" | "orbit" | "free";
 
 const MODEL_URI = "/models/calibration_uav.glb";
 const TRAIL_S = 120;
-// Pixels drawn per frame, at most: a big window on a high-density screen (a 5K display draws
-// 15 million) gets a lower pixel ratio, down to 1. On the test map a frame of 3 million pixels
-// cost barely more than one of 0.8 million (its cost is the scene's geometry), so up to this
-// budget the view stays as sharp as the screen.
-const PIXEL_BUDGET = 4.5e6;
+// Pixels drawn per frame, at most: those of a 1080p screen. A bigger window, or a high-density
+// screen (a 5K display has 15 million), gets a lower pixel ratio, down to 1 (the owner's
+// choice, for 60 frames a second).
+const PIXEL_BUDGET = 1920 * 1080;
+const TALLEST_M = 350; // above the highest ground: the top of the shadow-casting box
+const TERRAIN_TRIS = 1.2e6; // the ground's mesh, at most (it is drawn twice: the ground, the overlay)
+type LevelAt = (n: number, e: number) => number | null;
 const TRAIL_STRIDE = 5; // 50 Hz → 10 Hz
 const SKY = new THREE.Color("#bcd7ee");
 const GAP = new THREE.Color("#0b0e12"); // between the panels
@@ -157,7 +158,6 @@ export class WorldView {
   private spinners: THREE.Object3D[] = [];
   private water: THREE.Mesh | null = null;
   private shot: { eye: THREE.Vector3; at: THREE.Vector3 } | null = null;
-  private traffic: Traffic | null = null;
   private clock: number | null = null;
   // The minimap (the full-screen layout): the top view in a circle, following the aircraft
   // (or the whole map: double-click), drawn off-screen and composited into its circle so the
@@ -296,9 +296,7 @@ export class WorldView {
     });
     this.worldGroup.clear();
     this.overlay = null;
-    this.post?.skipInOcclusion([]);
     this.treeField = null;
-    this.traffic = null; // its meshes went with the group
     this.spinners = [];
     this.water = null;
   }
@@ -320,7 +318,9 @@ export class WorldView {
     const tex = new THREE.CanvasTexture(ground);
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
-    const geo = terrainGeometry(world);
+    // The ground's mesh within TERRAIN_TRIS: a survey's 2 m grid (London) is drawn every 4 m.
+    const cells = world.dtm.rows * world.dtm.cols;
+    const geo = terrainGeometry(world, Math.max(1, Math.ceil(Math.sqrt((2 * cells) / TERRAIN_TRIS))));
     let groundMat: THREE.Material = new THREE.MeshLambertMaterial({ map: tex });
     if (this.cinematic && w) {
       const classes = new THREE.CanvasTexture(paintClasses(world, 2048));
@@ -356,13 +356,12 @@ export class WorldView {
     if (!(city && this.cinematic)) this.worldGroup.add(skirt(world, city ? "#a2a5a7" : "#9bc078"));
     const h = hedges(world, this.ground);
     if (h) {
-      h.traverse((o) => (o.receiveShadow = this.cinematic));
+      h.traverse((o) => (o.castShadow = o.receiveShadow = this.cinematic)); // cast once (static)
       this.worldGroup.add(h);
     }
     if (world.trees.length) {
       if (this.cinematic) {
         this.treeField = new TreeField(world);
-        this.post?.skipInOcclusion(this.treeField.far);
         this.worldGroup.add(this.treeField.group);
       } else this.worldGroup.add(trees(world, this.thin));
     }
@@ -385,12 +384,16 @@ export class WorldView {
       if (rails) this.worldGroup.add(rails);
       const levelAt = (this.water?.userData.levelAt as LevelAt | undefined) ?? null;
       if (city) this.worldGroup.add(outskirts(world, this.ground, levelAt));
-      this.traffic = new Traffic(world, this.ground, levelAt);
-      this.worldGroup.add(this.traffic.group);
     }
     this.scene.fog = null;
     this.fitKey = "";
     this.rebuildLabels();
+    // The sun's shadows over the whole map, cast once (drawn with the first frame).
+    const { n0, e0, cell, rows, cols, h: heights } = world.dtm;
+    let [lo, hi] = [Infinity, -Infinity];
+    for (const v of heights) [lo, hi] = [Math.min(lo, v), Math.max(hi, v)];
+    const [n1, e1] = [n0 + (rows - 1) * cell, e0 + (cols - 1) * cell];
+    this.look?.shadowWorld(new THREE.Box3(new THREE.Vector3(e0, lo, -n1), new THREE.Vector3(e1, hi + TALLEST_M, -n0)));
     performance.measure("skyview: world build", { start: t0 });
     this.firstFrame = true;
   }
@@ -711,7 +714,7 @@ export class WorldView {
     return s;
   }
 
-  /** The clock for what moves on its own (traffic, boats, turbines, water), in seconds:
+  /** The clock for what moves on its own (turbines, water), in seconds:
    * ``null`` follows the wall clock; a recording sets it frame by frame. */
   setClock(t: number | null): void {
     this.clock = t;
@@ -898,14 +901,18 @@ void main() {
         r.setRenderTarget(this.miniTarget);
         r.setClearColor(SKY);
         r.clear();
+        // Without the trees: the woods are painted on the ground, and at a map's scale a tree
+        // is a pixel (they were a seventh of a frame).
+        const trees = this.treeField?.group;
+        if (trees) trees.visible = false;
         r.render(this.scene, cam);
+        if (trees) trees.visible = true;
         r.setRenderTarget(null);
         this.compositeMini(x, y, rect.width, rect.height);
       } else r.render(this.scene, cam);
     };
-    // Moving parts: the turbines turn (about 15 rpm), the water flows, the traffic drives.
+    // Moving parts: the turbines turn (about 15 rpm), the water flows.
     const now = this.clock ?? performance.now() / 1000;
-    this.traffic?.update(now);
     for (const sp of this.spinners) sp.rotation.z = (sp.userData.spin as number) - 1.6 * now;
     const flow = (this.water?.material as THREE.MeshStandardMaterial | undefined)?.userData.flow as THREE.Texture | undefined;
     if (flow) flow.offset.set(0.004 * now, 0.0025 * now);
@@ -913,10 +920,6 @@ void main() {
       this.chaseCam.aspect = chase.width / chase.height;
       this.chaseCam.updateProjectionMatrix();
       if (this.look) {
-        const target = this.shot ? this.shot.at : this.freeControls?.enabled ? this.freeControls.target : this.aircraft.position;
-        this.look.follow(target, this.chaseCam.position);
-        this.treeField?.update(this.chaseCam.position);
-        r.shadowMap.autoUpdate = true;
         // Aerial perspective: a few per cent at a kilometre, a quarter at three, half at five.
         this.scene.fog = new THREE.FogExp2(HAZE, 0.00017);
       } else this.scene.fog = new THREE.Fog(SKY, 1800, 9000);
@@ -931,7 +934,6 @@ void main() {
       this.marker.scale.setScalar(12 * perPx);
       this.ghostMarker.scale.setScalar(12 * perPx);
       this.scene.fog = null;
-      r.shadowMap.autoUpdate = false; // the chase view's shadows serve here too
       view(top, this.topCam, "top");
     }
     r.setScissorTest(false);

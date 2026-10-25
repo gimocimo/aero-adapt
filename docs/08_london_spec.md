@@ -126,7 +126,7 @@ A small conventional tractor, `city-trainer` in `configs/fleets/city`, written d
   - **Railways.** Ballast, sleepers and rails at their heights; brick viaducts with arches down to the ground; bridges as decks; trains of six carriages. Under a station's roof, the roof stands for them.
   - **Movement.** Traffic keeping left (cars, black cabs, red buses), trains, and boats and barges on the Thames.
   - **Past the edge.** The ground runs on from the map's edge, the Thames carries on past both ends, and an ordinary city fills the rest out to 3.5 km.
-- **A fly-by video.** `tools/flyby_path.py london tools/flyby/london.json frames.json` turns camera keyframes into a smooth path, checked clear of everything measured by at least 12 m (this one by 44 m). `web/skyview/scripts/flyby.mjs` renders and encodes it, with the clock stepped frame by frame so traffic and boats move at their speed.
+- **A fly-by video.** `tools/flyby_path.py london tools/flyby/london.json frames.json` turns camera keyframes into a smooth path, checked clear of everything measured by at least 12 m (this one by 44 m). `web/skyview/scripts/flyby.mjs` renders and encodes it, with the clock stepped frame by frame so what moves (then traffic and boats; now the water and the turbines) moves at its speed.
 - **Google's tiles.** `?map=real` (Cesium with Google's photorealistic 3D tiles, docs/07) should show the same place from the site's origin, for comparison; it has not been tried with London yet. Those tiles may be shown, but their licence does not allow copying their geometry into the simulator.
 
 ## 8. Fidelity
@@ -142,7 +142,7 @@ A small conventional tractor, `city-trainer` in `configs/fleets/city`, written d
 - facades (windows, glass and stone are patterns);
 - roof detail finer than a metre (the plant on the roofs is placed at random);
 - the viaducts' arches (the viaducts are where the LiDAR has them; their arches are a pattern);
-- the traffic, the trains and the boats;
+- the traffic, the trains and the boats (until 25 Oct 2026, when they went: docs/07 §15);
 - the city beyond the box;
 - the clouds.
 

@@ -199,6 +199,8 @@ export function outskirts(w: WorldPayload, ground: Ground, levelAt: ((n: number,
 /** Hedges: a row of overlapping, irregular bushes along each segment (from the segment's
  * height and width) over a dense core that fills the dips between them, as the eye sees a
  * hedgerow: one lumpy mass, never quite the same. */
+const HEDGE_TILE_M = 500; // hedges are grouped in tiles this wide, each culled as a whole
+
 export function hedges(w: WorldPayload, ground: Ground): THREE.Group | null {
   const h = w.hedges;
   const n = h.length / 6;
@@ -223,32 +225,55 @@ export function hedges(w: WorldPayload, ground: Ground): THREE.Group | null {
       bushes.push([ee, ground.at(nn, ee) - 0.3, -nn, (width / 2) * (0.85 + 0.5 * j), height * (0.8 + 0.35 * j), j, yaw]);
     }
   }
-  const blob = new THREE.IcosahedronGeometry(1, 1);
+  // Bushes of 20 triangles (they are 1-4 m tall; there are tens of thousands), grouped in
+  // tiles like the trees (trees3d.ts), so the hedges out of view are not drawn.
+  const blob = new THREE.IcosahedronGeometry(1, 0);
   blob.translate(0, 0.55, 0);
-  const mesh = new THREE.InstancedMesh(blob, new THREE.MeshLambertMaterial({ flatShading: true }), bushes.length);
+  const bushMat = new THREE.MeshLambertMaterial({ flatShading: true });
+  const box = new THREE.BoxGeometry(1, 1, 1);
+  box.translate(0, 0.5, 0);
+  const shade = new THREE.Color().setHSL(0.27, 0.42, 0.27); // the bushes' green, in their shadow
+  const coreMat = new THREE.MeshLambertMaterial({ color: shade });
+  const tileOf = (x: number, z: number) => `${Math.floor(x / HEDGE_TILE_M)},${Math.floor(z / HEDGE_TILE_M)}`;
+  const byTile = new Map<string, { bushes: typeof bushes; cores: typeof cores }>();
+  const tile = (x: number, z: number) => {
+    const key = tileOf(x, z);
+    let t = byTile.get(key);
+    if (!t) byTile.set(key, (t = { bushes: [], cores: [] }));
+    return t;
+  };
+  for (const b of bushes) tile(b[0], b[2]).bushes.push(b);
+  for (const c of cores) tile(c[0], c[2]).cores.push(c);
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const up = new THREE.Vector3(0, 1, 0);
   const c = new THREE.Color();
-  bushes.forEach(([x, y, z, r, ht, j, yaw], k) => {
-    // Long along the hedge, so neighbours overlap into one lumpy hedge (not beads on a string).
-    q.setFromAxisAngle(up, yaw + (j - 0.5) * 0.5);
-    m.compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(Math.max(r * 1.9, 1.75), ht * 0.62, r * 1.1));
-    mesh.setMatrixAt(k, m);
-    mesh.setColorAt(k, c.setHSL(0.27 + 0.03 * (j - 0.5), 0.42, 0.3 + 0.035 * j));
-  });
-  // The core: a box per segment, a little lower and narrower than the bushes round it.
-  const box = new THREE.BoxGeometry(1, 1, 1);
-  box.translate(0, 0.5, 0);
-  const shade = new THREE.Color().setHSL(0.27, 0.42, 0.27); // the bushes' green, in their shadow
-  const core = new THREE.InstancedMesh(box, new THREE.MeshLambertMaterial({ color: shade }), cores.length);
-  cores.forEach(([x, y, z, len, ht, wd, yaw], k) => {
-    q.setFromAxisAngle(up, yaw);
-    m.compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(len, ht, wd));
-    core.setMatrixAt(k, m);
-  });
   const group = new THREE.Group();
-  group.add(mesh, core);
+  for (const t of byTile.values()) {
+    if (t.bushes.length) {
+      const mesh = new THREE.InstancedMesh(blob, bushMat, t.bushes.length);
+      t.bushes.forEach(([x, y, z, r, ht, j, yaw], k) => {
+        // Long along the hedge, so neighbours overlap into one lumpy hedge (not beads on a string).
+        q.setFromAxisAngle(up, yaw + (j - 0.5) * 0.5);
+        m.compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(Math.max(r * 1.9, 1.75), ht * 0.62, r * 1.1));
+        mesh.setMatrixAt(k, m);
+        mesh.setColorAt(k, c.setHSL(0.27 + 0.03 * (j - 0.5), 0.42, 0.3 + 0.035 * j));
+      });
+      mesh.computeBoundingSphere();
+      group.add(mesh);
+    }
+    if (t.cores.length) {
+      // The core: a box per segment, a little lower and narrower than the bushes round it.
+      const core = new THREE.InstancedMesh(box, coreMat, t.cores.length);
+      t.cores.forEach(([x, y, z, len, ht, wd, yaw], k) => {
+        q.setFromAxisAngle(up, yaw);
+        m.compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(len, ht, wd));
+        core.setMatrixAt(k, m);
+      });
+      core.computeBoundingSphere();
+      group.add(core);
+    }
+  }
   return group;
 }
 
@@ -884,8 +909,7 @@ function turbine(s: Structure): THREE.Group {
   spinner.userData.spin = phase;
   for (let k = 0; k < 3; k++) {
     const b = new THREE.Mesh(blade, bladeMat);
-    b.rotation.z = (k * 2 * Math.PI) / 3;
-    b.castShadow = true;
+    b.rotation.z = (k * 2 * Math.PI) / 3; // no shadow: the map's are cast once (docs/07 §15)
     spinner.add(b);
   }
   spinner.rotation.z = phase;

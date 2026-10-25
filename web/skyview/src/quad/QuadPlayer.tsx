@@ -68,6 +68,8 @@ export default function QuadPlayer() {
   const chaseRef = useRef<HTMLElement>(null);
   const topRef = useRef<HTMLElement>(null);
   const viewRef = useRef<WorldView | null>(null);
+  const liveRef = useRef<LiveClient | null>(null);
+  const readyFor = useRef(0); // the session whose world was last reported drawn
   const replay = useStore((s) => s.replay);
   const camera = useStore((s) => s.camera);
   const [error, setError] = useState<string | null>(null);
@@ -103,6 +105,12 @@ export default function QuadPlayer() {
       view.update(s.time, s.layers, mode);
       const top = params().film ? null : (topRef.current?.getBoundingClientRect() ?? null);
       view.render(chaseRef.current?.getBoundingClientRect() ?? null, top);
+      // Live: the session's world is on screen, so its clock may start (once per hello).
+      const client = liveRef.current;
+      if (s.live?.loading && client && readyFor.current !== client.sessions && view.showing(s.live.world)) {
+        readyFor.current = client.sessions;
+        client.ready();
+      }
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
@@ -164,6 +172,7 @@ export default function QuadPlayer() {
         .then((g) => store.setGhost(g))
         .catch((e: unknown) => setError(String(e)));
     }
+    const hold = true; // the server holds the clock until the world is drawn
     const client = new LiveClient(url, {
       onBuffer: () => store.setReplay(null),
       onData: (b) => {
@@ -174,10 +183,14 @@ export default function QuadPlayer() {
         else store.setReplay(snap);
       },
       onStatus: (s) => store.setLive(s),
-    });
+    }, hold);
+    liveRef.current = client;
     store.setLive(OFFLINE, (msg) => client.send(msg));
     if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__live = client;
-    return () => client.close();
+    return () => {
+      liveRef.current = null;
+      client.close();
+    };
   }, []);
 
   // Replays: the index, then the requested replay (and ghost).
@@ -234,12 +247,15 @@ export default function QuadPlayer() {
 
   const cameraName = camera === "orbit" ? "orbit" : camera === "free" ? "free" : "chase";
   const [collapsed, setCollapsed] = useState(false);
+  // Live: what the page is waiting for before the flight starts.
+  const loading = live?.connected && live.loading ? `Loading ${live.world?.name || live.scenario || "the site"}…` : null;
   if (!params().quad) {
     const mapName = world ? world.name : (replay?.manifest.site.name ?? "Map");
     return (
       <div className={params().film ? "fly film" : "fly"}>
         <canvas ref={canvasRef} className="gl" />
         <section ref={chaseRef} className="f-chase" data-testid="view-follow">
+          {loading && <div className="loading">{loading}</div>}
           <div className="f-badges">
             <span className="f-title">{cameraName === "free" ? "Free camera" : cameraName === "orbit" ? "Orbit" : "Chase"}</span>
             <WindBadge view="chase" />
@@ -272,6 +288,7 @@ export default function QuadPlayer() {
     <div className={params().film ? "quad film" : "quad"}>
       <canvas ref={canvasRef} className="gl" />
       <section ref={chaseRef} className="q q-chase" data-testid="view-follow">
+        {loading && <div className="loading">{loading}</div>}
         <h2 className="q-title">Follow · {cameraName}</h2>
         <WindBadge view="chase" />
       </section>

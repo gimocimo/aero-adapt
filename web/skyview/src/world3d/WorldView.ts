@@ -18,16 +18,23 @@ import { rWorldFromModel } from "./frame";
 import { HAZE, Look } from "./look";
 import { Post } from "./post";
 import { type LevelAt, Traffic } from "./traffic";
+import { detailTextures } from "./detail";
 import { groundMaterial } from "./materials";
 import { buildings, hedges, outskirts, railways, roadSurfaces, skirt, structures, terrainGeometry, trees, waterSurfaces, wires } from "./meshes";
 import { type OverlayState, paintClasses, paintGround, paintOverlay } from "./paint";
 import { TreeField } from "./trees3d";
 import { flatWorld, Ground, type WorldPayload } from "./payload";
+import { timed } from "./perf";
 
 export type ChaseMode = "chase" | "orbit" | "free";
 
 const MODEL_URI = "/models/calibration_uav.glb";
 const TRAIL_S = 120;
+// Pixels drawn per frame, at most: a big window on a high-density screen (a 5K display draws
+// 15 million) gets a lower pixel ratio, down to 1. On the test map a frame of 3 million pixels
+// cost barely more than one of 0.8 million (its cost is the scene's geometry), so up to this
+// budget the view stays as sharp as the screen.
+const PIXEL_BUDGET = 4.5e6;
 const TRAIL_STRIDE = 5; // 50 Hz → 10 Hz
 const SKY = new THREE.Color("#bcd7ee");
 const GAP = new THREE.Color("#0b0e12"); // between the panels
@@ -133,6 +140,8 @@ export class WorldView {
   private topControls: MapControls | null = null;
   private fitKey = "";
   private loader = new GLTFLoader();
+  private firstFrame = false; // a new world, not yet drawn
+  private ratioMax = 1;
   private modelUri = "";
   private chaseScale = 1;
   private worldKey = "";
@@ -167,7 +176,11 @@ export class WorldView {
     this.minimap = opts.minimap ?? false;
     this.cinematic = this.thin <= 1;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.thin > 1 ? 1 : 2));
+    this.ratioMax = Math.min(window.devicePixelRatio, this.thin > 1 ? 1 : 2);
+    this.renderer.setPixelRatio(this.ratioMax);
+    // The ground's detail textures take most of a second to make: made now, while the page
+    // waits for the world, rather than when it arrives.
+    if (this.cinematic) setTimeout(() => timed("skyview: detail textures", detailTextures), 0);
     this.renderer.setClearColor(SKY);
     this.scene.background = SKY;
     if (this.cinematic) {
@@ -283,6 +296,7 @@ export class WorldView {
     });
     this.worldGroup.clear();
     this.overlay = null;
+    this.post?.skipInOcclusion([]);
     this.treeField = null;
     this.traffic = null; // its meshes went with the group
     this.spinners = [];
@@ -298,6 +312,7 @@ export class WorldView {
     this.clearWorld();
     this.world = world;
     this.ground = new Ground(world.dtm);
+    const t0 = performance.now();
     const size = w ? 4096 : 2048;
     // With water surfaces, the painted water is only seen at the edges: as shallows.
     const ground = paintGround(world, size, this.cinematic ? "#46696f" : undefined);
@@ -347,6 +362,7 @@ export class WorldView {
     if (world.trees.length) {
       if (this.cinematic) {
         this.treeField = new TreeField(world);
+        this.post?.skipInOcclusion(this.treeField.far);
         this.worldGroup.add(this.treeField.group);
       } else this.worldGroup.add(trees(world, this.thin));
     }
@@ -375,6 +391,8 @@ export class WorldView {
     this.scene.fog = null;
     this.fitKey = "";
     this.rebuildLabels();
+    performance.measure("skyview: world build", { start: t0 });
+    this.firstFrame = true;
   }
 
   private paintGrid(canvas: HTMLCanvasElement, w: WorldPayload): void {
@@ -826,11 +844,25 @@ void main() {
   }
 
   /** Draw both views into their panels' rectangles (CSS pixels). */
+  /** Whether the world on screen is ``w`` (null: a site without one), drawn at least once. */
+  showing(w: WorldPayload | null): boolean {
+    if (this.firstFrame || !this.world) return false;
+    return w ? this.worldKey === `world:${w.id}` : this.worldKey.startsWith("flat:");
+  }
+
   render(chase: DOMRect | null, top: DOMRect | null): void {
+    if (this.firstFrame) {
+      // The first frame of a new world compiles its shaders and uploads its buffers.
+      this.firstFrame = false;
+      timed("skyview: world first frame", () => this.render(chase, top));
+      return;
+    }
     const r = this.renderer;
     const canvas = r.domElement;
     const W = canvas.clientWidth;
     const H = canvas.clientHeight;
+    const ratio = Math.max(1, Math.min(this.ratioMax, Math.sqrt(PIXEL_BUDGET / Math.max(W * H, 1))));
+    if (Math.abs(ratio - r.getPixelRatio()) > 0.01) r.setPixelRatio(ratio);
     if (canvas.width !== Math.floor(W * r.getPixelRatio()) || canvas.height !== Math.floor(H * r.getPixelRatio())) {
       r.setSize(W, H, false);
     }

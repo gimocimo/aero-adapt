@@ -2,6 +2,7 @@
 import { decode, encode } from "@msgpack/msgpack";
 import type { Manifest, ReplayEvent } from "../replay/types";
 import { fromWire, type WorldPayload } from "../world3d/payload";
+import { timed } from "../world3d/perf";
 import { LiveBuffer, type WireColumn } from "./buffer";
 
 /** A fault of the session; `index` is what `clear_fault` takes. */
@@ -85,6 +86,8 @@ export interface LiveAirframe {
 
 export interface LiveStatus {
   connected: boolean;
+  /** The server holds the clock until this page has drawn the world (``hold``). */
+  loading: boolean;
   timeS: number;
   speed: number;
   paused: boolean;
@@ -120,6 +123,7 @@ export interface LiveWind {
 
 export const OFFLINE: LiveStatus = {
   connected: false,
+  loading: false,
   timeS: 0,
   speed: 1,
   paused: false,
@@ -168,6 +172,7 @@ type Message =
       error: string | null;
       faults: LiveFault[];
       wind: LiveWind;
+      loading?: boolean;
     };
 
 export interface LiveHandlers {
@@ -180,27 +185,46 @@ export class LiveClient {
   private ws: WebSocket | null = null;
   private buffer: LiveBuffer | null = null;
   private status: LiveStatus = OFFLINE;
-  private sessions = 0;
+  private helloCount = 0;
   private closed = false;
   private retry: ReturnType<typeof setTimeout> | null = null;
 
+  /** ``hold``: ask the server to hold each session's clock until ``ready()`` (the page has
+   * drawn the world), so the flight does not start while it is still loading. */
   constructor(
     private readonly url: string,
     private readonly h: LiveHandlers,
+    private readonly hold = false,
   ) {
     this.connect();
   }
 
+  /** How many sessions (hellos) this connection has had. */
+  get sessions(): number {
+    return this.helloCount;
+  }
+
+  /** The world is drawn: the server may start the clock. */
+  ready(): void {
+    this.send({ cmd: "ready" });
+  }
+
   /** Connect, and keep retrying every second while the server is not (yet) up. */
   private connect(): void {
-    const ws = new WebSocket(this.url);
+    const url = this.hold ? `${this.url}${this.url.includes("?") ? "&" : "?"}hold=1` : this.url;
+    const ws = new WebSocket(url);
     ws.binaryType = "arraybuffer";
-    ws.onopen = () => this.setStatus({ connected: true });
+    ws.onopen = () => this.setStatus({ connected: true, loading: this.hold });
     ws.onclose = () => {
       this.setStatus({ connected: false });
       if (!this.closed) this.retry = setTimeout(() => this.connect(), 1000);
     };
-    ws.onmessage = (ev: MessageEvent<ArrayBuffer>) => this.handle(decode(new Uint8Array(ev.data)) as Message);
+    ws.onmessage = (ev: MessageEvent<ArrayBuffer>) => {
+      const t0 = performance.now();
+      const m = decode(new Uint8Array(ev.data)) as Message;
+      if (m.type === "hello") performance.measure("skyview: hello decode", { start: t0 });
+      this.handle(m);
+    };
     this.ws = ws;
   }
 
@@ -228,8 +252,8 @@ export class LiveClient {
 
   private handle(m: Message): void {
     if (m.type === "hello") {
-      this.sessions += 1;
-      this.buffer = new LiveBuffer(`live-${this.sessions}`, m.manifest);
+      this.helloCount += 1;
+      this.buffer = new LiveBuffer(`live-${this.helloCount}`, m.manifest);
       if (this.status.modelUrl) URL.revokeObjectURL(this.status.modelUrl);
       const modelUrl = m.model
         ? URL.createObjectURL(new Blob([m.model as Uint8Array<ArrayBuffer>], { type: "model/gltf-binary" }))
@@ -242,7 +266,7 @@ export class LiveClient {
         modelUrl,
         faults: [],
         site: m.site,
-        world: m.world ? fromWire(m.world) : null,
+        world: m.world ? timed("skyview: world from wire", () => fromWire(m.world)) : null,
         proposal: null,
         activePlan: m.plan,
         translator: m.translator ?? null,
@@ -275,6 +299,7 @@ export class LiveClient {
         error: m.error,
         faults: m.faults,
         wind: m.wind,
+        loading: m.loading ?? false,
       });
     }
   }

@@ -420,6 +420,11 @@ For demo videos, Skyview's chase view has a look of its own. It is on by default
 - **Set shots.** `__view.setShot([n, e, h], [n, e, h])` in the dev console puts the camera at one point looking at another, for stills; `setShot(null)` gives the follow view back. `web/skyview/scripts/stills.mjs <out-dir> <shots.json>` takes a list of them at 1920×1080, headless (the pictures above).
 - **Fly-by videos.** `tools/flyby_path.py` turns camera keyframes into a smooth path checked clear of everything; `web/skyview/scripts/flyby.mjs` renders it and encodes an MP4 (docs/08 §7).
 - **Cost.** About 12.6 million triangles a frame on the test map; 118 fps at 1600×1000 on the development Mac, before ambient occlusion.
+- **Loading and frame cost** (25 Oct 2026, after the owner found the map slow to appear).
+  - **A live session starts when its world is on screen.** Skyview connects with `?hold=1`, so the server holds the session's clock. Skyview shows "Loading …" and says `ready` once the world's first frame is drawn; the server starts anyway after 30 s. Before this, the first two to three seconds of flight passed while the 5.3 MB world was still being received, built and drawn.
+  - **The ground's detail textures** (0.6 s of noise) are made while the page waits for the server. Building the test map's world then takes about 0.3 s, and its first frame, which compiles the shaders, about 0.25 s. The page records each stage as a `skyview: …` performance measure.
+  - **Ambient occlusion runs at half resolution, without the far trees.** The far trees are about 104,000 simple shapes, most of the triangles, at a distance where a few metres of occlusion is nothing. A test-map frame went from 36.5 ms to 26.7 ms, measured with forced frames in the app's browser at 1024×768. The traffic (1,640 vehicles) costs about 1 ms of that, so it stays.
+  - **A frame draws at most 4.5 million pixels**: the pixel ratio comes down for a big window on a high-density screen.
 
 **Fidelity.** None of this changes the simulator; the views draw the same payload, at the same positions and heights. The look is a drawing:
 

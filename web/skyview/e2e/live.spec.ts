@@ -67,13 +67,13 @@ test("txt2fly: typed and spoken plans are checked, confirmed and flown", async (
   await expect(page.getByTestId("clock")).toContainText("LIVE", { timeout: 60_000 });
 
   await page.getByTestId("plan-tab").click();
-  // A circle the aircraft cannot hold, over a no-fly area: flown as closely as allowed, with
-  // every change explained.
+  // A circle the aircraft cannot hold, round a church inside a no-fly area: widened to a loop
+  // round it, clear of the village (docs/06 §17), with every change explained.
   await page.getByTestId("typed-plan").click();
   await page.getByRole("button", { name: "Church, 30 m circle" }).click();
   await page.getByTestId("plan-check").click();
   await expect(page.getByTestId("plan-notes")).toContainText("the tightest it can", { timeout: 30_000 });
-  await expect(page.getByTestId("plan-notes")).toContainText("within Wrenfold village (no-fly)");
+  await expect(page.getByTestId("plan-notes")).toContainText("keeps clear of Wrenfold village (no-fly)");
 
   const ask = async (text: string) => {
     await page.getByTestId("ask-input").fill(text);

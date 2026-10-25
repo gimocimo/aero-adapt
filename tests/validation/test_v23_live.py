@@ -205,6 +205,26 @@ def test_server_protocol(server_port: int) -> None:
     asyncio.run(exchange())
 
 
+def test_a_held_clock_waits_for_ready(server_port: int) -> None:
+    """With ``?hold=1`` the session's clock waits until the client has drawn the world and
+    says ``ready``: no frames before it, frames after it."""
+
+    async def exchange() -> None:
+        async with connect(f"ws://127.0.0.1:{server_port}?hold=1", max_size=None) as ws:
+            assert _unpack(await asyncio.wait_for(ws.recv(), 60))["type"] == "hello"
+            assert (await _until(ws, "status"))["loading"] is True
+            with pytest.raises(TimeoutError):  # held: nothing flies
+                while True:
+                    m = _unpack(await asyncio.wait_for(ws.recv(), 1.0))
+                    assert m["type"] != "frames"
+            await _send(ws, {"cmd": "ready"})
+            assert (await _until(ws, "status"))["loading"] is False
+            m = await _until(ws, "frames")
+            assert np.frombuffer(m["cols"]["t"]["data"], np.float32)[0] < 0.5  # from the start
+
+    asyncio.run(exchange())
+
+
 def test_pacing_jitter_at_real_time(server_port: int) -> None:
     """Frames leave every 0.1 s of wall-clock time at 1x: p99 jitter <= 20 ms."""
 

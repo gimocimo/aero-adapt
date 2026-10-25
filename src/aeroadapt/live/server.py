@@ -6,7 +6,12 @@ airframe's glTF), ``frames`` (columns of new rows), ``events``, ``status`` (time
 paused, done, last error, the session's faults, the wind set).
 Client → server: ``inject_fault{spec}`` (a fault spec without trigger), ``clear_fault{index}``,
 ``set_wind{speed_mps, from_deg}``, ``set_speed{x}``, ``pause``, ``resume``,
-``reset{scenario, airframe}``.
+``reset{scenario, airframe}``, ``ready``.
+
+A client that connects with ``?hold=1`` gets each session's clock held until it says ``ready``
+(it has drawn the world, which takes a few seconds), so the flight does not start unseen;
+``status`` says ``loading`` meanwhile. Without ``ready`` in ``READY_TIMEOUT_S``, it starts
+anyway.
 
 A world site's ``hello`` also carries its world (docs/07 §8): terrain, fields, woods, hedges,
 trees, buildings, for the stylised view.
@@ -38,6 +43,7 @@ import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 import msgpack
 import numpy as np
@@ -58,6 +64,7 @@ REPO = Path(__file__).resolve().parents[3]
 RUNS = REPO / "runs" / "live"
 SAMPLE_FLEET = REPO / "configs" / "fleets" / "sample"
 SPEEDS = (0.25, 0.5, 1.0, 2.0, 4.0)
+READY_TIMEOUT_S = 30.0  # a held clock starts anyway after this (see the top of the file)
 _session_ids = itertools.count(1)
 
 
@@ -149,8 +156,12 @@ class Connection:
         scenario_id: str,
         airframe_id: str | None,
         session: LiveSession,
+        hold: bool = False,
     ) -> None:
         self.ws = ws
+        self.hold = hold
+        self.loading = hold  # the clock waits for the client's ``ready``
+        self.loading_since = time.perf_counter()
         self.catalogue = catalogue
         self.scenario_id = scenario_id
         self.airframe_id = airframe_id
@@ -169,7 +180,8 @@ class Connection:
         s = self.session
         await self.send({"type": "status", "time_s": s.time_s, "speed": self.speed,
                          "paused": self.paused, "done": s.done, "error": self.error,
-                         "faults": s.fault_list(), "wind": s.wind})  # fmt: skip
+                         "faults": s.fault_list(), "wind": s.wind,
+                         "loading": self.loading})  # fmt: skip
 
     async def hello(self) -> None:
         cat = self.catalogue
@@ -264,6 +276,8 @@ class Connection:
                 self.paused = True
             elif cmd == "resume":
                 self.paused = False
+            elif cmd == "ready":
+                self.loading = False
             elif cmd == "propose_plan":
                 err, prop = await asyncio.to_thread(self.session.propose, msg.get("plan") or {})
                 self.error = err
@@ -292,13 +306,17 @@ class Connection:
                     self.session = await asyncio.to_thread(
                         self.catalogue.session, scenario, airframe
                     )
+                    self.loading, self.loading_since = self.hold, time.perf_counter()
                     await self.hello()
             await self.status()
 
     async def run(self) -> None:
         next_wall = time.perf_counter()
         while True:
-            if self.paused or self.session.done:
+            if self.loading and time.perf_counter() - self.loading_since > READY_TIMEOUT_S:
+                self.loading = False  # the client never said ready: start anyway
+                await self.status()
+            if self.paused or self.loading or self.session.done:
                 await asyncio.sleep(0.05)
                 next_wall = time.perf_counter()
                 continue
@@ -328,7 +346,9 @@ class Connection:
 
 async def _handler(ws: ServerConnection, catalogue: Catalogue, scenario_id: str) -> None:
     session = await asyncio.to_thread(catalogue.session, scenario_id, None)
-    conn = Connection(ws, catalogue, scenario_id, None, session)
+    query = parse_qs(urlsplit(ws.request.path).query) if ws.request is not None else {}
+    hold = query.get("hold", ["0"])[0] == "1"
+    conn = Connection(ws, catalogue, scenario_id, None, session, hold)
     try:
         await conn.hello()
         await conn.status()

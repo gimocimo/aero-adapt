@@ -1593,3 +1593,18 @@ dd {
     position: fixed;
   }
 }
+
+/* Live: the world is still loading, and the flight waits for it. */
+.f-chase .loading,
+.q-chase .loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font: 500 15px/1.4 system-ui, sans-serif;
+  color: #e8eef4;
+  background: rgba(11, 14, 18, 0.55);
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  z-index: 2;
+}

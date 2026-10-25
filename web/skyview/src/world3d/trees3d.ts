@@ -122,7 +122,8 @@ export class TreeField {
   readonly group = new THREE.Group();
   private t: Float32Array;
   private count: number;
-  private far: THREE.InstancedMesh[] = [];
+  /** The far set: simple shapes, one per tree (most of the scene's triangles). */
+  readonly far: THREE.InstancedMesh[] = [];
   private slot: Int32Array; // index in its far mesh
   private model: Uint8Array; // which model, near
   private near: THREE.InstancedMesh[] = [];

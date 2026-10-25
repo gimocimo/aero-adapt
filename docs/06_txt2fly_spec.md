@@ -516,8 +516,8 @@ On confirmation the proposed path replaces the white mission line.
 - **Grading** is deterministic code: the reply is typed, so no model judges another.
 - **Repeats:** each case runs 3 times, and the report gives the mean and the worst of the 3.
 - **Configurations:**
-  - Haiku 5.5 with thinking off (the default);
-  - Haiku 5.5 with adaptive thinking at low effort;
+  - Haiku 5.5 with thinking off (the default until 25 Oct 2026);
+  - Haiku 5.5 with adaptive thinking at low effort (the default since, §17);
   - one Opus 5.5 pass, as the reference.
 
   The report gives accuracy and latency for each, so the cost of a smaller model is measured, not
@@ -783,7 +783,8 @@ the language layer moves to week 11. For Txt2Fly:
 
 - **The translator** (`txt2fly/translate.py`), through the official SDK (`anthropic` 2.x, the
   new `txt2fly` extra), `AsyncAnthropic` with a 30 s timeout:
-  - **Haiku 5.5 without thinking at low effort** by default (`thinking: disabled` is accepted
+  - **Haiku 5.5 without thinking at low effort** by default until 25 Oct 2026, then with
+    adaptive thinking (`haiku-think`, §17) (`thinking: disabled` is accepted
     at low to high effort on this model); no sampling parameters and no prefill, which this
     model and the 2026-10-21 API reject. The other settings: `haiku-think` (adaptive thinking,
     low effort) and `opus` (Opus 5.5, which always thinks, at its default medium effort).
@@ -929,8 +930,9 @@ now fit in one mission, so the "split it in two" test uses sixteen.
 
 **Open**
 
-- Relative positions without thinking (or switch the default to `haiku-think`: the owner's
-  call).
+- ~~Relative positions without thinking~~: on 25 Oct the owner switched the default to
+  `haiku-think` (Haiku 5.5 with adaptive thinking), which meets every V32 target. `haiku`
+  without thinking stays available (`--translator haiku`).
 - Surveys and edges over high ground: offer the height that clears a zone or a ridge.
 - The Opus reference pass (V27), as before.
 

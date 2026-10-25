@@ -388,9 +388,9 @@ def make_translator(choice: str) -> tuple[tr.Translator | None, str]:
     if choice == "stand-in" or (choice == "auto" and not tr.available()):
         note = "" if choice == "stand-in" else "no API key: "
         return tr.StandIn(), note + "a stand-in reads a few fixed phrasings"
-    setting = "haiku" if choice in ("auto", "claude") else choice
+    setting = tr.DEFAULT if choice in ("auto", "claude") else choice
     t = tr.ClaudeTranslator(setting)
-    return t, f"Claude ({t.setting.model})"
+    return t, f"Claude ({t.setting.model}{', adaptive thinking' if t.setting.thinking else ''})"
 
 
 async def run_server(

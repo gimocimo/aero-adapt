@@ -100,8 +100,10 @@ class Setting:
 
 
 SETTINGS = {
-    # The default: Haiku 5.5 without thinking, for latency (the owner's choice, 21 Oct 2026).
+    # Haiku 5.5 without thinking: the default until 25 Oct 2026 (the owner's choice, for latency).
     "haiku": Setting("haiku", "claude-haiku-5-5", False, "low", 4096),
+    # The default since 25 Oct 2026 (the owner's choice): adaptive thinking meets every V32 target,
+    # relative positions included, for about 0.5 s more (docs/validation/txt2fly_spatial.md).
     "haiku-think": Setting("haiku-think", "claude-haiku-5-5", True, "low", 16000),
     # With the map picture: measured, not the default (about 2 s slower, and Haiku trusted the
     # picture's few labels over the list: docs/validation/txt2fly_spatial.md).
@@ -109,6 +111,7 @@ SETTINGS = {
     # The reference: what a larger model adds. Opus 5.5 always thinks; medium is its default.
     "opus": Setting("opus", "claude-opus-5-5", True, "medium", 16000, fallbacks=True),
 }
+DEFAULT = "haiku-think"  # the setting `serve` and `txt2fly ask|eval` use unless told
 
 
 # --------------------------------------------------------------------------- replies
@@ -553,7 +556,7 @@ def _messages(ctx: Context, user: str, with_map: bool = False) -> list[dict[str,
 class ClaudeTranslator:
     """Claude through the official SDK (``anthropic``, the ``txt2fly`` extra)."""
 
-    def __init__(self, setting: str = "haiku", client: AsyncAnthropic | None = None) -> None:
+    def __init__(self, setting: str = DEFAULT, client: AsyncAnthropic | None = None) -> None:
         self.setting = SETTINGS[setting]
         self.name = f"claude:{self.setting.name}"
         self._client = client

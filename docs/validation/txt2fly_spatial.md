@@ -224,3 +224,7 @@ V32 target but relative positions, and V27's. With adaptive thinking it meets th
 (ambiguous at the target exactly) for about 0.5 s more at the median; its V27 results (23 Oct)
 also met every target. Switching is a one-word change (`--translator haiku-think`), and the
 owner's call.
+
+**25 Oct 2026: the owner switched the default to `haiku-think`.** `serve` (auto) and
+`aeroadapt txt2fly ask|eval` now use Haiku 5.5 with adaptive thinking; `--translator haiku` is
+the faster setting without it.

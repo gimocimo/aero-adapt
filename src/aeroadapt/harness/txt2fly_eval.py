@@ -570,7 +570,7 @@ def failures_md(attempts: list[Attempt]) -> str:
 
 def main(
     split: str = "test",
-    translators: tuple[str, ...] = ("haiku",),
+    translators: tuple[str, ...] = (tr.DEFAULT,),
     repeats: int = 3,
     only: tuple[str, ...] = (),
     out: Path | None = None,

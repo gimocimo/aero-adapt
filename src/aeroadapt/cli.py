@@ -400,10 +400,10 @@ def main(argv: list[str] | None = None) -> int:
     sv.add_argument(
         "--translator",
         default="auto",
-        choices=("auto", "claude", "haiku-think", "haiku-map", "opus", "stand-in", "none"),
-        help="Txt2Fly's language layer: auto = Claude (Haiku 5.5) when ANTHROPIC_API_KEY is "
-        "set, else a stand-in that reads a few fixed phrasings; haiku-map also sends the "
-        "site's map picture",
+        choices=("auto", "claude", "haiku", "haiku-think", "haiku-map", "opus", "stand-in", "none"),
+        help="Txt2Fly's language layer: auto = Claude (Haiku 5.5 with adaptive thinking) when "
+        "ANTHROPIC_API_KEY is set, else a stand-in that reads a few fixed phrasings; haiku: "
+        "without thinking (faster); haiku-map also sends the site's map picture",
     )
     sv.set_defaults(func=_serve)
     tx = sub.add_parser("txt2fly", help="Txt2Fly's language layer: ask, or evaluate (docs/06 §9)")
@@ -411,9 +411,9 @@ def main(argv: list[str] | None = None) -> int:
     tx.add_argument("text", nargs="?", default="", help="ask: the instruction")
     tx.add_argument(
         "--translator",
-        default="haiku",
-        help="haiku, haiku-think, haiku-map, opus, stand-in (eval: also gold; several, "
-        "comma-separated)",
+        default="haiku-think",
+        help="haiku-think (the default), haiku, haiku-map, opus, stand-in (eval: also gold; "
+        "several, comma-separated)",
     )
     tx.add_argument("--scenario", default="txt2fly-demo", help="ask: site, airframe and weather")
     tx.add_argument("--airframe", help="ask: a sample-fleet airframe id")

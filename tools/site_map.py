@@ -27,6 +27,7 @@ matplotlib.use("Agg")
 import matplotlib.patheffects as pe
 import matplotlib.pyplot as plt
 import numpy as np
+import shapely
 from matplotlib.collections import LineCollection, PolyCollection
 
 from aeroadapt.scenarios.site import SITE_DIR, load_site
@@ -45,13 +46,16 @@ LABEL_SKIP = ("road", "street", "lane", "home", "turbine", "pylon")
 
 
 def map_hash(site_id: str) -> str:
-    """What the picture is drawn from: the places, their shapes and the no-fly areas."""
+    """What the picture is drawn from: the places, their shapes and the no-fly areas. The shapes
+    count to the metre: the geometry library's last digits differ between machines."""
     site = load_site(site_id)
     gaz = load_gazetteer(site)
     h = hashlib.sha256(f"v{VERSION}|{site.model_dump_json()}".encode())
     for p in prompt_places(gaz):
         geom = features.shape(site, p.id)
-        h.update(f"{p.id}|{p.name}|{p.kind}|{geom.wkt if geom is not None else ''}".encode())
+        h.update(f"{p.id}|{p.name}|{p.kind}|".encode())
+        if geom is not None:
+            h.update(np.round(shapely.get_coordinates(geom)).astype(np.int64).tobytes())
     return h.hexdigest()[:16]
 
 

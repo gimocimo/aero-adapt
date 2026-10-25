@@ -9,7 +9,7 @@ jobs:
   full-validation:
     name: full validation tier
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90 # 53 min on 24 Oct 2026; the map-aware planner's tests took it past 60
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.0

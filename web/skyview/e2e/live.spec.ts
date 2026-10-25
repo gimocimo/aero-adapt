@@ -58,6 +58,9 @@ test("live mode: a sensor fault is injected and cleared; a motor cut is logged a
 // words (the stand-in translator here) become a plan that is confirmed and flown, and a request
 // to change a safety rule is refused.
 test("txt2fly: typed and spoken plans are checked, confirmed and flown", async ({ page }) => {
+  // A scenario switch, three plans built and checked, one flown: past two minutes on CI's
+  // software GPU since the planner reads the map (docs/06 §17).
+  test.setTimeout(240_000);
   const errors: string[] = [];
   page.on("pageerror", (err) => errors.push(err.message));
   await page.goto("/?live=ws://localhost:8799&quality=low");

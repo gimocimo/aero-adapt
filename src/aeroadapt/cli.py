@@ -144,15 +144,38 @@ def _fleet_accept(args: argparse.Namespace) -> int:
     if not fleet_dir.exists():
         fleet_dir = Path("runs/fleets") / args.fleet
     airframes = load_fleet(fleet_dir)[: args.n]
+    out_dir = Path(args.out or f"runs/v20/{fleet_dir.name}")
     t0 = time.perf_counter()
     run = run_fleet_v20(
-        airframes, load_site(args.site), batch=args.batch, seed=args.seed, workers=args.workers
+        airframes,
+        load_site(args.site),
+        batch=args.batch,
+        seed=args.seed,
+        workers=args.workers,
+        parts=out_dir / "parts",
+        fingerprint=_v20_fingerprint(fleet_dir, args.site),
     )
     meta = {"fleet": fleet_dir.name, "site": args.site, "seed": args.seed,
-            "seconds": round(time.perf_counter() - t0)}  # fmt: skip
-    out = write_fleet_v20(Path(args.out or f"runs/v20/{fleet_dir.name}"), run, meta)
+            "seconds": round(time.perf_counter() - t0), "resumed_batches": run.resumed}  # fmt: skip
+    out = write_fleet_v20(out_dir, run, meta)
     print(f"V20: {run.pass_rate:.1%} of {len(run.results)} airframes passed → {out}")
     return 0
+
+
+def _v20_fingerprint(fleet_dir: Path, site: str) -> str:
+    """What a kept V20 batch depends on besides its airframe ids and seed: the code (the commit,
+    plus the uncommitted changes to tracked files under ``src`` and ``configs``), the fleet
+    bundle's manifest and the site. Outside a git checkout only the fleet and site count."""
+    import hashlib
+
+    h = hashlib.sha256(f"site={site}\n".encode())
+    manifest = fleet_dir / "manifest.json"
+    if manifest.exists():
+        h.update(manifest.read_bytes())
+    for cmd in (["git", "rev-parse", "HEAD"], ["git", "diff", "HEAD", "--", "src", "configs"]):
+        with contextlib.suppress(OSError, subprocess.CalledProcessError):
+            h.update(subprocess.run(cmd, cwd=REPO, capture_output=True, check=True).stdout)
+    return h.hexdigest()
 
 
 def _fleet_sample(args: argparse.Namespace) -> int:
@@ -375,7 +398,11 @@ def main(argv: list[str] | None = None) -> int:
     fa.add_argument("--site", default="cambridge_west")
     fa.add_argument("--seed", type=int, default=0)
     fa.add_argument("--workers", type=int, default=1, help="batches flown in parallel processes")
-    fa.add_argument("--out", help="output directory (default: runs/v20/<fleet>)")
+    fa.add_argument(
+        "--out",
+        help="output directory (default: runs/v20/<fleet>); finished batches are kept in "
+        "<out>/parts, and a rerun with the same code resumes from them",
+    )
     fa.set_defaults(func=_fleet_accept)
     fs = sub.add_parser("fleet-sample", help="the sample fleet: V20-accepted airframes, tuned")
     fs.add_argument("fleet", help="fleet bundle directory")

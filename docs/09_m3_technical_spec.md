@@ -1,6 +1,6 @@
 # M3 Technical Specification: One Brain, Many Airframes
 
-*Status: draft for review, revised after a three-reviewer check · 6 Nov 2026 · Parent plan: [03 — AeroAdapt-UAV](03_uav_architecture_and_six_month_roadmap.md) §4.2, §5 and §7.2 · Previous milestone: [05 — M2](05_m2_technical_spec.md)*
+*Status: decisions settled (§0), after a three-reviewer check · 6 Nov 2026 · Parent plan: [03 — AeroAdapt-UAV](03_uav_architecture_and_six_month_roadmap.md) §4.2, §5 and §7.2 · Previous milestone: [05 — M2](05_m2_technical_spec.md)*
 
 **Goal of M3.** One frozen learned flight controller flies airframes it never trained on, in an
 independent simulator too, and recovers from a hard-over where one is physically recoverable.
@@ -10,18 +10,16 @@ confidence intervals on the generalisation splits G2–G4, against the stock aut
 classical contingency (B1) and a classical expert controller (B2: INDI with adaptive
 allocation). The names follow doc 03 §5.4; the M2 bench code uses B1 and B2 differently (§1).
 
-**Weeks 12–16 in doc 03, about 30 h/week.** Week 12 went to M2's carry-overs, both done and
+**Weeks 12–17 in doc 03 (amended 6 Nov 2026), about 30 h/week.** Week 12 went to M2's carry-overs, both done and
 logged in [05 §14](05_m2_technical_spec.md): M2 D6 (auto-configuration: V20 at 95.1 %, from
 85.5 % at the end of M2) and M2 D4 (the Rascal flies the M1 mission in JSBSim from its
 datasheet configuration). (Txt2Fly's map work is also
-logged as week 12, 24–25 Oct, in [06 §14](06_txt2fly_spec.md).) That leaves four weeks, about
-120 h. Costed line by line, the plan is about 159 h [D] (§11). The whole cut list frees about
-17 h, so the owner chooses before week 13 between one more week (recommended) and four weeks
-with deeper cuts (§0.6).
+logged as week 12, 24–25 Oct, in [06 §14](06_txt2fly_spec.md).) Costed line by line, the plan
+is about 159 h [D] (§11), against about 120 h in the four weeks doc 03 first gave M3. The owner
+chose one more week (§0.6): five weeks, about 150 h, with the cut list closing the rest.
 
-This draft builds on a literature review (six topic reports and a synthesis, 6 Nov 2026). They
-are kept locally under `runs/research/m3/`, which is git-ignored, so they are not yet in the
-public repo (§13, question 8). Claims marked **[U]** come from secondary summaries or memory
+This spec builds on a literature review (six topic reports and a synthesis, 6 Nov 2026), in
+[`docs/research/m3/`](research/m3/README.md). Claims marked **[U]** come from secondary summaries or memory
 and are checked before they are quoted in a report. **[D]** marks derivations and estimates
 made for this plan, by the review or in this spec (the hours in §11 included), which need a
 numerical check.
@@ -34,8 +32,8 @@ numerical check.
 - Doc 03's B2 also has EKF-based fault detection and isolation and ground-risk-aware site
   selection. M3's B2 is its inner loops only (§5); the rest belongs to M4 and M5.
 - Doc 03 §4.2's third L1 baseline, L1 adaptive control. It is not built in M3, so M3's A/B
-  covers B1 and B2 only. It moves to M6's campaign or is dropped (§13, question 7); doc 03 §4.2
-  is amended either way.
+  covers B1 and B2 only. It moves to M6's campaign as a Could (§13, question 7), and doc 03
+  §4.2 is amended.
 - ArduPilot SITL, the hero flight, the Flight Test Center (M6).
 - Handling-qualities fits (equivalent systems against dynamically or Froude-scaled limits;
   unscaled MIL-F-8785C limits do not apply to small UAVs, Foster 2004): M6.
@@ -44,12 +42,13 @@ numerical check.
 
 ---
 
-## 0. Decisions for the owner
+## 0. Decisions (settled 6 Nov 2026)
 
-These shape the milestone. Each has a recommendation; nothing in §3–§9 starts until they are
-settled.
+These shape the milestone. On 6 Nov 2026 the owner approved the GPU cap with a checkpoint,
+chose RunPod as the provider, and asked for the recommendations to be taken on the rest. Each
+item opens with its decision; §13 lists the answers in one place.
 
-1. **Split the control surfaces before any learning (recommended).**
+1. **Split the control surfaces before any learning.** *Decided: split, in week 13.*
    - aerojax lumps the surfaces into three channels (aileron, elevator, rudder:
      `sim/aerojax/actuators.py`, `faultlab/slots.py` `SURFACE_INDEX`). With three surfaces for
      three moments, allocation is a matrix inverse with clipping: nothing can be re-allocated.
@@ -70,15 +69,17 @@ settled.
      becomes a rudder hard-over on airframes with a rudder. The X8 and the Zagi have no rudder,
      and a single-elevon jam cannot be expressed in three channels, so they fly criterion (i)
      of §8.4 only, and the headline names them.
-2. **G3 as two case studies, not a class (recommended).** Doc 03 holds out "the whole
+2. **G3 as two case studies, not a class.** *Decided: the X8 and the Zagi.* Doc 03 holds out "the whole
    flying-wing class". The generator has no flying-wing class, and M2 found the buildup method
    under-predicts a flying wing's directional derivatives (M2 §14, V18). M3's G3 is the X8
    (Gryte et al. 2018, through PyFly's parameter file) and the Zagi (Beard & McLain). Neither
    exists as a flyable airframe yet: building both, with B1 support for a rudderless airframe,
    is about 12 h (§7, §11). If the Zagi is not built by the pre-registration tag, the
    pre-registration names a third G2 airframe instead. Procedural flying wings and a full
-   leave-one-class-out rotation move to M6.
-3. **The headline's hard-over, chosen by rule, per airframe (§8.4).** A trim-reachability
+   leave-one-class-out rotation move to M6. The Zagi's coefficients are checked against Beard &
+   McLain's appendix if the owner has the book, otherwise against the authors' published files
+   [U]; with neither, cut 3 (§11) is taken early.
+3. **The headline's hard-over, chosen by rule, per airframe (§8.4).** *Decided: as below.* A trim-reachability
    oracle (V41) picks the first of a single-aileron hard-over, a rudder hard-over and a
    half-travel elevon or ruddervator jam that the airframe can still trim against with a 10 %
    roll margin. The single-aileron candidate is skipped on the Aerosonde and the Rascal, whose
@@ -86,19 +87,31 @@ settled.
    not a hard-over. The headline then reads "... including recovery from a hard-over on every
    airframe where one is physically recoverable", and the report gives the counts and names the
    partial jams.
-4. **Pre-registration (recommended).** Splits, hypotheses, scenario seeds, the six airframes and
+4. **Pre-registration.** *Decided: yes, tagged in week 14.* Splits, hypotheses, scenario seeds, the six airframes and
    their hard-overs are committed and tagged before the teacher first trains on the fleet
    (ladder rung 2) and before B2 is tuned, in week 14 (§8.1, §11). The tag needs the X8, the
    Zagi, the oracle and V20 on the whole fleet first; all four are now costed.
-5. **GPU budget: a cap of about $400 for M3** (renting is approved). The estimate is about
-   12–57 GPU-hours [D, pending D9], about $17–130 at Sep–Oct 2026 A100 and H100 marketplace
-   prices of about $1.4–2.3/h [U: secondary trackers, which moved by more than 20 % between
-   August and October], plus idle time and retries (§3.8). The first spend (about $5–15) runs
-   M2's GPU notebook, which closes M2 D9, and then times the full training step (D9).
-6. **The schedule: choose before week 13 (§11).** Costed line by line, the plan is about 159 h
+5. **GPU budget.** *Decided by the owner: a cap of $400 for M3, on RunPod, with a checkpoint.*
+   - The estimate is about 12–57 GPU-hours [D, pending D9], about $17–130 at Sep–Oct 2026 A100
+     and H100 marketplace prices of about $1.4–2.3/h [U: secondary trackers, which moved by more
+     than 20 % between August and October]. The cap leaves room for a GPU that only meets M2's
+     1M-control-steps/s target, which is 0.5M policy steps/s for the simulator alone: if the
+     networks and the update halve that, the 103B steps take about 114 GPU-hours, $160–260
+     [D]. It also covers idle time and retries (§3.8).
+   - The checkpoint: the first spend (about $5–15) runs M2's GPU notebook, which closes M2 D9,
+     and then times the full training step (D9). The plan is re-costed from the measured
+     throughput, and if it comes to more than about $300, the owner decides before any further
+     spend.
+   - The owner tops up the RunPod account's credit; with automatic top-up off, the balance
+     also enforces the cap. If the cap binds: L1 keeps five seeds (ten only with money to
+     spare, §8.3), the trained ablations are cut to A4 and A5 (D7 amended, as in §12's GPU row),
+     and leave-one-class-out goes (cut 2).
+6. **The schedule (§11).** *Decided: (a), five weeks, weeks 13–17; doc 03 §7.2 amended on
+   6 Nov 2026, so the plan is 30 weeks.* Cut 1 is decided at Gate B from the hours actually
+   spent; cuts 2–4 come first. Costed line by line, the plan is about 159 h
    [D]; four weeks hold 120 h. The whole cut list frees about 17 h, so cuts alone cannot close
    the gap without dropping a Must.
-   - **(a) One more week (recommended).** M3 runs to week 17 (weeks 13–17, about 150 h). M4–M6
+   - **(a) One more week (chosen).** M3 runs to week 17 (weeks 13–17, about 150 h). M4–M6
      move one week later and the plan becomes 30 weeks (doc 03 §7.2 amended, as on 21 and
      22 Oct). About 9 h remain over. Cuts 2–4 free about 7 h, so (a) also needs cut 1 (L2 to
      scripted recovery at Gate B, about 10 h) unless at least 2 h of the week 13–14 work is
@@ -108,12 +121,12 @@ settled.
      blog move to M4's first week (about 8 h; D8 amended). About 14 h of overrun remain, so a
      "partially met" verdict is likely.
    - Either way, the cut order is the single list in §11.
-7. **Survival counts recovered upsets (recommended).** The primary endpoint, survival, means no
+7. **Survival counts recovered upsets.** *Decided: yes.* The primary endpoint, survival, means no
    unrecovered loss of control and no uncontrolled ground contact (§8.3). This departs from
    M2's bench, which fails a flight on any excursion beyond |φ| 90° or |θ| 60° on its 10 Hz
    log. Under the bench's rule, every L2 recovery from beyond 90° of bank would count as a
    failure. The bench's definition is reported alongside, so M2 and M3 tables stay comparable.
-8. **Baseline names follow doc 03 (recommended).** B1 is the stock stack with the classical
+8. **Baseline names follow doc 03.** *Decided: yes, in code too, in week 13.* B1 is the stock stack with the classical
    contingency v0, and B2 is INDI with the shared allocator. The M2 bench's "B1" (no
    contingency) becomes B0 and its "B2" becomes B1, in code too (§1).
 
@@ -422,6 +435,8 @@ saturates as the batch grows (SAPG, ICML 2024).
   of the student's size in the loop). It closes M2 D9 and checks GPU parity.
 - Once the environment and the trainer run (§11), a benchmark of the full training step at 8k,
   32k and 128k environments on a few GPU types chooses the GPU by cost per billion policy steps.
+- The provider is RunPod (the owner's choice, 6 Nov 2026), so the benchmark compares the GPU
+  types RunPod rents, and the cap is $400 with a checkpoint after the benchmark (§0.5).
 - Debugging time, not GPU money, is the binding constraint.
 
 ---
@@ -625,9 +640,12 @@ Rules, fixed in the pre-registration:
 
 - **V20 on the whole fleet.** Training, G1-val, G2 and G2-x all need V20 on the whole
   10,000-airframe fleet. M2 ran it on the first 1,000; their 855 accepted airframes include 80
-  in the test split, the pool bench v0 used (05 §14, week 8). At M2's recorded 103 min per
-  1,000 airframes, the whole fleet takes about 17 h of laptop CPU, or a few GPU-hours [D]. It
-  runs once M2 D6 closes and must finish before the tag.
+  in the test split, the pool bench v0 used (05 §14, week 8). With five worker processes
+  (51 min per 1,000 airframes in week 12), the whole fleet takes about 9 h of laptop CPU. The
+  owner chose the laptop, on mains power, from 6 Nov 2026 (§13, question 4), with a few
+  GPU-hours [D] as the fallback. The run keeps each finished batch, so an interruption loses
+  at most the batches in flight, and its first 1,000 airframes must reproduce M2's run
+  (`runs/v20/m2-fleet`) exactly. It must finish before the tag.
 - **Scenarios.**
   - 30 % nominal (wind and turbulence only), 70 % single in-scope faults stratified by fault
     family × class; 300 s in aerojax, onsets 10–200 s.
@@ -794,7 +812,7 @@ modules under `src/` (`grep -lw aileron` lists 24).
 | `configs/airframes/` | the X8 and the Zagi |
 | `docs/validation/m3_prereg.md` | the pre-registration |
 | `notebooks/gpu_throughput.ipynb` (extended) and a new training runner | M2 D9 and the full training step; the GPU training runs |
-| `docs/research/m3/` (if §13, question 8, is approved) | the literature review |
+| `docs/research/m3/` | the literature review (§13, question 8) |
 
 **Import-linter.** A forbidden contract covers a package and all its submodules, so the
 inference code lives outside `learn/`.
@@ -825,12 +843,13 @@ inference code lives outside `learn/`.
 ## 11. Work plan (weeks 12–17) and gates
 
 All hours are estimates [D]. Week 12 holds M2's carry-overs and is not counted in M3's hours.
-The table is option (a) of §0.6, five weeks after week 12 (recommended); option (b) follows it.
+The table is option (a) of §0.6, five weeks after week 12, which the owner chose on 6 Nov 2026;
+option (b) is kept below for the record.
 
 | Week | Work (hours) | Total | Exit |
 |---|---|---|---|
 | **12 · Carry-overs** | M2 D6 auto-configuration at 90 % · M2 D4 the Rascal in JSBSim · this spec · M2's GPU notebook if time allows | — | M2 D6 and M2 D4 done and logged in 05 §14 |
-| **13 · Surfaces and allocator** | the full-fleet V20, queued as soon as M2 D6 closes, in week 12 if possible (1; about 17 h of CPU) · baseline labels B0/B1 in code, the ADR-004 amendment (1) · split surfaces across the modules of §9, per-surface faults, the mixer, telemetry schema v2, V33 (20) · per-side columns and the fleet's extra deflection runs (3) · Rascal per-surface wiring (2) · `allocation.py` and V34 (6) | 33 | **Gate A** |
+| **13 · Surfaces and allocator** | the full-fleet V20, queued as soon as M2 D6 closes, in week 12 if possible (1; about 9 h of CPU) · baseline labels B0/B1 in code, the ADR-004 amendment (1) · split surfaces across the modules of §9, per-surface faults, the mixer, telemetry schema v2, V33 (20) · per-side columns and the fleet's extra deflection runs (3) · Rascal per-surface wiring (2) · `allocation.py` and V34 (6) | 33 | **Gate A** |
 | **14 · Airframes, oracle, pre-registration, trainer** | the X8 and the Zagi, V42 (10) · B1 without a rudder (2) · trim-reachability oracle, V41, the hard-overs, the Rascal's confirmed by a JSBSim trim (4) · splits frozen, pre-registration v1 tagged (3) · PPO trainer on a reference task, V36 (8) · M2's GPU notebook and GPU parity (2) | 29 | pre-registration tagged; full-fleet V20 done; V36 green |
 | **15 · Environment, estimator, teacher, INDI** | environment, randomisation, keys, GAE and recurrent tests (6) · estimator, test and dither (5) · full-training-step benchmark (1) · teacher ladder rungs 1–4 on a GPU (8) · B2 fixed and adaptive, tuned on G1-val, V38 (8) · `bench/stats.py` extensions (3) | 31 | **Gate B** |
 | **16 · Student, ablations, L2** | scripted recovery (4) · rungs 5–6, teacher seeds (3) · DAgger, Gate C (Wednesday), stage 3 if needed (10) · A3–A5 and two LOCO folds launched (3) · L2 v0 (10) · JSBSim smoke test on an exported training airframe, 10-minute drift test (4) | 34 | **Gate D** (Friday, or the Monday after); **all weights frozen**, hashes in the ledger |
@@ -849,10 +868,10 @@ The table is option (a) of §0.6, five weeks after week 12 (recommended); option
 **The overrun.** The table holds about 159 h [D]. The first draft listed 118 h; the new lines are
 the PPO trainer and V36 (8), the X8 and the Zagi with B1 support (12), scripted recovery (4),
 the GPU notebook, GPU parity and the full-step benchmark (3), the per-side columns (3), the
-oracle's checks (1), the full-fleet V20 (1, plus about 17 h of CPU), the relabelling and the ADR
+oracle's checks (1), the full-fleet V20 (1, plus about 9 h of CPU), the relabelling and the ADR
 (1), the split surfaces raised from 14 to 20 h after counting the modules (6), and the demo
 page (2). The 3-seed pilot costs compute, not hours.
-- **(a) Five weeks** hold about 150 h: about 9 h over. Cuts 2–4 free about 7 h; cut 1 frees
+- **(a) Five weeks (chosen)** hold about 150 h: about 9 h over. Cuts 2–4 free about 7 h; cut 1 frees
   about 10 h if it is made at Gate B or earlier (after Gate D, L2 v0's hours are already
   spent).
 - **(b) Four weeks** hold 120 h. Cutting L2, LOCO, the Zagi and the linearised margins now frees
@@ -896,34 +915,45 @@ for L1, A4 (the memory check, §12), or the G4 Rascal.
 | Reward hacking (diving for authority, post-stall exploits) | height loss, α excursions | envelope penalties; height in the reward; JSBSim check | a restricted L2 envelope |
 | Test-set reuse or a curated headline | none: prevented by design | pre-registration, ledger, the pre-freeze access rule (§8.1), hash draws, the median seed | — |
 | M2's carry-overs or the new airframes are late | the week-12 exit; V42 not green by the tag | the costed lines in §11 | the Zagi cut first; a third G2 airframe takes its place |
-| The full-fleet V20 is late | not running by the start of week 13 | queued as soon as M2 D6 closes | a few GPU-hours [D]; the tag waits for it |
-| Schedule: about 159 h of work for 120 h in four weeks, or 150 h in five [D] | the week-12 exit; Gate A; Gate B | the costed plan (§11) and the choice of §0.6, made before week 13 | the cut list in order; under (b), "partially met" is likely |
+| The full-fleet V20 is late | not running by the start of week 13 | queued as soon as M2 D6 closes; finished batches kept, so a restart resumes | a few GPU-hours [D]; the tag waits for it |
+| Schedule: about 159 h of work for 150 h in five weeks [D] | the week-12 exit; Gate A; Gate B | the costed plan (§11); five weeks chosen (§0.6) | the cut list in order, cut 1 at Gate B if the hours spent call for it |
 
 ---
 
-## 13. Open questions
+## 13. Open questions, answered 6 Nov 2026
 
-1. **The split surfaces** (§0.1): go ahead, or keep three channels and the downgraded claim, with
-   D2 and D3 amended?
-2. **G3 as two case studies** (§0.2), with procedural flying wings in M6? And is Beard &
-   McLain's appendix at hand to check the Zagi's coefficients [U]?
-3. **The GPU cap** (§0.5): $400 for M3, and which provider (an account is needed)?
-4. **V20 on the whole fleet** for training, G1-val, G2 and G2-x: about 17 h of laptop CPU
-   (overnight runs, on mains power, after M2 D6 closes), or a few GPU-hours [D]?
-5. **The schedule** (§0.6): five weeks (a), or four weeks with the cuts (b)?
-6. **Survival and names** (§0.7, §0.8): count recovered upsets as survival, and relabel the
-   bench's baselines B0 and B1?
-7. **Doc 03 §4.2's L1-adaptive-control baseline**: move it to M6's campaign, or drop it?
-8. **The literature review**: commit the synthesis and the six reports under
-   `docs/research/m3/`, so readers can check the [U] and [D] claims?
+The owner decided question 3 and asked for the recommendations to be taken on the rest.
+
+1. **The split surfaces** (§0.1): go ahead, in week 13; the three-channel fallback stays at
+   Gate A.
+2. **G3 as two case studies** (§0.2): yes, the X8 and the Zagi; procedural flying wings move to
+   M6. *Still open:* whether the owner has Beard & McLain's book, to check the Zagi's
+   coefficients against its appendix [U] (otherwise the authors' published files; with neither,
+   cut 3 early).
+3. **The GPU cap** (§0.5): $400 for M3, on RunPod, with a checkpoint: after M2's GPU notebook
+   and the full-training-step benchmark the plan is re-costed, and above about $300 the owner
+   decides before further spend.
+4. **V20 on the whole fleet**: on the laptop's CPU, about 9 h with five workers, on mains
+   power, from 6 Nov 2026; a few GPU-hours [D] only if that fails. The tuner is not changed
+   first: B1 stays as M2 delivered it, so the run's first 1,000 airframes reproduce M2's D6 run
+   exactly, and the tie-break limitation (05 §14, week 12) stays recorded.
+5. **The schedule** (§0.6): five weeks, (a); doc 03 §7.2 amended, the plan now 30 weeks.
+6. **Survival and names** (§0.7, §0.8): recovered upsets count as survival, with the bench's
+   definition reported alongside; the bench's baselines become B0 and B1, in code too.
+7. **Doc 03 §4.2's L1-adaptive-control baseline**: moved to M6's evaluation campaign as a Could
+   (doc 03 §4.2 amended). It is the standard adaptive-control comparison, but M3 has no hours
+   for a third baseline, and B2's adaptive INDI already gives the classical adaptive reference.
+8. **The literature review**: committed under [`docs/research/m3/`](research/m3/README.md), the
+   synthesis and the six topic reports. The spec check's and the revision's working files stay
+   local.
 
 ---
 
 ## Sources
 
-The full reference list, with the claims still to check, is in `runs/research/m3/synthesis.md`
-(6 Nov 2026). It is a local file: `runs/` is git-ignored, so it is not in the public repo
-unless question 8 of §13 is approved. The ones the design rests on:
+The full reference list, with the claims still to check, is in
+[`docs/research/m3/synthesis.md`](research/m3/synthesis.md) (6 Nov 2026). The ones the design
+rests on:
 
 - Kumar et al., RMA: Rapid Motor Adaptation for Legged Robots, RSS 2021, https://arxiv.org/abs/2107.04034; Adapting Rapid Motor Adaptation for Bipedal Robots, IROS 2022, https://arxiv.org/abs/2205.15299
 - Lee et al., Learning quadrupedal locomotion over challenging terrain, Science Robotics 2020, https://arxiv.org/abs/2010.11251; Miki et al., Science Robotics 2022, https://arxiv.org/abs/2201.08117
@@ -958,3 +988,8 @@ unless question 8 of §13 is approved. The ones the design rests on:
 - This spec drafted, then revised after a three-reviewer check (72 issues on repository facts,
   internal consistency and literature). The revision costs the plan line by line (§11) and
   puts the schedule choice to the owner (§0.6).
+- Decisions (evening): the owner approved the GPU cap of $400 with a checkpoint and chose
+  RunPod, and asked for the recommendations to be taken on the rest (§0, §13). Five weeks, so
+  doc 03 §7.2 is amended to 30 weeks; the L1-adaptive-control baseline moves to M6 as a Could.
+  The literature review is committed under `docs/research/m3/`. `aeroadapt fleet-accept` now
+  keeps each finished batch and resumes from them, for the full-fleet V20 on the laptop.

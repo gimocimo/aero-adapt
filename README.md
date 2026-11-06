@@ -4,7 +4,7 @@
 
 AeroAdapt is built simulation-first. It is validated rigorously and compared against strong classical baselines. The aim is to move from simulation to a real aircraft once the simulated system is proven.
 
-> **Status:** Milestone M2 (the fleet) complete: V20 passes at 95.1 % and the held-out Rascal flies in JSBSim (6 Nov, M3 week 12); the GPU throughput run waits for M3's first GPU run. M3's spec is drafted ([09](docs/09_m3_technical_spec.md)) for review. M1's vertical slice (a UAV flying over the Coton fields west of Cambridge, with a classical motor-failure contingency) now has a fleet, faults, a benchmark and a live mode:
+> **Status:** Milestone M2 (the fleet) complete: V20 passes at 95.1 % and the held-out Rascal flies in JSBSim (6 Nov, M3 week 12); the GPU throughput run waits for M3's first GPU run. M3's spec is settled ([09](docs/09_m3_technical_spec.md)): five weeks (13–17), starting with split control surfaces, so the plan is now 30 weeks. M1's vertical slice (a UAV flying over the Coton fields west of Cambridge, with a classical motor-failure contingency) now has a fleet, faults, a benchmark and a live mode:
 >
 > - **10,000 generated aircraft** in five classes, built from geometry (AeroSandbox buildup, NeuralFoil polars, mass and propulsion sizing, glTF) and filtered in the JAX simulator.
 > - **Every aircraft configures and tunes its own autopilot.** It is our ArduPlane-style stack: physics-based gains, then a robust offline AUTOTUNE analogue. **95.1 % of 1,000 pass** the acceptance flight (V20; the target is 90 %), and the misses are characterised.

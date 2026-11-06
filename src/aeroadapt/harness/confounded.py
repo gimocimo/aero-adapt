@@ -42,7 +42,7 @@ SYMPTOM_RATIO = 2.0
 
 Symptom = Literal[
     "ias_drop", "wind_shift", "throttle_rise", "elevator_shift", "roll_rate_rms",
-    "lateral_accel_rms",
+    "lateral_accel_std",
 ]  # fmt: skip
 
 
@@ -145,7 +145,9 @@ def _symptom(kind: Symptom, log: LoopLog, w: np.ndarray, late: np.ndarray) -> np
         return np.asarray(log.cmd[:, w, 3].mean(axis=1))
     if kind == "elevator_shift":
         return np.asarray(log.cmd[:, late, 1].mean(axis=1))
-    if kind == "lateral_accel_rms":  # the accelerometer's sideslip signal, its fluctuation
+    if kind == "lateral_accel_std":
+        # The accelerometer's sideslip signal, about its mean over the window (which removes the
+        # accelerometer's bias; in a turn it keeps the change in an uncoordinated offset).
         a_y = np.asarray(log.sensors.accel[:, w, 1])
         return a_y.std(axis=1)
     roll_rate = np.asarray(log.sensors.gyro[:, w, 0])

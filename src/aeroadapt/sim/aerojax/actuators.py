@@ -5,9 +5,11 @@ Per channel: command → ServoMap (trim, max deflection, sign, reversal) → tra
 → actual deflection. The throttle channel has delay and lag only.
 
 Commands use aircraft-response semantics (ADR-001): aileron +1 = roll right, elevator +1 =
-nose up, rudder +1 = nose right, throttle in [0, 1]. The map to Beard & McLain deflection
-signs is taken from the signs of the primary control derivatives, so it cannot be
-misconfigured: δa ∝ sign(C_ℓ,δa), δe ∝ sign(C_m,δe), δr ∝ sign(C_n,δr).
+nose up, rudder +1 = nose right, throttle in [0, 1]. Deflections are in the airframe model's
+own sign convention (B&M's model form; the generator's AeroSandbox airframes deflect ailerons
+and rudder the opposite way to B&M's), so the map is taken from the signs of the primary
+control derivatives and cannot be misconfigured: δa ∝ sign(C_ℓ,δa), δe ∝ sign(C_m,δe),
+δr ∝ sign(C_n,δr).
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ DELAY_BUFFER = 32  # physics steps of history (160 ms at 200 Hz); schema caps de
 
 
 class ActuatorState(NamedTuple):
-    surfaces: Array  # (3,) actual deflections, B&M signs, rad (aileron, elevator, rudder)
+    surfaces: Array  # (3,) actual deflections, rad (aileron, elevator, rudder), model signs
     throttle: Array  # () actual throttle in [0, 1]
     buffer: Array  # (DELAY_BUFFER, 4) targets written each physics step
     head: Array  # () int32, next write index
@@ -67,13 +69,16 @@ FLOAT_TRAIL = 0.6  # a floating surface trails at about 0.6 × the local flow an
 
 
 def float_signs(af: AirframeParams) -> Array:
-    """A floating (disconnected) surface trails with its local flow, which always makes the
+    """A floating (disconnected) surface trails with its local flow, trailing edge downstream,
+    shedding its own lift. Behind the centre of gravity (every airframe here) that makes the
     aircraft less stable: the ailerons add roll moment with the roll rate (less roll damping),
     the elevator a pitch-up moment at positive α (less stick-free stability), the rudder a yaw
     moment of sign −β (less weathercock stability). In the airframe's deflection convention:
-    δ_float = FLOAT_TRAIL · sign(C_x,δ) · (p·b/2V, α, −β). These are the derivatives' signs,
-    not the servo's: a reversed servo no longer moves the surface."""
-    return jnp.sign(jnp.array([af.C_ell_delta_a, af.C_m_delta_e, -af.C_n_delta_r]))
+    δ_float = FLOAT_TRAIL · (sign(C_ℓ,δa)·p·b/2V, −sign(C_L,δe)·α, sign(C_Y,δr)·β), keyed on
+    each surface's own force (lift, side force), so the rule also holds for a surface ahead of
+    the centre of gravity. These are the derivatives' signs, not the servo's: a reversed servo
+    no longer moves the surface."""
+    return jnp.sign(jnp.array([af.C_ell_delta_a, -af.C_L_delta_e, af.C_Y_delta_r]))
 
 
 def actuator_step(

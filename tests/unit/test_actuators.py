@@ -84,11 +84,11 @@ def test_deadband_bounds_steady_state_error(vehicle: VehicleParams) -> None:
 def test_a_floating_surface_destabilises_in_either_sign_convention(
     airframe: str, reversed_servos: bool
 ) -> None:
-    """A disconnected surface trails with its local flow and always destabilises: the
-    ailerons reinforce the roll rate, the elevator pitches up at positive α, the rudder yaws
-    against the sideslip. B&M's Aerosonde and the generator's airframes deflect ailerons and
-    rudder in opposite conventions (signs of C_ℓ,δa and C_n,δr), and a broken linkage ignores
-    the servo's reversal."""
+    """A disconnected surface trails with its local flow and, behind the centre of gravity,
+    destabilises: the ailerons reinforce the roll rate, the elevator pitches up at positive α,
+    the rudder yaws against the sideslip. B&M's Aerosonde and the generator's airframes deflect
+    ailerons and rudder in opposite conventions (signs of C_ℓ,δa and C_n,δr), and a broken
+    linkage ignores the servo's reversal."""
     from pathlib import Path
 
     from pydantic import TypeAdapter
@@ -107,7 +107,9 @@ def test_a_floating_surface_destabilises_in_either_sign_convention(
     vp = to_vehicle_params(af)
     vp = vp._replace(actuators=vp.actuators._replace(reversed=np.full(3, reversed_servos)))
     p = vp.airframe
-    flow = jnp.array([0.05, 0.04, 0.03])  # α, β, p·b/2V
+    alpha, beta, p_hat = 0.10, 0.05, 0.02  # far apart: a channel driven by the wrong angle fails
+    flow = jnp.array([alpha, beta, p_hat])  # the order sim.py builds it in
+    driven_by = {"aileron": p_hat, "elevator": alpha, "rudder": beta}
     jam = no_faults().servo_jam
     moments = {}
     for i, channel in enumerate(("aileron", "elevator", "rudder")):
@@ -123,9 +125,10 @@ def test_a_floating_surface_destabilises_in_either_sign_convention(
             return actuator_step(p, vp.actuators, jam, s, cmd, k * DT, DT, faults, flow), None
 
         s, _ = jax.lax.scan(body, s, jnp.arange(400))  # 2 s, many servo lags
-        local = float(np.asarray(flow)[[2, 0, 1]][i])
         deflection = float(s.surfaces[i])
-        assert abs(deflection) == pytest.approx(FLOAT_TRAIL * local, abs=np.radians(0.5))
+        # The lag settles within half the deadband of the trail.
+        tol = float(vp.actuators.deadband[i]) / 2 + np.radians(0.05)
+        assert abs(deflection) == pytest.approx(FLOAT_TRAIL * driven_by[channel], abs=tol)
         power = (p.C_ell_delta_a, p.C_m_delta_e, p.C_n_delta_r)[i]
         moments[channel] = float(power) * deflection
     assert moments["aileron"] > 0  # with p > 0: less roll damping

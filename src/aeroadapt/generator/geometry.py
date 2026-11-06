@@ -160,7 +160,8 @@ def airplane(
     rudder: float = 0.0,
 ) -> asb.Airplane:
     """The AeroSandbox model with control deflections in degrees (AeroSandbox signs: positive is
-    trailing edge down for the wing and tailplane, and to port for a fin)."""
+    trailing edge down for the wing and tailplane, and to starboard for a fin: the opposite of
+    B&M's rudder)."""
     wing_af, tail_af = airfoil(d.wing_airfoil), airfoil(d.tail_airfoil)
     half = 0.5 * lay.span
     y_ail = (1.0 - d.aileron_span) * half

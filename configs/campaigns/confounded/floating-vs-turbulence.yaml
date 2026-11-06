@@ -1,18 +1,26 @@
-# Confounded pair 5 (doc 03 §3.2): both produce irregular attitude disturbances.
+# Confounded pair 5. Doc 03 §3.2 pairs a floating surface with turbulence: "both produce
+# irregular attitude disturbances". On the Aerosonde, with the floating trail right (6 Nov
+# 2026), a floating rudder does not disturb the attitude like turbulence on any measure tried
+# (roll rate, yaw rate, bank: it lowers them, as the free rudder softens the fin's response to
+# gusts). It shows in turns, uncoordinated, so the pair is realised as lateral acceleration in
+# a turn (docs/05 §14, V21 note).
 id: floating-vs-turbulence
 description: >-
   A disconnected (floating) rudder against moderate turbulence (the baseline flies in light
   turbulence), over a window that spans the loop's first waypoint turn. A floating rudder
-  trails with the sideslip and leaves the turns uncoordinated: invisible in straight flight,
-  it shows as the sideslip's lateral acceleration in the turn, about as much as moderate
+  trails with the sideslip and leaves the turn uncoordinated: invisible in straight flight, it
+  shows as the lateral acceleration's fluctuation in the turn, about as much as moderate
   turbulence gives. A floating aileron is no confound: it disturbs roll about 7 times as much
   as moderate turbulence and 3 times as much as severe.
 template: m1-nominal
 onset_s: 15
-horizon_s: 25  # to 40 s: the first waypoint turn; within 20 s it does not show
+# To 40 s, across the first waypoint turn. At 20 s the rudder does not show yet (ratio 0.27);
+# from 30 s moderate turbulence trips the airspeed monitor in some seeds, so the monitors no
+# longer agree. The pair holds for this window only.
+horizon_s: 25
 seeds: 8
 seed: 500
-symptom: lateral_accel_rms
+symptom: lateral_accel_std
 min_symptom: 0.05  # m/s²
 a:
   faults: [{type: actuator_fault, kind: floating, channel: rudder}]

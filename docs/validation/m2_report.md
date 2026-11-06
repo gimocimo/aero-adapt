@@ -315,6 +315,8 @@ Failing airframes fail 1 check: 117, 2 checks: 25, 3 checks: 2, 4 checks: 1. Per
 | gnss-spoof-vs-wind-change | 20 s | wind shift | +0.683 / +0.723 | 0.94 | 8/8 | ✅ |
 | pitot-vs-airspeed-loss | 4 s | ias drop | -3.26 / -3.16 | 1.03 | 8/8 | ✅ |
 
+*Corrected 6 Nov 2026:* the floating-vs-turbulence row was measured with the floating trail's sign wrong for the Aerosonde. The pair is re-calibrated (lateral acceleration over 25 s, ratio 1.46): see docs/05 §14, the note under V21. The section is regenerated with the next report build.
+
 
 ## V22 · Bench v0
 

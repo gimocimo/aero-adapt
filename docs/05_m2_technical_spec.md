@@ -734,14 +734,30 @@ Never cut aero v2 parity (V16/V17), V14, V20, the bench or live fault injection.
 | CG 3 cm aft ↔ elevator rigging offset (5.1°) | 10 s | elevator trim shift | 1.00 |
 | Floating rudder ↔ moderate turbulence | 10 s | roll-rate RMS | 0.89 |
 
-*Corrected 6 Nov 2026:* the floating-surface model trailed the wrong way on airframes in B&M's
-sign convention, such as the Aerosonde these pairs fly: a floating rudder stiffened its
-weathercock stability and a floating aileron added roll damping, where a free surface always
-destabilises. Generated airframes (all in AeroSandbox's convention) were unaffected. The last
-pair rested on it. With the trail right, a floating rudder barely moves the roll rate in
-straight flight (ratio 0.21 against moderate turbulence) and shows in turns, uncoordinated, so
-the pair is now the lateral acceleration's fluctuation over 25 s, a window that spans the
-loop's first waypoint turn: ratio 1.46, monitors silent in both arms.
+*Corrected 6 Nov 2026, and a deviation:* the floating-surface model trailed the wrong way on
+airframes in B&M's sign convention, such as the Aerosonde these pairs fly: a floating rudder
+stiffened its weathercock stability (C_nβ 0.073 → 0.114) and a floating aileron added roll
+damping, where a free surface behind the centre of gravity destabilises. Generated airframes
+(all in AeroSandbox's convention) were unaffected. The last pair rested on it.
+
+With the trail right, a floating rudder on the Aerosonde does not disturb the attitude like
+turbulence on any measure tried: over longer windows it *lowers* the roll rate, the yaw rate
+and the bank's wander (the free rudder softens the fin's response to gusts). It shows only in
+turns, uncoordinated (sideslip 4.1–4.8° in the first waypoint turn against 2.1–2.7°). So doc
+03's "floating surface ↔ turbulence" is realised as *lateral acceleration in a turn*, and holds
+for one window only. Ratio a / b by symptom and horizon (8 seeds; † the monitors disagree:
+moderate turbulence trips the airspeed monitor in some seeds):
+
+| Symptom | 10 s | 20 s | 25 s | 30 s |
+|---|---|---|---|---|
+| roll-rate RMS | 0.21 | −0.20 | −0.13 | −2.14 † |
+| yaw-rate RMS | −0.11 | −0.76 | −1.86 | −1.97 † |
+| bank, standard deviation | 0.34 | −0.34 | −3.64 | −0.35 † |
+| lateral acceleration, standard deviation | 0.08 | 0.27 | **1.46** | 1.79 † |
+
+The pair is now the lateral acceleration's standard deviation over 25 s (0.20 against
+0.14 m/s²), so the five pairs' ratios run from 0.94 to 1.46. M4's diagnoser should not count
+pair 5 as an attitude confound.
 
 - **V23:**
   - Injection takes effect at the next control step (10 ms).

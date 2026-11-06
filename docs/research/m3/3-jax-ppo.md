@@ -89,7 +89,7 @@ The '37 implementation details' post is the checklist for continuous-action and 
 
 Hitting a time limit is not a terminal state. Use partial-episode bootstrapping (bootstrap from the value of the final state at a timeout, not at a real termination). Brax's GAE handles truncation by masking: it zeroes the TD error and the advantage on truncated steps. PureJaxRL's GAE treats any done (including a timeout) as terminal.
 
-- *Evidence:* Pardo et al.: ignoring the distinction causes state aliasing and instability. With PEB, Hopper trained on 200-step episodes kept hopping for about 1e6 steps. The Brax compute_gae structure (delta *= 1 - truncation; acc masked the same way) is confirmed via a third-party port. PureJaxRL's done = terminal is from memory. Gymnasium's rule: no bootstrap on termination, bootstrap on truncation.
+- *Evidence:* Pardo et al.: ignoring the distinction causes state aliasing and instability. With PEB, Hopper trained on 200-step episodes kept hopping for about 1e6 steps. The Brax compute_gae structure (delta \*= 1 - truncation; acc masked the same way) is confirmed via a third-party port. PureJaxRL's done = terminal is from memory. Gymnasium's rule: no bootstrap on termination, bootstrap on truncation.
 - *Source:* Pardo et al., Time Limits in RL, ICML 2018 (PMLR 80), https://arxiv.org/abs/1712.00378; Brax compute_gae (github.com/google/brax, brax/training/agents/ppo/losses.py); skrl PPO docs (time_limit_bootstrap flag)
 
 ### 3.13 · confirmed
@@ -117,7 +117,7 @@ rejax and Stoix/Mava (Anakin architecture) are maintained pure-JAX alternatives.
 
 Discovered Policy Optimisation is a closed-form drift function, found by meta-learning in the Mirror Learning space and evolved with PureJaxRL tooling. It is a near drop-in replacement for PPO's clipped objective and matches or beats PPO on Brax.
 
-- *Evidence:* LPO is the meta-learned drift. Analysing it showed 'rollback' and optimism for low-reward actions, which led to the closed-form DPO. It is state of the art on Brax with transfer to unseen settings, and better than PPO on MinAtar. From memory (unconfirmed): drift is ReLU((r-1)A - alpha*tanh((r-1)A/alpha)) for A>=0 and ReLU(log(r)A - beta*tanh(log(r)A/beta)) for A<0, with alpha=2 and beta=0.6. PureJaxRL ships dpo_continuous_action.py.
+- *Evidence:* LPO is the meta-learned drift. Analysing it showed 'rollback' and optimism for low-reward actions, which led to the closed-form DPO. It is state of the art on Brax with transfer to unseen settings, and better than PPO on MinAtar. From memory (unconfirmed): drift is ReLU((r-1)A - alpha\*tanh((r-1)A/alpha)) for A>=0 and ReLU(log(r)A - beta\*tanh(log(r)A/beta)) for A<0, with alpha=2 and beta=0.6. PureJaxRL ships dpo_continuous_action.py.
 - *Source:* Lu et al., Discovered Policy Optimisation, NeurIPS 2022, https://arxiv.org/abs/2210.05639
 
 ### 3.17 · confirmed

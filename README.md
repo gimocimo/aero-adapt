@@ -14,7 +14,9 @@ AeroAdapt is built simulation-first. It is validated rigorously and compared aga
 > - **Throughput:** 0.85 M simulator steps/s on a laptop CPU for a heterogeneous fleet with faults.
 > - **Evidence:** [M2 write-up](docs/demo/m2.md) (with its fidelity and limits), the [week-by-week log](docs/05_m2_technical_spec.md#14-implementation-log-living-section) and the [validation report](docs/validation/m2_report.md). M1: [write-up](docs/demo/m1.md), [frozen report](docs/validation/m1_report.md).
 >
-> Now: **a world the simulator knows** (week 10, [spec](docs/07_world_and_skyview_spec.md)). The Google 3D-tiles map showed hills and trees the simulation did not have, so landings passed through hedges unnoticed. Flights now go over **Wrenfold Vale**, a synthetic English valley generated from a short YAML:
+> Now: **M3, one brain for many airframes** (weeks 13–17, [spec](docs/09_m3_technical_spec.md)). One frozen learned controller is to fly airframes it never trained on, and recover from a hard-over where one is physically recoverable, against the stock autopilot and a classical INDI expert on pre-registered splits. Week 13 starts by splitting the control surfaces left and right, so a jammed surface can be worked around.
+>
+> Week 10: **a world the simulator knows** ([spec](docs/07_world_and_skyview_spec.md)). The Google 3D-tiles map showed hills and trees the simulation did not have, so landings passed through hedges unnoticed. Flights now go over **Wrenfold Vale**, a synthetic English valley generated from a short YAML:
 >
 > - **The landscape:** a river, a village with its church, farms, woods, 192 hedged fields, an airstrip and a radio mast.
 > - **The simulator touches all of it.** Terrain contact, and collisions with every tree, hedge and building at the CG and wingtips.
@@ -24,7 +26,7 @@ AeroAdapt is built simulation-first. It is validated rigorously and compared aga
 >
 > A second world is real: **London** ([spec](docs/08_london_spec.md)), the City and Bankside from Environment Agency LiDAR and OpenStreetMap, flown by a 1.1 m city trainer along the Thames and among the towers.
 >
-> Before that, **Txt2Fly** (weeks 9 and 11, [spec](docs/06_txt2fly_spec.md)): tell the aircraft where to go in plain words. Week 9 built the deterministic core. A typed plan ("patrol fields A, B and C", "circle the church at 30 m") becomes the closest flyable version of the request, for the aircraft flying and the wind blowing. A checker judges it (turn radius, no-fly areas, height, battery, glide reach), and the plan is previewed and flown live. Week 11 adds the language layer (Claude Haiku 5.5). Then M3, one learned policy flying airframes it never trained on.
+> Before that, **Txt2Fly** (weeks 9 and 11, [spec](docs/06_txt2fly_spec.md)): tell the aircraft where to go in plain words. Week 9 built the deterministic core. A typed plan ("patrol fields A, B and C", "circle the church at 30 m") becomes the closest flyable version of the request, for the aircraft flying and the wind blowing. A checker judges it (turn radius, no-fly areas, height, battery, glide reach), and the plan is previewed and flown live. Week 11 adds the language layer (Claude Haiku 5.5).
 
 ![Skyview's full-screen player over London: the city trainer above the City at about 135 m, St Paul's to the left, the minimap following it](docs/media/skyview_fullscreen.jpg)
 
@@ -40,6 +42,8 @@ AeroAdapt is built simulation-first. It is validated rigorously and compared aga
 | [06 — Txt2Fly spec](docs/06_txt2fly_spec.md) | Plain-language missions: typed plans, a wind- and airframe-aware builder, a checker, the language layer and its evaluation |
 | [07 — Worlds and Skyview](docs/07_world_and_skyview_spec.md) | Synthetic worlds the simulator knows exactly (Wrenfold Vale): generator, terrain and obstacles, safe-zone survey, terrain-aware planning, Skyview's player |
 | [08 — London](docs/08_london_spec.md) | A real city to fly through: the City and Bankside from LiDAR and OpenStreetMap, the cinematic look, the city trainer |
+| [09 — M3 technical spec](docs/09_m3_technical_spec.md) | One brain, many airframes: split surfaces, adaptive allocation, the L1 and L2 policies, the INDI baseline, a pre-registered A/B |
+| [M3 literature review](docs/research/m3/README.md) | The six topic reports and the synthesis the M3 spec rests on, and how far to trust them |
 | [ADRs](docs/adr/) | Architecture decision records |
 
 ## Quick start

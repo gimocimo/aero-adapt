@@ -41,6 +41,7 @@ class FleetV20:
     results: list[AirframeResult]
     cfgs: dict[str, StackCfg]  # tuned configurations, by airframe id
     resumed: int = 0  # batches taken from kept parts, not flown
+    batch_seconds: float = 0.0  # time spent flying the batches, summed (kept ones included)
 
     @property
     def pass_rate(self) -> float:
@@ -72,6 +73,7 @@ def save_part(path: Path, ids: list[str], seed: int, fingerprint: str, run: Flee
             for r in run.results
         ],
         "cfgs": {k: c.model_dump(mode="json") for k, c in run.cfgs.items()},
+        "seconds": run.batch_seconds,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
@@ -103,7 +105,7 @@ def load_part(path: Path, ids: list[str], seed: int, fingerprint: str) -> FleetV
     if sorted(r.airframe for r in results) != sorted(ids):
         return None
     cfgs = {k: StackCfg.model_validate(c) for k, c in data["cfgs"].items()}
-    return FleetV20(results, cfgs)
+    return FleetV20(results, cfgs, batch_seconds=float(data.get("seconds", 0.0)))
 
 
 def _fly(chunk: list[Airframe], site: Site, seed: int) -> FleetV20:
@@ -127,7 +129,9 @@ def _fly(chunk: list[Airframe], site: Site, seed: int) -> FleetV20:
 def _batch(job: tuple[list[Airframe], Site, int, Path | None, str]) -> FleetV20:
     """A worker's batch: flown, then kept (in the worker, so it survives the parent)."""
     chunk, site, seed, part, fingerprint = job
+    t0 = time.perf_counter()
     run = _fly(chunk, site, seed)
+    run.batch_seconds = time.perf_counter() - t0
     if part is not None:
         save_part(part, [a.id for a in chunk], seed, fingerprint, run)
     return run
@@ -154,6 +158,7 @@ def run_fleet_v20(
     def take(part: FleetV20) -> None:
         out.results.extend(part.results)
         out.cfgs.update(part.cfgs)
+        out.batch_seconds += part.batch_seconds
 
     todo = []
     for s in starts:
@@ -187,11 +192,13 @@ def run_fleet_v20(
                 progress()
     else:
         for s in todo:
-            t0 = time.perf_counter()
-            take(_batch((chunks[s], site, seed, part_of(s), fingerprint)))
-            progress(f" ({time.perf_counter() - t0:.0f} s)")
+            part = _batch((chunks[s], site, seed, part_of(s), fingerprint))
+            take(part)
+            progress(f" ({part.batch_seconds:.0f} s)")
+    # Fleet order for both, so a resumed run writes the same files as a fresh one.
     order = {a.id: i for i, a in enumerate(airframes)}
     out.results.sort(key=lambda r: order[r.airframe])
+    out.cfgs = {a.id: out.cfgs[a.id] for a in airframes if a.id in out.cfgs}
     return out
 
 

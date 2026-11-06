@@ -1,6 +1,6 @@
 # M1 Technical Specification: Vertical Slice
 
-*Status: draft for approval · 14 Oct 2026 · Parent plan: [03 — AeroAdapt-UAV](03_uav_architecture_and_six_month_roadmap.md)*
+*Status: complete, 15 Oct 2026 (Definition of Done met, with the exceptions logged in §17) · drafted 14 Oct 2026 · Parent plan: [03 — AeroAdapt-UAV](03_uav_architecture_and_six_month_roadmap.md)*
 
 **Decisions already made**
 - **Autopilot path: ArduPilot.** This affects conventions, the stock baseline and parameter naming.

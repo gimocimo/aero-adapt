@@ -744,7 +744,7 @@ Full elevon and ruddervator hard-overs are probably unrecoverable on tailless an
 - Agarwal et al., Deep RL at the Edge of the Statistical Precipice, NeurIPS 2021, https://arxiv.org/abs/2108.13264
 - Colas et al., How Many Random Seeds?, arXiv 2018, https://arxiv.org/abs/1806.08295
 - Patterson et al., Empirical Design in RL, JMLR 2024, https://jmlr.org/papers/v25/23-0183.html
-- Saravanan et al., The hierarchical bootstrap for multi-level data, arXiv 2020, https://arxiv.org/abs/2007.07797
+- Saravanan, Berman, Sober, Application of the hierarchical bootstrap to multi-level data in neuroscience, NBDT 2020, https://arxiv.org/abs/2007.07797
 - Newcombe, Improved CIs for the difference between binomial proportions based on paired data, Statistics in Medicine 1998
 - Hanson & Beard, Monte Carlo simulation for launch vehicle requirements verification, NASA/TP-2010-216447, https://ntrs.nasa.gov/citations/20100038453
 - Fielding et al. (eds), Advanced Techniques for Clearance of Flight Control Laws, Springer LNCIS 283, 2002

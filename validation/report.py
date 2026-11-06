@@ -794,7 +794,12 @@ def v20_fleet(r: Report) -> None:
         "scale with cruise speed and GNSS accuracy (`harness/fleet_acceptance.py`).",
         "",
         f"**{s['passed']} of {s['airframes']} pass ({s['pass_rate']:.1%})** · criterion ≥ "
-        f"{s['target']:.0%} {mark(ok)} · {s['seconds'] / 60:.0f} min on this machine.",
+        f"{s['target']:.0%} {mark(ok)} · {s['seconds'] / 60:.0f} min on this machine"
+        + (
+            f" (this invocation; {s['resumed_batches']} batches came from an earlier one)."
+            if s.get("resumed_batches")
+            else "."
+        ),
     )
     r.table(
         ["Class", "Airframes", "Pass rate"],

@@ -57,7 +57,7 @@ With servo dynamics, INDI approximates a sensor-based NDI law (one that models t
 - *Evidence:* Derived for first-order linear actuators and validated on the roll motion of a fixed-wing aircraft. JGCD 46(4):709–717, 2023. Related: Steffensen, Ginnell, Holzapfel (Actuators 2024) flight-tested an incremental differential-PI law (iDPI, derived from INDI) on a subscale fixed-wing, with frequency-domain identification of servo and linkage dynamics.
 - *Source:* Steffensen, Steinert, Smeur, 'Nonlinear Dynamic Inversion with Actuator Dynamics: An Incremental Control Perspective', JGCD 2023, arXiv:2201.09805 ; Steffensen et al., Actuators 13(4):130, 2024, https://mdpi.com/2076-0825/13/4/130
 
-### 5.8 · **not confirmed** (memory or secondary)
+### 5.8 · **not confirmed** (own derivation)
 
 For small UAVs, the time-scale separation INDI assumes is marginal on the roll axis. On the repo's own Aerosonde, the roll mode is about as fast as the servo lag plus delay, so the Steffensen/Sieberling corrections matter.
 
@@ -92,7 +92,7 @@ A sign error in control effectiveness (a reversed surface or mixer error) is the
 - *Evidence:* Schenk & Ducard (2026): closed-form fifth-order loop of an INDI pitch-rate/elevon channel on a tilt-rotor VTOL, with Routh–Hurwitz over mismatch parameters. Effectiveness mismatch, especially a sign error in the allocation, destabilises most; actuator lag and inertia mismatch are fairly benign at nominal gain. Separately, a 2022 IFAC paper found that conventional INDI fails the sufficient stability conditions under severe damage.
 - *Source:* Schenk & Ducard, 'Linear Stability Analysis of an INDI Pitch-Rate Controller under Model Mismatch for a Tilt-Rotor VTOL UAV', arXiv:2607.16471 ; 'Predictor-based Adaptive INDI for Fault-Tolerant Flight Control', https://research.tudelft.nl/en/publications/predictor-based-adaptive-incremental-nonlinear-dynamic-inversion-
 
-### 5.13 · **not confirmed** (memory or secondary)
+### 5.13 · **not confirmed** (own derivation)
 
 Own linear analysis (scalar, synchronised, r = g_true/ĝ): INDI tracks exactly at DC for any r > 0. A small-gain argument guarantees stability of the incremental loop for 0 < r < 2. Overestimating ĝ is safe but slow; underestimating it makes the loop aggressive; r < 0 runs away. In MIMO the condition is ||I − G Ĝ⁺||·||H A||∞ < 1.
 

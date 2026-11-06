@@ -155,27 +155,70 @@ def _fleet_accept(args: argparse.Namespace) -> int:
         parts=out_dir / "parts",
         fingerprint=_v20_fingerprint(fleet_dir, args.site),
     )
-    meta = {"fleet": fleet_dir.name, "site": args.site, "seed": args.seed,
-            "seconds": round(time.perf_counter() - t0), "resumed_batches": run.resumed}  # fmt: skip
+    meta = {
+        "fleet": fleet_dir.name,
+        "site": args.site,
+        "seed": args.seed,
+        "seconds": round(time.perf_counter() - t0),  # this invocation, wall clock
+        "batch_seconds": round(run.batch_seconds),  # every batch's flight time, summed
+        "resumed_batches": run.resumed,  # batches flown by an earlier invocation
+    }
     out = write_fleet_v20(out_dir, run, meta)
     print(f"V20: {run.pass_rate:.1%} of {len(run.results)} airframes passed → {out}")
     return 0
 
 
 def _v20_fingerprint(fleet_dir: Path, site: str) -> str:
-    """What a kept V20 batch depends on besides its airframe ids and seed: the code (the commit,
-    plus the uncommitted changes to tracked files under ``src`` and ``configs``), the fleet
-    bundle's manifest and the site. Outside a git checkout only the fleet and site count."""
+    """What a kept V20 batch depends on besides its airframe ids and seed, by content: the files
+    under ``src`` and ``configs`` (tracked and untracked, not ignored), ``uv.lock`` and
+    ``pyproject.toml``, the installed jax, jaxlib, numpy and pydantic versions, the fleet
+    bundle's data files and the site file. A commit that leaves these unchanged (docs, say)
+    keeps the parts; copying the bundle elsewhere keeps them too (no paths or times)."""
     import hashlib
+    from importlib import metadata
 
-    h = hashlib.sha256(f"site={site}\n".encode())
-    manifest = fleet_dir / "manifest.json"
-    if manifest.exists():
-        h.update(manifest.read_bytes())
-    for cmd in (["git", "rev-parse", "HEAD"], ["git", "diff", "HEAD", "--", "src", "configs"]):
-        with contextlib.suppress(OSError, subprocess.CalledProcessError):
-            h.update(subprocess.run(cmd, cwd=REPO, capture_output=True, check=True).stdout)
+    from aeroadapt.scenarios.site import SITE_DIR
+
+    h = hashlib.sha256()
+
+    def add(label: str, data: bytes) -> None:
+        h.update(f"{label}\0{len(data)}\0".encode())
+        h.update(data)
+
+    def read(path: Path) -> bytes:
+        return path.read_bytes() if path.is_file() else b"<missing>"
+
+    site_path = Path(site) if Path(site).suffix in {".yaml", ".yml"} else SITE_DIR / f"{site}.yaml"
+    add("site", read(site_path))
+    for name in ("manifest.json", "airframes.parquet", "designs.parquet", "tables.npz"):
+        add(f"fleet/{name}", read(fleet_dir / name))
+    for name in ("uv.lock", "pyproject.toml"):
+        add(name, read(REPO / name))
+    for dist in ("jax", "jaxlib", "numpy", "pydantic"):
+        try:
+            version = metadata.version(dist)
+        except metadata.PackageNotFoundError:
+            version = "-"
+        add(f"dist/{dist}", version.encode())
+    for path in _code_files():
+        add(path.relative_to(REPO).as_posix(), path.read_bytes())
     return h.hexdigest()
+
+
+def _code_files() -> list[Path]:
+    """The files under ``src`` and ``configs`` the code may read: git's tracked and untracked
+    (not ignored) files in a checkout, otherwise every file; dot files such as Finder's
+    ``.DS_Store`` are left out."""
+    try:
+        listed = subprocess.run(
+            ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--",
+             "src", "configs"],
+            cwd=REPO, capture_output=True, check=True,
+        ).stdout.decode()  # fmt: skip
+        paths = {REPO / p for p in listed.split("\0") if p}
+    except (OSError, subprocess.CalledProcessError):
+        paths = {f for d in ("src", "configs") for f in (REPO / d).rglob("*")}
+    return sorted(f for f in paths if f.is_file() and not f.name.startswith("."))
 
 
 def _fleet_sample(args: argparse.Namespace) -> int:

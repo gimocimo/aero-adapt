@@ -188,7 +188,7 @@ An interpretable alternative to a black-box latent exists. Neural-Fly learns a s
 10. Teacher leakage: if the privileged vector includes future information (an upcoming gust from the wind field, or a fault before onset), the teacher learns anticipatory actions no student can copy. Give only current values, and reveal faults at or after onset.
 11. Reward hacking under faults, e.g. diving to gain airspeed and control authority at the cost of altitude. Score altitude lost and envelope exceedances, not tracking error alone.
 12. Headline cherry-picking risk: choose the six airframes and the hard-over case before results come in, and report all of them with CIs.
-13. Overclaiming fidelity (per the owner's 'explain fidelity plainly' rule): every result is simulation-to-simulation. Say so, and note that no fixed-wing cross-airframe RL has been flight-tested in the literature found.
+13. Overclaiming fidelity (per the project's fidelity rule, docs/09 §8.6): every result is simulation-to-simulation. Say so, and note that no fixed-wing cross-airframe RL has been flight-tested in the literature found.
 
 ## Open questions
 

@@ -93,13 +93,42 @@ def test_an_interrupted_run_flies_only_the_missing_batches(
         ["gen-glider-00008", "gen-glider-00009"],
     ]
     assert run.resumed == 1
-    assert [r.airframe for r in run.results] == [f"gen-glider-{i:05d}" for i in range(10)]
+    ids = [f"gen-glider-{i:05d}" for i in range(10)]
+    assert [r.airframe for r in run.results] == ids
+
+
+def test_a_resumed_run_keeps_fleet_order_and_flight_times(
+    tmp_path: Path, flown: list[list[str]]
+) -> None:
+    """The first batch flown last (as after an interrupt with parallel workers): the results and
+    the configurations still come out in fleet order, as stack_cfgs.jsonl is written in it."""
+    fresh = _run(tmp_path)
+    (tmp_path / "batch-00000.json").unlink()
+    run = _run(tmp_path)
+    ids = [f"gen-glider-{i:05d}" for i in range(10)]
+    assert list(run.cfgs) == ids == list(fresh.cfgs)
+    assert [r.airframe for r in run.results] == ids
+    kept = json.loads((tmp_path / "batch-00004.json").read_text())
+    assert kept["seconds"] >= 0.0 and run.batch_seconds >= kept["seconds"]
+
+
+def test_the_fingerprint_follows_content_not_commits() -> None:
+    from aeroadapt import cli
+
+    sample = SAMPLE_CFGS.parent
+    a = cli._v20_fingerprint(sample, "cambridge_west")  # pyright: ignore[reportPrivateUsage]
+    assert a == cli._v20_fingerprint(sample, "cambridge_west")  # pyright: ignore[reportPrivateUsage]
+    assert a != cli._v20_fingerprint(sample, "wrenfold")  # pyright: ignore[reportPrivateUsage]
+    files = cli._code_files()  # pyright: ignore[reportPrivateUsage]
+    assert Path(fleet_v20.__file__).resolve() in {f.resolve() for f in files}
+    assert not [f for f in files if f.name.startswith(".")]
+    assert not [f for f in files if "docs" in f.relative_to(cli.REPO).parts]
 
 
 def test_other_code_or_other_airframes_fly_again(tmp_path: Path, flown: list[list[str]]) -> None:
     _run(tmp_path)
     flown.clear()
-    assert _run(tmp_path, fingerprint="b").resumed == 0  # another commit or fleet
+    assert _run(tmp_path, fingerprint="b").resumed == 0  # other code, fleet or site
     assert len(flown) == 3
     flown.clear()
     run = _run(tmp_path, n=9, fingerprint="b")  # the last batch now holds one airframe

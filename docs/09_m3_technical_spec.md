@@ -15,8 +15,9 @@ logged in [05 §14](05_m2_technical_spec.md): M2 D6 (auto-configuration: V20 at 
 85.5 % at the end of M2) and M2 D4 (the Rascal flies the M1 mission in JSBSim from its
 datasheet configuration). (Txt2Fly's map work is also
 logged as week 12, 24–25 Oct, in [06 §14](06_txt2fly_spec.md).) Costed line by line, the plan
-is about 159 h [D] (§11), against about 120 h in the four weeks doc 03 first gave M3. The owner
-chose one more week (§0.6): five weeks, about 150 h, with the cut list closing the rest.
+is about 159 h [D] (§11), against about 120 h in the four weeks doc 03 first gave M3. One more
+week was taken, as recommended, at the owner's request (§0.6): five weeks, about 150 h, with the
+cut list closing the rest.
 
 This spec builds on a literature review (six topic reports and a synthesis, 6 Nov 2026), in
 [`docs/research/m3/`](research/m3/README.md). Claims marked **[U]** come from secondary summaries or memory
@@ -92,12 +93,16 @@ item opens with its decision; §13 lists the answers in one place.
    (ladder rung 2) and before B2 is tuned, in week 14 (§8.1, §11). The tag needs the X8, the
    Zagi, the oracle and V20 on the whole fleet first; all four are now costed.
 5. **GPU budget.** *Decided by the owner: a cap of $400 for M3, on RunPod, with a checkpoint.*
-   - The estimate is about 12–57 GPU-hours [D, pending D9], about $17–130 at Sep–Oct 2026 A100
-     and H100 marketplace prices of about $1.4–2.3/h [U: secondary trackers, which moved by more
-     than 20 % between August and October]. The cap leaves room for a GPU that only meets M2's
-     1M-control-steps/s target, which is 0.5M policy steps/s for the simulator alone: if the
-     networks and the update halve that, the 103B steps take about 114 GPU-hours, $160–260
-     [D]. It also covers idle time and retries (§3.8).
+   - The estimate is about 12–57 GPU-hours [D, pending D9]. RunPod's prices in the review
+     ([report 3](research/m3/3-jax-ppo.md), Sep–Oct 2026 [U: secondary trackers, which moved
+     by more than 20 % between August and October]) are about $1.39–1.59/h for an A100 80GB,
+     $1.99/h for a Community-Cloud H100 and $3.29–3.99/h for a Secure-Cloud H100: about
+     $17–115 on an A100 or a Community H100, and up to about $230 on a Secure H100.
+   - The cap leaves room for a GPU that only meets M2's 1M-control-steps/s target, which is
+     0.5M policy steps/s for the simulator alone. If the networks and the update halve that,
+     the 103B steps take about 114 GPU-hours [D]: $160–230 on an A100 or a Community H100,
+     inside the cap, but $375–455 on a Secure H100, which is not, so the benchmark's cost per
+     billion steps chooses the GPU (§3.8). The margin also covers idle time and retries (§3.8).
    - The checkpoint: the first spend (about $5–15) runs M2's GPU notebook, which closes M2 D9,
      and then times the full training step (D9). The plan is re-costed from the measured
      throughput, and if it comes to more than about $300, the owner decides before any further
@@ -120,7 +125,7 @@ item opens with its decision; §13 lists the answers in one place.
      linearised margins are dropped, all now (about 17 h). Skyview's allocation view and the
      blog move to M4's first week (about 8 h; D8 amended). About 14 h of overrun remain, so a
      "partially met" verdict is likely.
-   - Either way, the cut order is the single list in §11.
+   - The cuts are the single list in §11; under (a), cuts 2–4 come before cut 1.
 7. **Survival counts recovered upsets.** *Decided: yes.* The primary endpoint, survival, means no
    unrecovered loss of control and no uncontrolled ground contact (§8.3). This departs from
    M2's bench, which fails a flight on any excursion beyond |φ| 90° or |θ| 60° on its 10 Hz
@@ -424,9 +429,9 @@ saturates as the batch grows (SAPG, ICML 2024).
 - At an assumed 0.5–2M policy steps per second on one rented GPU [D, pending D9], that is
   about 12–57 GPU-hours. The assumption needs the simulator alone at 1–4M control steps/s or
   more, before any network or update cost [D]; that is above M2's 1M target (D9).
-- Today's CPU numbers (V15, laptop, float32, batch 1,024) are about 0.28M policy steps/s for the
-  simulator alone (552k control steps/s) and 0.11M with the stock stack in the loop (225k
-  control steps/s). At batch 4,096 they are 0.43M and 0.15M (05 §14: 851k and 303k control
+- Today's CPU numbers (V15 in the M2 report rebuilt on 6 Nov, laptop, float32, batch 1,024,
+  heterogeneous fleet with faults) are about 0.27M policy steps/s for the simulator alone
+  (546k control steps/s) and 0.11M with the stock stack in the loop (219k control steps/s). At batch 4,096 they are 0.43M and 0.15M (05 §14: 851k and 303k control
   steps/s).
 - A 3B-step seed therefore needs at least 2–3 h of laptop CPU for the simulator alone. One seed
   per night is possible only if the allocator, the networks and the update cost less than about
@@ -437,6 +442,9 @@ saturates as the batch grows (SAPG, ICML 2024).
   32k and 128k environments on a few GPU types chooses the GPU by cost per billion policy steps.
 - The provider is RunPod (the owner's choice, 6 Nov 2026), so the benchmark compares the GPU
   types RunPod rents, and the cap is $400 with a checkpoint after the benchmark (§0.5).
+- The GPU-hours above are training only. Idle time (compiling, debugging on the GPU,
+  evaluation) and failed or repeated runs come on top. They are not estimated; the cap's
+  margin over the estimate is for them (§0.5).
 - Debugging time, not GPU money, is the binding constraint.
 
 ---
@@ -568,7 +576,7 @@ saturates as the batch grows (SAPG, ICML 2024).
 - **The Aerosonde** keeps its role: independent provenance, never in training. Its aileron data
   lack the symmetric term (§2).
 - **The Rascal** (M2 D4): its datasheet airframe and tuned B1 stack (`configs/fleets/rascal`,
-  built by the generator from the kit's published geometry; to be committed) and its own JSBSim
+  built by the generator from the kit's published geometry; committed in 2388ae7) and its own JSBSim
   model.
   - For G4, {L1, B1} × {the datasheet Rascal in aerojax, the Rascal's own model in JSBSim}.
     Against G2, the aerojax column measures the new-airframe gap. The JSBSim column against the
@@ -639,13 +647,19 @@ Rules, fixed in the pre-registration:
 | LOCO | glider and V-tail folds, 3 seeds each | 1,000 per fold | class-level evidence |
 
 - **V20 on the whole fleet.** Training, G1-val, G2 and G2-x all need V20 on the whole
-  10,000-airframe fleet. M2 ran it on the first 1,000; their 855 accepted airframes include 80
-  in the test split, the pool bench v0 used (05 §14, week 8). With five worker processes
-  (51 min per 1,000 airframes in week 12), the whole fleet takes about 9 h of laptop CPU. The
-  owner chose the laptop, on mains power, from 6 Nov 2026 (§13, question 4), with a few
-  GPU-hours [D] as the fallback. The run keeps each finished batch, so an interruption loses
-  at most the batches in flight, and its first 1,000 airframes must reproduce M2's run
-  (`runs/v20/m2-fleet`) exactly. It must finish before the tag.
+  10,000-airframe fleet. M2's D6 run on the first 1,000 accepted 951, 90 of them in the test
+  split, the pool bench v0 now uses (05 §14, week 12). With five worker processes (51 min per
+  1,000 airframes in week 12), the whole fleet takes about 9 h of laptop CPU. The laptop was
+  chosen under the owner's delegation of 6 Nov 2026 (§13, question 4), on mains power, with a
+  few GPU-hours [D] as the fallback.
+  - The run writes to `runs/v20/m2-fleet-10k` (`aeroadapt fleet-accept m2-fleet --workers 5
+    --out runs/v20/m2-fleet-10k`), never to the default directory: `runs/v20/m2-fleet` holds
+    M2's D6 run and bench v0's pool (`configs/bench/b0.yaml`), and both stay as they are.
+  - Its first 1,000 airframes must reproduce that run exactly.
+  - It keeps each finished batch, so an interruption loses at most the batches in flight, as
+    long as what the resume fingerprints is unchanged: the files under `src` and `configs`,
+    the lock file, the fleet bundle and the site (a docs-only commit does not count).
+  - It must finish before the tag.
 - **Scenarios.**
   - 30 % nominal (wind and turbulence only), 70 % single in-scope faults stratified by fault
     family × class; 300 s in aerojax, onsets 10–200 s.
@@ -705,7 +719,8 @@ Rules, fixed in the pre-registration:
   - Five seeds for L1 (never cut) and for L2; three for each of A3–A5 and each LOCO fold.
   - The first three L1 seeds are a pilot. If the seed-to-seed standard deviation of the
     teachers' G1-val survival exceeds 2 points, five more L1 seeds are trained (15B policy
-    steps, inside §3.8's upper total). The pilot is judged on the teachers because five more
+    steps, inside §3.8's upper total), unless the re-costing at the GPU checkpoint (§0.5) shows
+    they would breach the cap; L1 then stays at five seeds and the pilot's spread is reported. The pilot is judged on the teachers because five more
     seeds must start before Gate C to finish before the freeze.
   - The final checkpoint of every seed is used. The headline policy is the median seed by
     G1-val (with ten seeds, the sixth-best by G1-val survival, the lower of the middle two),
@@ -797,7 +812,7 @@ modules under `src/` (`grep -lw aileron` lists 24).
 | `src/aeroadapt/generator/aero.py`, `geometry.py` | the missing symmetric or antisymmetric run per surface pair (§2) |
 | `src/aeroadapt/sim/aerojax/aero.py`, `sim.py`, `actuators.py`; `faultlab/` | split surfaces (N_MAX = 8, mask), per-surface faults and floating signs; the larger delay buffer for the margin sweep |
 | `src/aeroadapt/sim/jsbsim/fdm.py`, `v14.py`, `export.py`; `vehicle/` | per-surface commands in both backends |
-| `src/aeroadapt/sim/jsbsim/rascal.py` (being modified for M2 D4), `tools/rascal_airframe.py` (M2 D4, uncommitted) | the Rascal's per-surface wiring |
+| `src/aeroadapt/sim/jsbsim/rascal.py`, `tools/rascal_airframe.py` (M2 D4, 2388ae7) | the Rascal's per-surface wiring |
 | `src/aeroadapt/stack/attitude.py`, `autopilot.py`, `config.py`; `harness/autoconfig.py`, `autotune.py` | the stock stack's fixed mixer; B1 without a rudder |
 | `src/aeroadapt/telemetry/schema.py` | per-surface columns, bundle schema version 2 (ADR-005) |
 | `src/aeroadapt/stack/allocation.py` | WLS active-set allocator, bounds, effectiveness estimator, reversed/dead test |
@@ -843,8 +858,8 @@ inference code lives outside `learn/`.
 ## 11. Work plan (weeks 12–17) and gates
 
 All hours are estimates [D]. Week 12 holds M2's carry-overs and is not counted in M3's hours.
-The table is option (a) of §0.6, five weeks after week 12, which the owner chose on 6 Nov 2026;
-option (b) is kept below for the record.
+The table is option (a) of §0.6, five weeks after week 12, taken as recommended at the owner's
+request on 6 Nov 2026; option (b) is kept below for the record.
 
 | Week | Work (hours) | Total | Exit |
 |---|---|---|---|
@@ -879,10 +894,11 @@ page (2). The 3-seed pilot costs compute, not hours.
   134 h remain, still about 14 h over. Under (b), weeks 13–16 take the table's work in the same
   order, with the pre-registration still in week 14.
 - Anything finished in week 12 beyond the carry-overs (the GPU notebook, the start of the X8)
-  comes off the total. If M2 D6 or M2 D4 is not done by the end of week 12, its remainder comes
-  out of week 13 and the Zagi is cut first.
+  comes off the total. (Both carry-overs were done in week 12, so the rule that their remainder
+  would come out of week 13 did not apply.)
 
-**If behind**, cut in this order (hours freed [D]):
+**If behind**, these are the cuts (hours freed [D]). Under (a), cuts 2–4 are taken first, in
+that order, and cut 1 is decided at Gate B, the last point at which it still frees its 10 h:
 1. L2 becomes scripted recovery (doc 03's own cut): about 10 h if decided at Gate B or earlier.
    P4 is withdrawn.
 2. Leave-one-class-out from two folds to none: about 1 h and 18B policy steps.
@@ -914,7 +930,7 @@ for L1, A4 (the memory check, §12), or the G4 Rascal.
 | Chattering surfaces | smoothness far above B1 | CAPS plus the rate penalty | a fixed low-pass on ν, in the loop |
 | Reward hacking (diving for authority, post-stall exploits) | height loss, α excursions | envelope penalties; height in the reward; JSBSim check | a restricted L2 envelope |
 | Test-set reuse or a curated headline | none: prevented by design | pre-registration, ledger, the pre-freeze access rule (§8.1), hash draws, the median seed | — |
-| M2's carry-overs or the new airframes are late | the week-12 exit; V42 not green by the tag | the costed lines in §11 | the Zagi cut first; a third G2 airframe takes its place |
+| The new airframes are late | V42 not green by the tag | the costed lines in §11 | the Zagi cut first; a third G2 airframe takes its place |
 | The full-fleet V20 is late | not running by the start of week 13 | queued as soon as M2 D6 closes; finished batches kept, so a restart resumes | a few GPU-hours [D]; the tag waits for it |
 | Schedule: about 159 h of work for 150 h in five weeks [D] | the week-12 exit; Gate A; Gate B | the costed plan (§11); five weeks chosen (§0.6) | the cut list in order, cut 1 at Gate B if the hours spent call for it |
 
@@ -934,7 +950,8 @@ The owner decided question 3 and asked for the recommendations to be taken on th
    and the full-training-step benchmark the plan is re-costed, and above about $300 the owner
    decides before further spend.
 4. **V20 on the whole fleet**: on the laptop's CPU, about 9 h with five workers, on mains
-   power, from 6 Nov 2026; a few GPU-hours [D] only if that fails. The tuner is not changed
+   power, from 6 Nov 2026, into `runs/v20/m2-fleet-10k` (§8.3); a few GPU-hours [D] only if that
+   fails. The tuner is not changed
    first: B1 stays as M2 delivered it, so the run's first 1,000 airframes reproduce M2's D6 run
    exactly, and the tie-break limitation (05 §14, week 12) stays recorded.
 5. **The schedule** (§0.6): five weeks, (a); doc 03 §7.2 amended, the plan now 30 weeks.
@@ -951,9 +968,9 @@ The owner decided question 3 and asked for the recommendations to be taken on th
 
 ## Sources
 
-The full reference list, with the claims still to check, is in
-[`docs/research/m3/synthesis.md`](research/m3/synthesis.md) (6 Nov 2026). The ones the design
-rests on:
+The synthesis's reference list, with the claims still to check, is in
+[`docs/research/m3/synthesis.md`](research/m3/synthesis.md) (6 Nov 2026); it is incomplete, and
+each topic report carries its own sources. The ones the design rests on:
 
 - Kumar et al., RMA: Rapid Motor Adaptation for Legged Robots, RSS 2021, https://arxiv.org/abs/2107.04034; Adapting Rapid Motor Adaptation for Bipedal Robots, IROS 2022, https://arxiv.org/abs/2205.15299
 - Lee et al., Learning quadrupedal locomotion over challenging terrain, Science Robotics 2020, https://arxiv.org/abs/2010.11251; Miki et al., Science Robotics 2022, https://arxiv.org/abs/2201.08117

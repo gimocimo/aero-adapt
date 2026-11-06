@@ -1,6 +1,6 @@
 # M2 Technical Specification: The Fleet
 
-*Status: draft · 15 Oct 2026 · Parent plan: [03 — AeroAdapt-UAV](03_uav_architecture_and_six_month_roadmap.md) §7.2 · Previous milestone: [04 — M1](04_m1_technical_spec.md)*
+*Status: complete, 6 Nov 2026 (D6 and D4 finished in M3's week 12; D9's GPU number comes with M3's first GPU run) · drafted 15 Oct 2026 · Parent plan: [03 — AeroAdapt-UAV](03_uav_architecture_and_six_month_roadmap.md) §7.2 · Previous milestone: [04 — M1](04_m1_technical_spec.md)*
 
 **Goal of M2.** Replace "one textbook aircraft" with **a fleet of thousands of physically plausible
 fixed-wing UAVs** whose aerodynamics are computed from their geometry. The stock autopilot must be

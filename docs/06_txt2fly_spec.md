@@ -1,6 +1,6 @@
 # Txt2Fly Technical Specification: Tell It Where to Go
 
-*Status: draft · 21 Oct 2026 · Parent plan: [03 — AeroAdapt-UAV](03_uav_architecture_and_six_month_roadmap.md) §7.2 (weeks 9 and 11, inserted on 21 Oct 2026; week 10 became the synthetic world, [07](07_world_and_skyview_spec.md)) · Previous milestone: [05 — M2](05_m2_technical_spec.md)*
+*Status: core built (weeks 9 and 11, map awareness 24–25 Oct, §17); T9–T11 and V26 on the evaluation's plans still open (§14) · drafted 21 Oct 2026 · Parent plan: [03 — AeroAdapt-UAV](03_uav_architecture_and_six_month_roadmap.md) §7.2 (weeks 9 and 11, inserted on 21 Oct 2026; week 10 became the synthetic world, [07](07_world_and_skyview_spec.md)) · Previous milestone: [05 — M2](05_m2_technical_spec.md)*
 
 **Goal.** Let an operator say where the aircraft should go and what it should do, in plain words:
 

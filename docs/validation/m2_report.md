@@ -1,6 +1,6 @@
 # Validation report (M1 and M2)
 
-*Generated 2026-10-16 by `validation/report.py` · commit `a6ddbc859e` · arm64 Darwin · Python 3.12.13 · JAX 0.11.2*
+*Generated 2026-11-06 by `validation/report.py` · commit `2388ae7c4f` · arm64 Darwin · Python 3.12.13 · JAX 0.11.2*
 
 Evidence for the M1 spec §12 and the M2 spec §10. Each section recomputes its results; the pytest tiers gate the same criteria in CI (fast) and nightly (full). The frozen M1 artefact is [m1_report.md](m1_report.md).
 
@@ -172,6 +172,28 @@ The Aerosonde's aerodynamics are exported to a JSBSim model (`tools/jsbsim`); JS
 *V14: aerojax and JSBSim from their own power-off glide trims*
 
 
+## D4 · The held-out Rascal 110 in JSBSim
+
+The stock stack auto-configured and auto-tuned on the Rascal's datasheet airframe (`tools/rascal_airframe.py`: the kit's published geometry and mass, the generator's estimates for the rest; V20 passes on it in aerojax), flown in JSBSim on the Rascal's own model, which the stack never saw (`sim/jsbsim/rascal.py`). Each flight is the M1 loop (`configs/scenarios/rascal-nominal.yaml`) with its wind, turbulence and faults varied, recorded under `runs/rascal/` (`tools/rascal_flights.py`); the aerojax column is the same flight on the datasheet model.
+
+| Flight | Wind | Motor cut | Height (m) | TAS (m/s) | Max bank | Cross-track RMS (aerojax), m | Detection | End |
+|---|---|---|---|---|---|---|---|---|
+| calm | 0 m/s from 250°, none |  | 119–141 | 13.2–16.3 | 50° | 6.4 (5.2) |  | flying |
+| nominal | 6 m/s from 250°, light |  | 118–142 | 12.5–17.2 | 51° | 9.7 (7.3) |  | flying |
+| wind-n | 6 m/s from 0°, light |  | 117–140 | 12.7–17.3 | 54° | 6.2 (5.2) |  | flying |
+| wind-e | 6 m/s from 90°, light |  | 118–141 | 13.1–16.9 | 52° | 8.2 (4.4) |  | flying |
+| wind-s | 6 m/s from 180°, light |  | 117–141 | 12.3–16.8 | 49° | 14.5 (13.1) |  | flying |
+| wind-w-8 | 8 m/s from 270°, light |  | 118–140 | 12.4–17.1 | 51° | 10.1 (7.6) |  | flying |
+| moderate | 6 m/s from 250°, moderate |  | 116–141 | 11.7–17.1 | 51° | 11.2 (5.7) |  | flying |
+| moderate-2 | 5 m/s from 30°, moderate |  | 116–142 | 12.3–18.6 | 49° | 6.3 (4.9) |  | flying |
+| motorcut-60 | 6 m/s from 250°, light | 60 s | 118–122 | 13.6–15.1 | 6° | 0.6 (0.6) | +0.8 s (aerojax +0.7 s) | controlled touchdown in A, 0.9 m/s |
+| motorcut-110 | 6 m/s from 250°, light | 110 s | 117–130 | 12.6–17.1 | 50° | 13.5 (10.1) | +0.7 s (aerojax +0.7 s) | controlled touchdown outside a field, 0.8 m/s |
+| motorcut-170 | 4 m/s from 120°, light | 170 s | 117–139 | 13.0–16.7 | 52° | 6.6 (6.9) | +0.8 s (aerojax +0.8 s) | hard touchdown outside a field, 1.7 m/s |
+| motorcut-230 | 5 m/s from 300°, light | 230 s | 119–142 | 12.7–16.5 | 51° | 8.1 (6.1) | +0.7 s (aerojax +0.8 s) | hard touchdown in C, 1.5 m/s |
+
+**8 of 8 nominal flights complete without a false alarm; 4 of 4 motor cuts are detected and end in a controlled or hard touchdown** (2 in a surveyed field) ✅ (D4: the stock stack flies the M1 mission on the held-out Rascal).
+
+
 ## V16 / V17 · Aero v2 tables
 
 Aero v2 tabulates the static coefficients over 360° of α (0.5° grid) and scales the damping and control derivatives by effectiveness tables. **V16**: the B&M formulas sampled onto the grid reproduce the analytic model in the flight envelope (α ∈ [−15°, 20°]):
@@ -267,30 +289,26 @@ Two real airframes are rebuilt from their published geometry and run through the
 
 The first 1,000 airframes of `m2-fleet`, each auto-configured (`harness/autoconfig.py`) and auto-tuned (`harness/autotune.py`), then flown through a batched V11-lite: roll, pitch, altitude and speed steps, limit cycles and an L1 box in calm air; the L1 box and servo saturation in light turbulence. Dimensional limits scale with cruise speed and GNSS accuracy (`harness/fleet_acceptance.py`).
 
-**855 of 1000 pass (85.5%)** · criterion ≥ 90% ❌ · 103 min on this machine.
+**951 of 1000 pass (95.1%)** · criterion ≥ 90% ✅ · 51 min on this machine.
 
 | Class | Airframes | Pass rate |
 |---|---|---|
-| conventional | 200 | 90% |
-| glider | 70 | 54% |
-| t_tail | 190 | 87% |
-| twin_boom | 263 | 92% |
-| v_tail | 277 | 83% |
+| conventional | 200 | 97% |
+| glider | 70 | 90% |
+| t_tail | 190 | 97% |
+| twin_boom | 263 | 96% |
+| v_tail | 277 | 93% |
 
 | Failed check | Airframes | Median value / limit |
 |---|---|---|
-| limit cycle 0.3-5 Hz attitude RMS | 40 | 1.12 |
-| roll step steady-state error | 37 | 1.17 |
-| |beta| in 30 deg turn | 36 | 1.16 |
-| alt step airspeed deviation | 30 | 1.18 |
-| pitch step overshoot | 14 | 1.11 |
-| roll step overshoot | 9 | 1.06 |
-| L1 cross-track RMS (calm) | 4 | 1.08 |
-| pitch step rise 10-90% | 3 | 1.03 |
-| speed step error after 15 s | 3 | 1.12 |
-| speed step altitude deviation | 1 | 1.10 |
+| roll step steady-state error | 28 | 1.11 |
+| pitch step overshoot | 11 | 1.12 |
+| limit cycle 0.3-5 Hz attitude RMS | 7 | 1.04 |
+| L1 cross-track RMS (calm) | 5 | 1.09 |
+| roll step overshoot | 2 | 1.16 |
+| pitch step rise 10-90% | 1 | 1.05 |
 
-Failing airframes fail 1 check: 117, 2 checks: 25, 3 checks: 2, 4 checks: 1. Per the spec (§6), airframes that fail V20 are excluded from the benchmark fleet, with these reasons recorded in `results.parquet`.
+Failing airframes fail 1 check: 45, 2 checks: 3, 3 checks: 1. Per the spec (§6), airframes that fail V20 are excluded from the benchmark fleet, with these reasons recorded in `results.parquet`.
 
 
 ## V21 · faultlab v1
@@ -311,11 +329,9 @@ Failing airframes fail 1 check: 117, 2 checks: 25, 3 checks: 2, 4 checks: 1. Per
 |---|---|---|---|---|---|---|
 | battery-sag-vs-prop-damage | 15 s | throttle rise | +0.0334 / +0.0243 | 1.38 | 8/8 | ✅ |
 | cg-vs-elevator-offset | 10 s | elevator shift | -0.17 / -0.17 | 1.00 | 8/8 | ✅ |
-| floating-vs-turbulence | 10 s | roll rate rms | +0.0254 / +0.0283 | 0.90 | 8/8 | ✅ |
+| floating-vs-turbulence | 25 s | lateral accel std | +0.201 / +0.138 | 1.45 | 8/8 | ✅ |
 | gnss-spoof-vs-wind-change | 20 s | wind shift | +0.683 / +0.723 | 0.94 | 8/8 | ✅ |
 | pitot-vs-airspeed-loss | 4 s | ias drop | -3.26 / -3.16 | 1.03 | 8/8 | ✅ |
-
-*Corrected 6 Nov 2026:* the floating-vs-turbulence row was measured with the floating trail's sign wrong for the Aerosonde. The pair is re-calibrated (lateral acceleration over 25 s, ratio 1.46): see docs/05 §14, the note under V21. The section is regenerated with the next report build.
 
 
 ## V22 · Bench v0
@@ -324,27 +340,27 @@ Failing airframes fail 1 check: 117, 2 checks: 25, 3 checks: 2, 4 checks: 1. Per
 
 |  | B1 | B2 |
 |---|---|---|
-| Survival (no loss of control, no ground contact except a planned landing) | 83.1% [81%, 85%] (831/1000) | 86.4% [84%, 88%] (864/1000) |
-| Mission completed (one full lap) | 93.4% [92%, 95%] (934/1000) | 92.5% [91%, 94%] (925/1000) |
-| Loss of control | 10.5% [9%, 13%] (105/1000) | 10.4% [9%, 12%] (104/1000) |
-| Motor cut: survival | 11.8% [5%, 27%] (4/34) | 94.1% [81%, 98%] (32/34) |
-| Motor cut: landed in a safe zone | 0.0% [0%, 10%] (0/34) | 50.0% [34%, 66%] (17/34) |
+| Survival (no loss of control, no ground contact except a planned landing) | 83.1% [81%, 85%] (831/1000) | 86.3% [84%, 88%] (863/1000) |
+| Mission completed (one full lap) | 93.2% [91%, 95%] (932/1000) | 91.9% [90%, 93%] (919/1000) |
+| Loss of control | 10.3% [9%, 12%] (103/1000) | 10.2% [8%, 12%] (102/1000) |
+| Motor cut: survival | 14.7% [6%, 30%] (5/34) | 88.2% [73%, 95%] (30/34) |
+| Motor cut: landed in a safe zone | 0.0% [0%, 10%] (0/34) | 44.1% [29%, 61%] (15/34) |
 | Motor cut: detected | 0.0% [0%, 10%] (0/34) | 97.1% [85%, 99%] (33/34) |
-| Motor cut: detection latency (s) | – | 2.04 [0.91, 3.53] |
-| False alarms on fault-free flights | 13.6% [10%, 18%] (45/331) | 13.6% [10%, 18%] (45/331) |
-| False alarms per flight hour | 1.632 | 1.632 |
+| Motor cut: detection latency (s) | – | 2.20 [1.07, 3.69] |
+| False alarms on fault-free flights | 15.4% [12%, 20%] (51/331) | 15.4% [12%, 20%] (51/331) |
+| False alarms per flight hour | 1.849 | 1.849 |
 
 | Survival by fault category | B1 | B2 |
 |---|---|---|
-| actuator | 66.7% [56%, 76%] (52/78) | 66.7% [56%, 76%] (52/78) |
-| airframe | 100.0% [91%, 100%] (38/38) | 100.0% [91%, 100%] (38/38) |
-| energy | 100.0% [87%, 100%] (26/26) | 100.0% [87%, 100%] (26/26) |
-| multiple | 66.6% [61%, 71%] (219/329) | 73.2% [68%, 78%] (241/329) |
-| none | 99.7% [98%, 100%] (330/331) | 99.7% [98%, 100%] (330/331) |
-| propulsion | 75.0% [61%, 85%] (33/44) | 93.2% [82%, 98%] (41/44) |
-| sensor | 86.4% [80%, 91%] (133/154) | 88.3% [82%, 92%] (136/154) |
+| actuator | 69.2% [58%, 78%] (54/78) | 69.2% [58%, 78%] (54/78) |
+| airframe | 97.4% [87%, 100%] (37/38) | 97.4% [87%, 100%] (37/38) |
+| energy | 100.0% [87%, 100%] (26/26) | 96.2% [81%, 99%] (25/26) |
+| multiple | 65.3% [60%, 70%] (215/329) | 72.3% [67%, 77%] (238/329) |
+| none | 100.0% [99%, 100%] (331/331) | 100.0% [99%, 100%] (331/331) |
+| propulsion | 70.5% [56%, 82%] (31/44) | 88.6% [76%, 95%] (39/44) |
+| sensor | 89.0% [83%, 93%] (137/154) | 90.3% [85%, 94%] (139/154) |
 
-B1 and B2 differ on 45 scenarios: B2 survives 39 that B1 does not, B1 6 that B2 does not (fault combinations: accel_bias+motor_cut, airspeed_stuck+abnormal_sag, airspeed_stuck+motor_cut, baro_drift, baro_drift+gnss_dropout, baro_drift+imu_vibration, baro_drift+mag_interference, cell_failure+motor_cut, gnss_dropout+motor_cut, gnss_spoof+baro_drift, gnss_spoof+motor_cut, hard_over+motor_cut, imu_vibration+thermal_derate, motor_cut, motor_cut+cell_failure, motor_cut+gyro_bias, motor_cut+imu_vibration, motor_cut+mag_interference, motor_cut+servo_jam, motor_cut+slow, motor_cut+thermal_derate, motor_cut+wing_damage, partial_loss+motor_cut, thermal_derate, thermal_derate+baro_drift, thermal_derate+gyro_bias, thermal_derate+imu_vibration, wing_damage+motor_cut, wing_damage+thermal_derate).
+B1 and B2 differ on 40 scenarios: B2 survives 36 that B1 does not, B1 4 that B2 does not (fault combinations: abnormal_sag, abnormal_sag+baro_drift, abnormal_sag+gnss_spoof, accel_bias+motor_cut, airspeed_stuck+motor_cut, baro_drift, baro_drift+gnss_dropout, baro_drift+imu_vibration, cell_failure+motor_cut, gnss_dropout+motor_cut, gnss_spoof+baro_drift, gnss_spoof+motor_cut, hard_over+motor_cut, motor_cut, motor_cut+gyro_bias, motor_cut+imu_vibration, motor_cut+mag_interference, motor_cut+slow, motor_cut+thermal_derate, motor_cut+wing_damage, partial_loss+motor_cut, thermal_derate, thermal_derate+airspeed_stuck, thermal_derate+floating, thermal_derate+gyro_bias, thermal_derate+pitot_blockage, wing_damage+motor_cut, wing_damage+thermal_derate).
 
 Reproducibility: the sample bench run twice gives an identical outcome table ✅.
 
@@ -366,10 +382,10 @@ Reproducibility: the sample bench run twice gives an identical outcome table ✅
 device: cpu (cpu) · arm64 · jax 0.11.2 · float32
 physics 200 Hz x 2 substeps → control 100 Hz
  batch  compile s   ctrl steps/s  physics steps/s
-     1        1.8         36,478           72,957
-    64        1.9        613,085        1,226,169
-  1024        3.2        752,326        1,504,652
-host-stepped: 233 µs per control step → real-time factor 43x
+     1        2.0         35,891           71,782
+    64        2.1        603,337        1,206,675
+  1024        3.5        747,874        1,495,748
+host-stepped: 224 µs per control step → real-time factor 45x
 ```
 
 Heterogeneous fleet with faults (M2, `tools/bench_fleet.py`; the GPU figure comes from `notebooks/gpu_throughput.ipynb`):
@@ -377,10 +393,10 @@ Heterogeneous fleet with faults (M2, `tools/bench_fleet.py`; the GPU figure come
 device: cpu (cpu) · arm64 · jax 0.11.2 · float32
 heterogeneous fleet (10 airframes cycled) · per-lane wind, turbulence and one fault
   batch  simulator steps/s  closed-loop steps/s
-     64            443,563              210,348
-    256            510,798              227,543
-   1024            552,453              224,896
+     64            400,483              173,646
+    256            491,182              219,715
+   1024            545,665              218,612
 ```
 
 
-*Built in 611 s. V11 test names: roll, pitch, alt, speed, l1, loiter, level.*
+*Built in 1060 s. V11 test names: roll, pitch, alt, speed, l1, loiter, level.*

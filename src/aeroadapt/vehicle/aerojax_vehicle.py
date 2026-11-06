@@ -152,6 +152,7 @@ class AerojaxVehicle:
             battery_v=float(t.battery_v) if t is not None else float("nan"),
             soc=float(s.battery.soc),
             fault_labels={k: np.asarray(v) for k, v in labels._asdict().items()},
+            prop_rpm=float(s.prop_omega) * 60.0 / (2.0 * np.pi),
         )
 
     def impact(self) -> ImpactRecord | None:

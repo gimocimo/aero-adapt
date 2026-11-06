@@ -48,13 +48,39 @@ def airframe_class(airframe_id: str) -> str:
     return parts[1] if len(parts) == 3 and parts[0] == "gen" else "other"
 
 
+def _batch(job: tuple[list[Airframe], Site, int]) -> FleetV20:
+    chunk, site, seed = job
+    return run_fleet_v20(chunk, site, batch=len(chunk), seed=seed, log=lambda _: None)
+
+
 def run_fleet_v20(
     airframes: Sequence[Airframe],
     site: Site,
     batch: int = 200,
     seed: int = 0,
     log: Callable[[str], None] = print,
+    workers: int = 1,
 ) -> FleetV20:
+    """``workers`` > 1 flies batches in parallel processes: JAX on the CPU keeps about two cores
+    busy per process. Every airframe's noise comes from its id, so the results are the same."""
+    if workers > 1:
+        import multiprocessing as mp
+        from concurrent.futures import ProcessPoolExecutor
+
+        jobs = [
+            (list(airframes[s : s + batch]), site, seed) for s in range(0, len(airframes), batch)
+        ]
+        out = FleetV20([], {})
+        ctx = mp.get_context("spawn")  # JAX is not fork-safe
+        with ProcessPoolExecutor(workers, mp_context=ctx) as pool:
+            for part in pool.map(_batch, jobs):
+                out.results.extend(part.results)
+                out.cfgs.update(part.cfgs)
+                passed = sum(r.passed for r in out.results)
+                log(f"{len(out.results)}/{len(airframes)}: {passed} passed")
+        order = {a.id: i for i, a in enumerate(airframes)}
+        out.results.sort(key=lambda r: order[r.airframe])
+        return out
     out = FleetV20([], {})
     for start in range(0, len(airframes), batch):
         t0 = time.perf_counter()

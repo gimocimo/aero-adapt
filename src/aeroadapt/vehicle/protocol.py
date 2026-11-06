@@ -67,6 +67,7 @@ class TruthSnapshot:
     battery_v: float
     soc: float
     fault_labels: dict[str, np.ndarray]
+    prop_rpm: float = float("nan")
 
 
 @dataclass(frozen=True)

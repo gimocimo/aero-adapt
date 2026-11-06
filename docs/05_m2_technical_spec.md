@@ -1006,3 +1006,178 @@ pair 5 as an attitude confound.
 | D11 Demo and write-up | ✅ video from seeds (`tools/make_demo_m2.py` → `runs/demo/m2_demo.mp4`, 88 s: a live session, then the fleet view), `docs/demo/m2.md`, `docs/blog/m2_draft.md`, report M2 sections |
 
 *21 Oct 2026:* the roadmap gained Txt2Fly as weeks 9–10 ([doc 03 §7.2](03_uav_architecture_and_six_month_roadmap.md#72-milestones), [spec 06](06_txt2fly_spec.md)), so "M3 week 1" above is now week 11 (week 12 since the 22 Oct amendment, which inserted the synthetic world, [07](07_world_and_skyview_spec.md)). The notebook for D9 now installs its own Python 3.12 with uv, so it runs on Colab, Kaggle or any GPU machine.
+
+### Carry-overs, M3 week 12 (6 Nov 2026): D6 and D4
+
+**Why the 145 failed** (week 8's run, kept as `runs/v20/m2-fleet-week8`; each cause tested by
+re-flying the stored tuned stacks with one thing changed)
+
+- **Sideslip in the 30° turn (36).** The rudder's sideslip integrator nulls the *measured*
+  lateral acceleration, and the accelerometer has a turn-on bias (σ up to 0.1 m/s² per axis).
+  The integrator then holds the sideslip that cancels the bias: median 3.5°, worst 6.4°; with
+  |b_y| above 0.15 m/s², 61–100 % of airframes failed. All 36 had the grid's smallest
+  integrator, 0.02. Zero, ArduPlane's default (YAW2SRV_INT), was never offered; with it all 36
+  pass (median 0.5°).
+- **Airspeed in the altitude step (30, 26 of them gliders).** Not a sag: an overspeed of
+  0.8–1.5 m/s in the first 1.5 s of the climb, against limits of 0.6–0.8 m/s. While the
+  attitude catches up with a new climb, the extra thrust goes into speed (about g·γ·lag).
+  Motor-gliders have the thrust to climb at 3–4 m/s at 8–10 m/s, so the climb limit taken from
+  the excess thrust gave a 15–25° climb; the tuner's options were fractions of that, and it
+  tuned on half the V20 step. A 1 m/s limit passes 28 of the 30.
+- **Pitch limit cycles (40).** All in pitch, 0.3–0.6 Hz, on elevators with 0.35–0.5° of
+  deadband: the TECS and pitch-loop integrators hunting round the deadband (without the
+  deadband the oscillation falls by half to two thirds). The tuner's pitch stage flies at a
+  fixed throttle, with TECS off, so it cannot see it. A TECS time constant of 5 s passes 33 of
+  the 40 and 8 s all 40, but the tuner had no reason to choose them.
+- **Roll steady-state error (37).** Two parts of about equal size:
+  - the estimate: the accelerometer bias tilts the DCM-class attitude estimate by about b/g
+    (up to 1.5° level), and in a turn the error swings with heading as the magnetometer's
+    heading couples into it. With perfect sensors it is under 0.1°; no tuning can remove it;
+  - the control: where the first stage chose low rate gains against limit cycles, the bank
+    wanders ±1° in a sustained turn, as the integrator is too slow. Tripling the rate I and
+    doubling P passes 22 of the 37.
+- **The tuner tuned on V20's power-ups** (found by review, and older than this work). Its start,
+  which carries the sensors' turn-on biases, came from V20's key (seed 0, stream 0), its first
+  noise stream was V20's flight key, and both streams shared one start. So V20 at seed 0
+  re-flew the biases the tuner had fitted, and week 8's 85.5 % was measured on them.
+- **Two tuner/V20 mismatches.** The rudder integrator limit (0.3) was raised only after tuning,
+  so the tuner flew 0.2 and V20 0.3. The tuner never flew V20's speed step.
+
+**Built**
+
+- **Auto-tuning** (`harness/autotune.py`). A stage is now a list of flights, each variant scored
+  on the worst of them. Each noise stream is a separate power-up (its own turn-on biases,
+  turbulence and noise) drawn from `TUNE_SEED`, apart from V20's.
+  - yaw: a ±30° bank doublet (V20's turn); the sideslip integrator may be 0;
+  - "roll, sustained" (new, after yaw): the same ±30° doublet with the roll requirements and the
+    error over the last 2 s of each 6 s half; variants raise the rate I (×1–3) and P (×1–2) on
+    their own;
+  - "pitch, in the loop" (new, before TECS): the pitch doublet and the TECS flight together;
+    variants raise the pitch rate P (×1–2) and lower I (×0.5–1);
+  - TECS: a height step of the V20 size (it was half) and back, with the height error 20–30 s
+    after each step (V20's window), the airspeed excursion over the whole flight, and attitude
+    oscillation in level flight before and after; and a +20 % speed step and back, with the
+    height deviation (3 m) and the speed error 15–25 s after each step.
+- **Auto-configuration** (`harness/autoconfig.py`): the climb-rate limit is at most the
+  Aerosonde's scaled with V² (5 m/s at 25 m/s): the same potential-energy rate relative to the
+  kinetic energy, because the attitude loops' lag does not shrink with the airframe. The rudder
+  integrator limit is in the configuration the tuner flies.
+- **TECS** (`stack/tecs.py`, `stack/config.py`): `climb_full_thr_mps`, the climb rate at full
+  throttle, scales the throttle, limits the total energy rate and sets the speed-demand ramp;
+  `climb_max_mps` only limits the height demand. AP_TECS takes all of these from
+  TECS_CLMB_MAX, so a lower climb limit there over-throttles every climb (found on the Rascal:
+  1.42 m/s of overspeed against 1.16). It defaults to `climb_max_mps`, so every existing
+  configuration flies as before (the M1 golden flights are unchanged). The energy-rate motor
+  detector uses the same scaling.
+- **V20 in parallel:** `aeroadapt fleet-accept --workers N` flies batches in separate processes
+  (JAX on the CPU keeps about two cores busy per process); every airframe's noise comes from its
+  id, so the results are identical (checked). 1,000 airframes take 51 min with five workers on
+  the laptop (the single process managed 200 in an hour).
+- **The Rascal (D4):**
+  - `tools/rascal_airframe.py`: the datasheet airframe (SIG's Rascal 110: 110 in span,
+    1,522 in², 13 lb; the model's 2.2 kW on an 18×8 in propeller; tail areas and arm from the
+    three-view; the rest is the generator's estimate). The dihedral is not published: 3°, as 2°
+    fails the generator's spiral filter. Auto-configured, auto-tuned and accepted by V20 in
+    aerojax → `configs/fleets/rascal`;
+  - `sim/jsbsim/rascal.py`: `derived_model()` writes the fetched model, with our surfaces,
+    thrust and propeller torque in place of its control system and engine and without its gear
+    or SITL socket, into the cache (GPL, never committed);
+  - `JSBSimVehicle(model_signs=…)`: the generator's airframes deflect ailerons and rudder in
+    AeroSandbox's convention, the opposite of B&M's, which the Rascal uses. Without the
+    conversion the Rascal rolled past 90° in 4 s;
+  - `harness/host_flight.py`: a scenario flown through a host-stepped `Vehicle`, recorded as the
+    same bundle as the scenario runner's (Skyview replays it);
+  - `tools/rascal_flights.py`: 12 flights of the M1 loop in JSBSim (`runs/rascal/`), each also
+    flown in aerojax on the datasheet model.
+- **The steady wind now reaches JSBSim** (found by review). `run_ic` installed the initial
+  condition's own, zero wind over `atmosphere/wind-*`, so every JSBSim flight, D3's Aerosonde
+  test included, flew in calm air plus turbulence, and started at the groundspeed.
+  `JSBSimFDM.initialise_in_wind` sets the ground velocity in body axes, then the wind
+  (`ic/vw-dir-deg` is where the wind blows to); both JSBSim tests check it.
+
+**Results**
+
+- **V20** (1,000 airframes, `runs/v20/m2-fleet`, 51 min with five workers):
+  **951 pass (95.1 %) ✅** (week 8: 85.5 %; a first run without the speed step, kept as
+  `runs/v20/m2-fleet-d6-first`, 92.3 %).
+
+  | Class | Week 8 | Now |
+  |---|---|---|
+  | Conventional | 90 % | 97 % |
+  | T-tail | 87 % | 97 % |
+  | V-tail | 83 % | 93 % |
+  | Twin-boom | 92 % | 96 % |
+  | Glider | 54 % | 90 % |
+
+  - Against week 8, 112 airframes were fixed and 16 broke (V20 now flies power-ups the tuner
+    never saw, which week 8's did not).
+  - **The 49 remaining failures**, 45 of them on one check, by medians of 4–12 % beyond the
+    limit:
+
+    | Check | Failures | Median value / limit | Why |
+    |---|---|---|---|
+    | Roll steady-state error | 28 | 1.11 | mostly the attitude estimate: median 0.90° of estimate error against 0.23° of control error; in 10 the estimate alone exceeds 1°, and in none the control alone |
+    | Pitch step overshoot | 11 | 1.12 | mostly light airframes (median 2.5 kg, the fleet's 5.4 kg) |
+    | Limit cycle | 7 | 1.04 | at the edge; light airframes too (median 2.6 kg) |
+    | L1 cross-track (calm) | 5 | 1.09 | marginal |
+    | Roll overshoot; pitch rise | 2; 1 | 1.16; 1.05 | marginal |
+
+  - The committed sample fleet keeps its ten airframes (all pass) with their new stacks. The city
+    trainer keeps its stack; it passes V20 under the current code.
+- **Bench v0** re-run on the new accepted fleet (`runs/bench/b0`; week 8's kept as
+  `runs/bench/b0-week8`). The test-split airframes changed with the accepted set, so the
+  scenarios are not paired with week 8's.
+
+  | | B1 stock | B2 + contingency |
+  |---|---|---|
+  | Survival | 83.1 % [80.7, 85.3] (83.1 %) | 86.3 % [84.0, 88.3] (86.4 %) |
+  | Motor cut (34): survival | 5 (15 %) (12 %) | 30 (88 %) (94 %) |
+  | Motor cut: in a safe zone; touchdowns controlled / hard / crash | – | 15; 25 / 4 / 4 (17; 26 / 6 / 1) |
+  | Motor cut: detection latency | – | 2.2 s [1.1, 3.7] (2.0 s) |
+
+  Week 8's values in brackets. Two fewer B2 motor-cut survivors in 34 is within the interval
+  (30 of 34: about 73–95 %).
+- **D4, the Rascal in JSBSim** (`runs/rascal/summary.json`): all 8 nominal flights of the M1
+  loop complete (calm, 6 m/s from four directions, 8 m/s from the west, moderate turbulence
+  twice), at 116–142 m (the mission climbs to 140 m), 11.7–18.6 m/s (cruise 14.5), with a bank
+  of at most 54° and a cross-track RMS of 6–15 m (aerojax on the datasheet model: 4–13 m). All
+  4 motor cuts are detected in 0.7–0.8 s and end in a touchdown: two controlled, two hard; two
+  in a surveyed field (aerojax: four controlled, three in a field). The stock stack, configured
+  from a datasheet, flies an aircraft model it never saw, a little less precisely than the
+  model it was tuned on. **D4 ✅**
+
+**Tried and dropped**
+
+- The steady-turn body roll rate (p = −ψ̇·sinθ) as a roll-loop feed-forward, the analogue of the
+  pitch loop's turn compensation: about 0.2° with perfect sensors, less than the wander, and
+  19 airframes worse with the week-8 tunings.
+
+**Deviations**
+
+1. **V20's roll steady-state check measures the estimator too.** It compares the true bank with
+   the command, so the DCM-class estimate's tilt from the accelerometer bias counts against the
+   autopilot; it is now the main remaining failure. The criterion is unchanged, and M4's EKF is
+   where the estimate improves.
+2. **The TECS change departs from AP_TECS.** ArduPlane uses one parameter (TECS_CLMB_MAX) for
+   the climb limit and the throttle scaling; this stack separates them, which is a stronger
+   baseline than ArduPlane's (noted for M6's SITL comparison, as in M1 §14).
+3. **The Rascal's propulsion is ours.** Thrust and torque come from our motor and propeller
+   models of its datasheet propulsion, not JSBSim's engine, so motor faults, the ESC's rpm and
+   the battery behave as on every airframe. Its aerodynamics, mass and inertia are JSBSim's.
+4. **The tuner's tie-break is added per flight, before the worst flight is taken** (found by the
+   final review). The TECS flight's term includes the climb ramp, a near-constant 0.01–0.06, so
+   in the two stages with two flights it can tip the choice between variants whose worst
+   ratios differ by less than that. Combining the worst ratios first changes every tuned
+   stack; it waits for the next tuner change (M3), and V20 stays the judge of what was chosen.
+5. **The tuner shares several of V20's manoeuvres** (the altitude and speed steps, the 30°
+   bank) with V20's limits. V20 re-flies them on power-ups the tuner never saw, so it checks
+   that the tuning holds on new sensor draws, not on new manoeuvres; the pitch step at V20's
+   size, L1 tracking and turbulence stay V20's alone.
+
+**Definition of Done status (M2), 6 Nov 2026**
+
+| # | Status |
+|---|---|
+| D4 Rascal (Should) | ✅ the stock stack flies the M1 mission on the held-out Rascal in JSBSim (8 of 8 nominal flights; 4 of 4 motor cuts detected and landed) |
+| D6 Auto-configuration ≥ 90 % (V20) | ✅ 95.1 %, the 49 failures characterised |
+| D9 Throughput | CPU ✅; GPU ⏳ (with M3's first GPU run) |

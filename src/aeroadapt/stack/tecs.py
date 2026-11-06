@@ -99,8 +99,9 @@ def tecs_step(
     hgt_rate_dem = jnp.where(underspeed, 0.0, (hgt_dem - s.hgt_dem) / dt)
     # Gliding may fly below the powered minimum (best glide is slower than ARSPD_FBW_MIN).
     spd_target = jnp.clip(spd_target, jnp.where(gliding, 0.8 * p.v_min, p.v_min), p.v_max)
-    # Speed-demand rate limits from the energy-rate limits (AP_TECS velRateMax/Min).
-    rate_up = 0.5 * p.climb_max * G / v
+    # Speed-demand rate limits from the energy-rate limits (AP_TECS velRateMax/Min): what full
+    # throttle can give, not the climb-rate demand limit.
+    rate_up = 0.5 * p.climb_thr * G / v
     rate_dn = 0.5 * p.sink_min * G / v
     spd_rl = s.spd_dem_rl + jnp.clip(spd_target - s.spd_dem_rl, -rate_dn * dt, rate_up * dt)
     spd_dem = s.spd_dem + (dt / SPD_LAG_S) * (spd_rl - s.spd_dem)
@@ -113,14 +114,17 @@ def tecs_step(
     spedot, skedot = G * climb_rate, v * vdot_lp
 
     # ------------------------------------------------------------- throttle (total energy)
-    stedot_max, stedot_min = p.climb_max * G, -p.sink_min * G
+    # Throttle 0..1 spans the energy rates from the minimum sink to the full-throttle climb. The
+    # height demand is limited to climb_max above; a climb and an acceleration together may use
+    # all of it.
+    stedot_max, stedot_min = p.climb_thr * G, -p.sink_min * G
+    k_thr2ste = stedot_max - stedot_min
     ste_error = (spe_dem - spe) + (ske_dem - ske)
     # Induced drag in a bank (TECS_RLL2THR): extra energy rate needed at load factor n.
     cos_r = jnp.maximum(jnp.cos(roll), 0.2)
     roll_comp = p.rll2thr * (1.0 / cos_r**2 - 1.0)
     stedot_dem = jnp.clip(spedot_dem + skedot_dem, stedot_min, stedot_max)
     stedot_error = stedot_dem - spedot - skedot
-    k_thr2ste = stedot_max - stedot_min  # throttle range 0..1
     k_ste2thr = 1.0 / (p.time_const * k_thr2ste)
     thr_trim = p.thr_cruise + p.thr_slope * (spd_dem - p.v_cruise)
     ff = thr_trim + (stedot_dem + roll_comp) / k_thr2ste

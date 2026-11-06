@@ -33,6 +33,11 @@ def test_stock_stack_flies_the_aerosonde_in_jsbsim(aerosonde: Airframe) -> None:
     )
     stack = FlightStack(params, vehicle.info.origin)
     frame = vehicle.reset(InitialCondition(), seed=4)
+    # JSBSim starts in the steady wind at the trim airspeed (its run_ic once dropped the wind).
+    start = vehicle.truth()
+    np.testing.assert_allclose(start.wind_ned_mps, np.asarray(env.wind.steady_ned), atol=0.05)
+    assert start.airspeed_mps == pytest.approx(25.0, abs=0.05)
+    assert abs(start.beta_rad) < 1e-3
     stack.reset(frame, make_mission([(600, 0, 120), (600, 600, 120)]))
     tel = None
     for _ in range(2_500):  # 25 s: first leg and the turn at the waypoint

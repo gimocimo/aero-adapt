@@ -145,7 +145,9 @@ def _fleet_accept(args: argparse.Namespace) -> int:
         fleet_dir = Path("runs/fleets") / args.fleet
     airframes = load_fleet(fleet_dir)[: args.n]
     t0 = time.perf_counter()
-    run = run_fleet_v20(airframes, load_site(args.site), batch=args.batch, seed=args.seed)
+    run = run_fleet_v20(
+        airframes, load_site(args.site), batch=args.batch, seed=args.seed, workers=args.workers
+    )
     meta = {"fleet": fleet_dir.name, "site": args.site, "seed": args.seed,
             "seconds": round(time.perf_counter() - t0)}  # fmt: skip
     out = write_fleet_v20(Path(args.out or f"runs/v20/{fleet_dir.name}"), run, meta)
@@ -372,6 +374,7 @@ def main(argv: list[str] | None = None) -> int:
     fa.add_argument("--batch", type=int, default=200)
     fa.add_argument("--site", default="cambridge_west")
     fa.add_argument("--seed", type=int, default=0)
+    fa.add_argument("--workers", type=int, default=1, help="batches flown in parallel processes")
     fa.add_argument("--out", help="output directory (default: runs/v20/<fleet>)")
     fa.set_defaults(func=_fleet_accept)
     fs = sub.add_parser("fleet-sample", help="the sample fleet: V20-accepted airframes, tuned")

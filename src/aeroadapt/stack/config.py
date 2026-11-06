@@ -65,6 +65,11 @@ class TecsCfg(_Strict):
     integ_gain: float = Field(ge=0)
     spd_weight: float = Field(ge=0, le=2)
     climb_max_mps: float = Field(gt=0)
+    # The climb rate at full throttle, which scales the throttle and limits the total energy
+    # rate (and so the speed-demand ramp). AP_TECS takes all of these from TECS_CLMB_MAX, so a
+    # lower climb limit there also over-throttles every climb. Default: climb_max_mps, as in
+    # ArduPlane; climb_max_mps then only limits the height demand.
+    climb_full_thr_mps: float | None = Field(default=None, gt=0)
     sink_min_mps: float = Field(gt=0)
     sink_max_mps: float = Field(gt=0)
     vert_acc_mps2: float = Field(gt=0)
@@ -207,6 +212,7 @@ class TecsParams(NamedTuple):
     integ_gain: float
     spd_weight: float
     climb_max: float
+    climb_thr: float  # climb rate at full throttle (throttle scaling)
     sink_min: float
     sink_max: float
     vert_acc: float
@@ -380,6 +386,7 @@ def build_stack_params(cfg: StackCfg, airframe: Airframe, site: Site, dt: float)
             integ_gain=te.integ_gain,
             spd_weight=te.spd_weight,
             climb_max=te.climb_max_mps,
+            climb_thr=te.climb_full_thr_mps or te.climb_max_mps,
             sink_min=te.sink_min_mps,
             sink_max=te.sink_max_mps,
             vert_acc=te.vert_acc_mps2,

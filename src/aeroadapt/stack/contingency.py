@@ -293,14 +293,14 @@ def contingency_step(
     # The held (sample-and-hold) ESC reading counts every step it stays low.
     esc_t = jnp.where(jnp.logical_and(cp.esc_enabled, low_rpm), s.esc_t + dt, 0.0)
     # Backup: total-energy rate (climb equivalent) far below what the commanded throttle should
-    # give on TECS's own model: STEdot = (throttle − trim(V))·(climb_max + sink_min), less the
+    # give on TECS's own model: STEdot = (throttle − trim(V))·(climb_thr + sink_min), less the
     # induced drag of a bank (TECS_RLL2THR). A cut loses ≈2.5 m/s at cruise thrust.
     edot = est.climb_rate + est.airspeed * (est.accel[0] - G * jnp.sin(est.pitch)) / G
     edot_lp = s.edot_lp + (dt / cp.energy_tau) * (edot - s.edot_lp)
     thr_trim = tp.thr_cruise + tp.thr_slope * (est.airspeed - tp.v_cruise)
     cos_r = jnp.maximum(jnp.cos(est.roll), 0.2)
     turn = tp.rll2thr * (1.0 / cos_r**2 - 1.0) / G
-    expected = (throttle_prev - thr_trim) * (tp.climb_max + tp.sink_min) - turn
+    expected = (throttle_prev - thr_trim) * (tp.climb_thr + tp.sink_min) - turn
     # CUSUM: accumulate the deficit beyond the slack k, decide at h. Gusts move the residual by
     # ~1.4 m/s RMS for seconds at a time; a cut is a sustained ≈3 m/s step. Armed once the
     # navigator has converged (the estimate swings by several m/s while it aligns).

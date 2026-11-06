@@ -11,6 +11,8 @@ import math
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 FT = 0.3048  # m per ft
 SLUG_PER_FT3 = 515.378_818  # kg/m³ per slug/ft³
 JSBSIM_ROOT = Path(__file__).resolve().parents[4] / "tools" / "jsbsim"
@@ -77,6 +79,38 @@ class JSBSimFDM:
         if not f.run_ic():
             raise RuntimeError("JSBSim run_ic failed")
         self.set_surfaces(*surfaces)  # run_ic may reinitialise declared properties
+
+    def initialise_in_wind(
+        self,
+        alt_msl_m: float,
+        euler: tuple[float, float, float],
+        vel_body_mps: np.ndarray,
+        wind_ned_mps: np.ndarray,
+        lat_deg: float = 0.0,
+        lon_deg: float = 0.0,
+    ) -> None:
+        """Initial condition from the attitude and the velocity over the ground in body axes,
+        in a steady wind. JSBSim's ``run_ic`` installs the initial condition's own wind and
+        so discards ``atmosphere/wind-*`` written before it. Setting the wind after the
+        ground velocity keeps the ground velocity, so the airspeed is what the trim has. The
+        initial condition takes a horizontal wind only. A vertical one is written to
+        ``atmosphere/wind-down-fps`` after ``run_ic``, so it acts from the first step (it is zero
+        in every current scenario)."""
+        f = self.fdm
+        f["ic/lat-geod-deg"] = lat_deg
+        f["ic/long-gc-deg"] = lon_deg
+        f["ic/h-sl-ft"] = alt_msl_m / FT
+        f["ic/phi-rad"], f["ic/theta-rad"], f["ic/psi-true-rad"] = euler
+        for name, v in zip(("ic/u-fps", "ic/v-fps", "ic/w-fps"), vel_body_mps, strict=True):
+            f[name] = float(v) / FT
+        for name in ("ic/p-rad_sec", "ic/q-rad_sec", "ic/r-rad_sec"):
+            f[name] = 0.0
+        north, east, down = (float(x) for x in wind_ned_mps)
+        f["ic/vw-mag-fps"] = math.hypot(north, east) / FT
+        f["ic/vw-dir-deg"] = math.degrees(math.atan2(east, north)) % 360.0  # blowing towards
+        if not f.run_ic():
+            raise RuntimeError("JSBSim run_ic failed")
+        f["atmosphere/wind-down-fps"] = down / FT
 
     def set_surfaces(self, da: float, de: float, dr: float) -> None:
         for prop, value in zip(SURFACE_PROPS, (da, de, dr), strict=True):

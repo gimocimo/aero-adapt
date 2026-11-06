@@ -46,6 +46,8 @@ K_PITCH_FF = 1.18
 K_YAW = 1.0
 K_RLL2THR = 3.36
 LAG_REF_S = 0.045  # the Aerosonde's servo lag (20 ms delay + 20 ms lag + 10° at 300°/s)
+V_REF = 25.0  # the Aerosonde's cruise speed …
+CLIMB_REF = 5.0  # … and its TECS_CLMB_MAX (m/s)
 SPEED_FACTORS = np.array([1.15, 1.25, 1.35, 1.5, 1.65, 1.8, 2.0, 2.25, 2.5, 2.8])  # × V_stall
 
 
@@ -191,8 +193,18 @@ def autoconfigure(
             wp_radius_m=float(np.clip(0.95 * vc * vc / G0, 15.0, 80.0)),
             loiter_radius_m=max(1.4 * turn30, 40.0),
         )
+        # The climb-rate limit is what the excess thrust allows, but at most the Aerosonde's
+        # scaled with V²: the same potential-energy rate relative to the kinetic energy. While
+        # the pitch attitude catches up with a new climb, the extra thrust goes into speed:
+        # about g·γ·lag, and the attitude loops' lag does not shrink with the airframe, so a
+        # slow airframe must climb at a shallower angle to keep the same relative excursion.
+        # (Motor-gliders have the thrust for 5 m/s at 8 m/s, and gained 1 m/s in the climb.)
+        # The throttle keeps its scaling from the excess thrust (TECS's full-throttle climb).
+        climb_thr = float(np.clip(0.6 * climb_cap, 1.0, 8.0))
+        climb_energy = CLIMB_REF * (vc / V_REF) ** 2
         d["tecs"].update(
-            climb_max_mps=float(np.clip(0.6 * climb_cap, 1.0, 8.0)),
+            climb_max_mps=float(np.clip(min(climb_thr, climb_energy), 0.5, 8.0)),
+            climb_full_thr_mps=climb_thr,
             sink_min_mps=float(np.clip(sink_glide, 0.5, 4.0)),
             sink_max_mps=float(np.clip(2.5 * sink_glide, 2.0, max(2.0, 0.3 * vc))),
             rll2thr=K_RLL2THR * induced * vc / p.mass,
@@ -215,7 +227,10 @@ def autoconfigure(
             ff=pitch_ff, p=0.44 * pitch_ff / k[1], i=0.28 * pitch_ff / k[1],
             tconst_s=min(0.25 * k[1], 0.35), rate_max_dps=min(45.0, 0.5 * math.degrees(q_per_cmd)),
         )  # fmt: skip
-        d["attitude"]["yaw"].update(ff=yaw_ff, damp=yaw_ff)
+        # The rudder integrator may hold up to 0.3. This was raised after tuning, so the tuner
+        # flew with 0.2 and V20 with 0.3; now both fly the same.
+        yaw_imax = max(d["attitude"]["yaw"]["imax"], 0.3)
+        d["attitude"]["yaw"].update(ff=yaw_ff, damp=yaw_ff, imax=yaw_imax)
         d["attitude"]["servo_trim"] = {
             "aileron": float(np.clip(ail_trim, -1, 1)),
             "rudder": float(np.clip(rud_trim, -1, 1)),

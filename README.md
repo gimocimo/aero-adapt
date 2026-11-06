@@ -4,13 +4,13 @@
 
 AeroAdapt is built simulation-first. It is validated rigorously and compared against strong classical baselines. The aim is to move from simulation to a real aircraft once the simulated system is proven.
 
-> **Status:** Milestone M2 (the fleet) complete except V20's 90 % target; two Should items (the JSBSim Rascal and the GPU throughput run) are pending. M1's vertical slice (a UAV flying over the Coton fields west of Cambridge, with a classical motor-failure contingency) now has a fleet, faults, a benchmark and a live mode:
+> **Status:** Milestone M2 (the fleet) complete: V20 passes at 95.1 % and the held-out Rascal flies in JSBSim (6 Nov, M3 week 12); the GPU throughput run waits for M3's first GPU run. M3's spec is drafted ([09](docs/09_m3_technical_spec.md)) for review. M1's vertical slice (a UAV flying over the Coton fields west of Cambridge, with a classical motor-failure contingency) now has a fleet, faults, a benchmark and a live mode:
 >
 > - **10,000 generated aircraft** in five classes, built from geometry (AeroSandbox buildup, NeuralFoil polars, mass and propulsion sizing, glTF) and filtered in the JAX simulator.
-> - **Every aircraft configures and tunes its own autopilot.** It is our ArduPlane-style stack: physics-based gains, then a robust offline AUTOTUNE analogue. **85.5 % of 1,000 pass** the acceptance flight (V20); the target is 90 %, and the misses are characterised.
+> - **Every aircraft configures and tunes its own autopilot.** It is our ArduPlane-style stack: physics-based gains, then a robust offline AUTOTUNE analogue. **95.1 % of 1,000 pass** the acceptance flight (V20; the target is 90 %), and the misses are characterised.
 > - **faultlab v1:** 30 fault kinds plus gusts, shear and thermals, and five deliberately confounded fault pairs.
 > - **Live mode:** `aeroadapt serve` plus Skyview. Inject or clear faults, change the wind, or switch aircraft mid-flight; every session re-flies byte for byte.
-> - **Bench v0:** 1,000 random scenarios flown by the stock stack (B1) and with the classical contingency (B2). Motor-cut survival is **12 % → 94 %**, overall survival 83 % → 86 %. Shown at once in Skyview's **fleet view**.
+> - **Bench v0:** 1,000 random scenarios flown by the stock stack (B1) and with the classical contingency (B2). Motor-cut survival is **15 % → 88 %**, overall survival 83 % → 86 % (re-run on the 95.1 % fleet). Shown at once in Skyview's **fleet view**.
 > - **Throughput:** 0.85 M simulator steps/s on a laptop CPU for a heterogeneous fleet with faults.
 > - **Evidence:** [M2 write-up](docs/demo/m2.md) (with its fidelity and limits), the [week-by-week log](docs/05_m2_technical_spec.md#14-implementation-log-living-section) and the [validation report](docs/validation/m2_report.md). M1: [write-up](docs/demo/m1.md), [frozen report](docs/validation/m1_report.md).
 >

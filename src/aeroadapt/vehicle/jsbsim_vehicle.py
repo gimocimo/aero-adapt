@@ -13,6 +13,12 @@ the flight dynamics:
 faultlab v1 airframe faults (CG shift, payload drop, wing damage) change the rigid body
 itself and are aerojax-only for now.
 
+Surface signs: our actuator models deflect each surface in the sign convention of the airframe
+model the vehicle is built from (``response_signs``: a positive aileron command rolls right).
+A JSBSim aircraft written by someone else may use the other convention for a surface (the
+generator's AeroSandbox ailerons and rudder are the opposite of B&M's, which the Rascal uses),
+so the deflections are converted to the JSBSim model's convention (``model_signs``).
+
 Heights: JSBSim is initialised with its altitude above sea level equal to our MSL altitude,
 and the terrain at the site's ground MSL height. ISA quantities therefore line up with
 aerojax, and the local frame's down axis is minus JSBSim's height above ground.
@@ -74,7 +80,10 @@ class JSBSimVehicle:
         config: SimConfig = SimConfig(),  # noqa: B008
         model: str | None = None,
         root: Path = JSBSIM_ROOT,
+        model_signs: tuple[float, float, float] | None = None,
     ) -> None:
+        """``model_signs``: the signs of the JSBSim model's C_ℓ,δa, C_m,δe and C_n,δr; None for
+        a model exported from ``airframe`` itself."""
         self._airframe = airframe
         self._vp = vp = to_vehicle_params(airframe)
         self._env = env
@@ -83,6 +92,9 @@ class JSBSimVehicle:
         self._site = site
         self._origin = site.origin.geodetic()
         self._fdm = JSBSimFDM(model or airframe.id, dt=config.dt_physics, root=root)
+        p = vp.airframe
+        own = np.sign([p.C_ell_delta_a, p.C_m_delta_e, p.C_n_delta_r])
+        self._flip = own * np.asarray(model_signs) if model_signs is not None else np.ones(3)
         self.info = VehicleInfo(config.control_hz, airframe.id, site.id, self._origin)
         dt = config.dt_physics
         vp, env_d, faults_d = jax.device_put((vp, env, faults_cfg))
@@ -158,9 +170,6 @@ class JSBSimVehicle:
         )
         f["atmosphere/delta-T"] = e.isa.temp_offset_k * 1.8  # Rankine
         f["position/terrain-elevation-asl-ft"] = e.isa.alt_origin_msl_m / FT
-        wind = np.asarray(e.wind.steady_ned, dtype=float) / FT
-        f["atmosphere/wind-north-fps"], f["atmosphere/wind-east-fps"] = wind[0], wind[1]
-        f["atmosphere/wind-down-fps"] = wind[2]
         if float(e.turbulence.w20_mps) > 0:
             f["atmosphere/turb-type"] = TURB_MILSPEC
             f["atmosphere/turbulence/milspec/windspeed_at_20ft_AGL-fps"] = (
@@ -168,20 +177,17 @@ class JSBSimVehicle:
             )
             f["atmosphere/turbulence/milspec/severity"] = 3
         f["simulation/randomseed"] = seed
+        # The trim's velocity is over the ground (the air-relative trim plus the steady wind):
+        # JSBSim starts at the trim airspeed and incidence in the same wind.
         phi, theta, psi = (float(x) for x in quaternion.to_euler(rb0.quat))
-        vel = np.asarray(rb0.vel_body, dtype=float)
-        alpha = math.atan2(vel[2], vel[0])
-        f.initialise(
+        f.initialise_in_wind(
             e.isa.alt_origin_msl_m + initial.alt_agl_m,
-            float(np.linalg.norm(vel)),
-            alpha=alpha,
-            gamma=theta - alpha,
-            phi=phi,
-            psi=psi,
+            (phi, theta, psi),
+            np.asarray(rb0.vel_body, dtype=float),
+            np.asarray(e.wind.steady_ned, dtype=float),
             lat_deg=float(lat),
             lon_deg=float(lon),
         )
-        # JSBSim's initial airspeed is relative to the air mass, as in aerojax's trim.
         vp = self._vp
         self._act = init_actuators(vp.airframe, vp.actuators, jnp.asarray(cmd0))
         self._batt = init_battery(jnp.asarray(initial.soc))
@@ -239,7 +245,7 @@ class JSBSimVehicle:
     # ------------------------------------------------------------------ internals
     def _apply_actuators(self) -> None:
         assert self._act is not None
-        da, de, dr = (float(x) for x in np.asarray(self._act.surfaces))
+        da, de, dr = (float(x) for x in np.asarray(self._act.surfaces) * self._flip)
         self._fdm.set_surfaces(da, de, dr)
 
     def _alt_agl(self) -> float:
@@ -335,6 +341,7 @@ class JSBSimVehicle:
             battery_v=float(self._vterm(self._batt, jnp.asarray(self._t))),
             soc=float(self._batt.soc),
             fault_labels={k: np.asarray(v) for k, v in labels._asdict().items()},
+            prop_rpm=float(self._prop_omega) * 60.0 / (2.0 * math.pi),
         )
 
     def impact(self) -> ImpactRecord | None:

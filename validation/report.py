@@ -820,6 +820,97 @@ def v20_fleet(r: Report) -> None:
     )
 
 
+# --------------------------------------------------------------------------- D4
+RASCAL_RUN = REPO / "runs" / "rascal"
+
+
+def d4_rascal(r: Report) -> None:
+    import json
+
+    r.h(2, "D4 · The held-out Rascal 110 in JSBSim")
+    if not (RASCAL_RUN / "summary.json").exists():
+        r.p(
+            f"*Skipped: no campaign at `{RASCAL_RUN.relative_to(REPO)}` "
+            "(`uv run --extra jsbsim python tools/rascal_flights.py`).*"
+        )
+        return
+    rows = json.loads((RASCAL_RUN / "summary.json").read_text())
+    r.p(
+        "The stock stack auto-configured and auto-tuned on the Rascal's datasheet airframe "
+        "(`tools/rascal_airframe.py`: the kit's published geometry and mass, the generator's "
+        "estimates for the rest; V20 passes on it in aerojax), flown in JSBSim on the Rascal's "
+        "own model, which the stack never saw (`sim/jsbsim/rascal.py`). Each flight is the M1 "
+        "loop (`configs/scenarios/rascal-nominal.yaml`) with its wind, turbulence and faults "
+        "varied, recorded under `runs/rascal/` (`tools/rascal_flights.py`); the aerojax column "
+        "is the same flight on the datasheet model."
+    )
+
+    def f1(x: float | None, fmt: str = ".1f") -> str:
+        return "–" if x is None else format(x, fmt)
+
+    def band(x: list[float] | None, fmt: str) -> str:
+        return "–" if x is None else f"{x[0]:{fmt}}–{x[1]:{fmt}}"
+
+    def ending(s: dict) -> str:
+        td = s["touchdown"]
+        if td is None:
+            return "flying" if s["termination"] == 0 else f"terminated ({s['termination']})"
+        zone = f"in {td['zone']}" if td["in_zone"] else "outside a field"
+        return f"{td['class']} touchdown {zone}, {td['sink_rate_mps']:.1f} m/s"
+
+    def detection(row: dict) -> str:
+        j, a = row["jsbsim"], row["aerojax"]
+        if j["false_alarm"]:
+            return "false alarm"
+        if row["motor_cut_s"] is None:
+            return ""
+        if not j["failure_detected"]:
+            return "missed"
+        return f"+{f1(j['detected_after_s'])} s (aerojax +{f1(a['detected_after_s'])} s)"
+
+    table = []
+    for row in rows:
+        j, a = row["jsbsim"], row["aerojax"]
+        cut = row["motor_cut_s"]
+        table.append(
+            (
+                row["flight"],
+                f"{row['wind_mps']:.0f} m/s from {row['wind_from_deg']:.0f}°, {row['turbulence']}",
+                "" if cut is None else f"{cut:.0f} s",
+                band(j["alt_agl_m"], ".0f"),
+                band(j["tas_mps"], ".1f"),
+                f"{f1(j['roll_max_deg'], '.0f')}°",
+                f"{f1(j['xtrack_rms_m'])} ({f1(a['xtrack_rms_m'])})",
+                detection(row),
+                ending(j),
+            )
+        )
+    r.table(
+        ["Flight", "Wind", "Motor cut", "Height (m)", "TAS (m/s)", "Max bank",
+         "Cross-track RMS (aerojax), m", "Detection", "End"],
+        table,
+    )  # fmt: skip
+    nominal = [x["jsbsim"] for x in rows if x["motor_cut_s"] is None]
+    cuts = [x["jsbsim"] for x in rows if x["motor_cut_s"] is not None]
+    flown = sum(s["termination"] == 0 and not s["false_alarm"] for s in nominal)
+    landed = sum(
+        s["failure_detected"]
+        and not s["false_alarm"]
+        and s["touchdown"] is not None
+        and s["touchdown"]["class"] != "crash"
+        for s in cuts
+    )
+    in_field = sum(bool(s["touchdown"] and s["touchdown"]["in_zone"]) for s in cuts)
+    ok = flown == len(nominal) and landed == len(cuts)
+    r.p(
+        f"**{flown} of {len(nominal)} nominal flights complete without a false alarm; "
+        f"{landed} of {len(cuts)} motor cuts are detected and end in a controlled or hard "
+        "touchdown** "
+        f"({in_field} in a surveyed field) {mark(ok)} (D4: the stock stack flies the M1 mission "
+        "on the held-out Rascal)."
+    )
+
+
 # --------------------------------------------------------------------------- V21
 def v21_faultlab(r: Report, quick: bool) -> None:
     from aeroadapt.faultlab.slots import (
@@ -1036,6 +1127,7 @@ def build_report(out: Path, quick: bool = False) -> Path:
         lambda: v11_autopilot(r, quick),
         lambda: v12_contingency(r, quick),
         lambda: v14_jsbsim(r),
+        lambda: d4_rascal(r),
         lambda: v16_v17_tables(r),
         lambda: v18_references(r),
         lambda: v19_fleet(r),

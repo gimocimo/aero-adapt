@@ -734,6 +734,15 @@ Never cut aero v2 parity (V16/V17), V14, V20, the bench or live fault injection.
 | CG 3 cm aft ↔ elevator rigging offset (5.1°) | 10 s | elevator trim shift | 1.00 |
 | Floating rudder ↔ moderate turbulence | 10 s | roll-rate RMS | 0.89 |
 
+*Corrected 6 Nov 2026:* the floating-surface model trailed the wrong way on airframes in B&M's
+sign convention, such as the Aerosonde these pairs fly: a floating rudder stiffened its
+weathercock stability and a floating aileron added roll damping, where a free surface always
+destabilises. Generated airframes (all in AeroSandbox's convention) were unaffected. The last
+pair rested on it. With the trail right, a floating rudder barely moves the roll rate in
+straight flight (ratio 0.21 against moderate turbulence) and shows in turns, uncoordinated, so
+the pair is now the lateral acceleration's fluctuation over 25 s, a window that spans the
+loop's first waypoint turn: ratio 1.46, monitors silent in both arms.
+
 - **V23:**
   - Injection takes effect at the next control step (10 ms).
   - A session's command log re-flies offline to a byte-identical bundle, including clears and
@@ -784,7 +793,9 @@ Never cut aero v2 parity (V16/V17), V14, V20, the bench or live fault injection.
    - The "real airspeed loss" is a sharp gust (7 m/s over 3 s). A slow gust is no confound:
      the aircraft accelerates with it and airspeed barely moves.
    - The floating surface is the rudder. A floating aileron disturbs roll about 4.6 times
-     as much as moderate turbulence, and twice as much as severe.
+     as much as moderate turbulence, and twice as much as severe. (*Corrected 6 Nov 2026:*
+     both measured with a floating trail of the wrong sign on the Aerosonde; with it right,
+     6.8 and 3.3 times, and the rudder pair is re-calibrated: see the note under V21 above.)
    - The elevator offset is a rigging error (actuator trim), not a fault kind.
 8. **The live server** steps the compiled aerojax closed loop (the same code as replays and
    campaigns, so sessions re-fly exactly), not the host-stepped `FlightStack` and `Vehicle`.

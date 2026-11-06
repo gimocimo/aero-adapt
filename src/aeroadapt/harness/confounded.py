@@ -40,7 +40,10 @@ LOG_EVERY = 10  # 10 Hz
 FLAG_TOLERANCE_S = 1.0
 SYMPTOM_RATIO = 2.0
 
-Symptom = Literal["ias_drop", "wind_shift", "throttle_rise", "elevator_shift", "roll_rate_rms"]
+Symptom = Literal[
+    "ias_drop", "wind_shift", "throttle_rise", "elevator_shift", "roll_rate_rms",
+    "lateral_accel_rms",
+]  # fmt: skip
 
 
 class _Strict(BaseModel):
@@ -142,6 +145,9 @@ def _symptom(kind: Symptom, log: LoopLog, w: np.ndarray, late: np.ndarray) -> np
         return np.asarray(log.cmd[:, w, 3].mean(axis=1))
     if kind == "elevator_shift":
         return np.asarray(log.cmd[:, late, 1].mean(axis=1))
+    if kind == "lateral_accel_rms":  # the accelerometer's sideslip signal, its fluctuation
+        a_y = np.asarray(log.sensors.accel[:, w, 1])
+        return a_y.std(axis=1)
     roll_rate = np.asarray(log.sensors.gyro[:, w, 0])
     return np.sqrt((roll_rate**2).mean(axis=1))  # roll_rate_rms
 

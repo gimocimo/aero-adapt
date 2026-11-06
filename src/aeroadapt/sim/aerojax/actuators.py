@@ -63,7 +63,17 @@ def init_actuators(af: AirframeParams, act: ActuatorParams, cmd: Array) -> Actua
 
 
 _K = {name: i for i, name in enumerate(ACTUATOR_KINDS)}
-FLOAT_TRAIL = 0.6  # a floating surface trails at about −0.6 × the local flow angle
+FLOAT_TRAIL = 0.6  # a floating surface trails at about 0.6 × the local flow angle
+
+
+def float_signs(af: AirframeParams) -> Array:
+    """A floating (disconnected) surface trails with its local flow, which always makes the
+    aircraft less stable: the ailerons add roll moment with the roll rate (less roll damping),
+    the elevator a pitch-up moment at positive α (less stick-free stability), the rudder a yaw
+    moment of sign −β (less weathercock stability). In the airframe's deflection convention:
+    δ_float = FLOAT_TRAIL · sign(C_x,δ) · (p·b/2V, α, −β). These are the derivatives' signs,
+    not the servo's: a reversed servo no longer moves the surface."""
+    return jnp.sign(jnp.array([af.C_ell_delta_a, af.C_m_delta_e, -af.C_n_delta_r]))
 
 
 def actuator_step(
@@ -98,7 +108,7 @@ def actuator_step(
     half_db = act.deadband / 2
     if faults is not None:
         surf_target, rate_limit, limit, half_db = _apply_actuator_faults(
-            faults, act, surf_target, rate_limit, limit, half_db, t, flow
+            faults, act, surf_target, rate_limit, limit, half_db, t, flow, float_signs(af)
         )
 
     # Lag with deadband, clipped by the rate limit; then mechanical limits.
@@ -128,6 +138,7 @@ def _apply_actuator_faults(
     half_db: ArrayLike,
     t: Array,
     flow: Array | None,
+    trail_signs: Array,
 ) -> tuple[Array, Array, Array, Array]:
     """faultlab v1 actuator faults, slot by slot (each acts on one surface)."""
     target, rate_limit = jnp.asarray(target), jnp.asarray(rate_limit)
@@ -145,7 +156,7 @@ def _apply_actuator_faults(
             return jnp.where(jnp.logical_and(kind == _K[k], on), new, old)
 
         target = where("hard_over", jnp.sign(m + 1e-12) * max_defl, target)
-        target = where("floating", -FLOAT_TRAIL * local, target)
+        target = where("floating", FLOAT_TRAIL * trail_signs * local, target)
         target = where("reversed", 2.0 * trim - target, target)
         rate_limit = where("slow", rate_limit * jnp.clip(m, 0.02, 1.0), rate_limit)
         limit = where("reduced_throw", limit * jnp.clip(m, 0.0, 1.0), limit)

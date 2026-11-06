@@ -2,15 +2,18 @@
 id: floating-vs-turbulence
 description: >-
   A disconnected (floating) rudder against moderate turbulence (the baseline flies in light
-  turbulence). A floating aileron is no confound: it disturbs roll about 4.6 times as much as
-  moderate turbulence and twice as much as severe.
+  turbulence), over a window that spans the loop's first waypoint turn. A floating rudder
+  trails with the sideslip and leaves the turns uncoordinated: invisible in straight flight,
+  it shows as the sideslip's lateral acceleration in the turn, about as much as moderate
+  turbulence gives. A floating aileron is no confound: it disturbs roll about 7 times as much
+  as moderate turbulence and 3 times as much as severe.
 template: m1-nominal
 onset_s: 15
-horizon_s: 10
+horizon_s: 25  # to 40 s: the first waypoint turn; within 20 s it does not show
 seeds: 8
 seed: 500
-symptom: roll_rate_rms
-min_symptom: 0.005  # rad/s
+symptom: lateral_accel_rms
+min_symptom: 0.05  # m/s²
 a:
   faults: [{type: actuator_fault, kind: floating, channel: rudder}]
 b:

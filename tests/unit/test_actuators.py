@@ -77,3 +77,57 @@ def test_deadband_bounds_steady_state_error(vehicle: VehicleParams) -> None:
     surf, _ = _run(vehicle, [0.0] * 3 + [0.5], cmds)
     target = np.asarray(command_to_target(vehicle.airframe, act, jnp.asarray(cmds[0])))[:3]
     assert np.all(np.abs(surf[-1] - target) <= np.asarray(act.deadband) / 2 + 1e-12)
+
+
+@pytest.mark.parametrize("airframe", ["aerosonde_bm", "gen-twin_boom-00058"])
+@pytest.mark.parametrize("reversed_servos", [False, True])
+def test_a_floating_surface_destabilises_in_either_sign_convention(
+    airframe: str, reversed_servos: bool
+) -> None:
+    """A disconnected surface trails with its local flow and always destabilises: the
+    ailerons reinforce the roll rate, the elevator pitches up at positive α, the rudder yaws
+    against the sideslip. B&M's Aerosonde and the generator's airframes deflect ailerons and
+    rudder in opposite conventions (signs of C_ℓ,δa and C_n,δr), and a broken linkage ignores
+    the servo's reversal."""
+    from pathlib import Path
+
+    from pydantic import TypeAdapter
+
+    from aeroadapt.airframes import load_airframe, to_vehicle_params
+    from aeroadapt.airframes.fleet import load_fleet
+    from aeroadapt.faultlab import build_fault_config
+    from aeroadapt.faultlab.schema import FaultSpec
+    from aeroadapt.sim.aerojax.actuators import FLOAT_TRAIL
+
+    if airframe.startswith("gen-"):
+        sample = Path(__file__).resolve().parents[2] / "configs" / "fleets" / "sample"
+        af = next(a for a in load_fleet(sample) if a.id == airframe)
+    else:
+        af = load_airframe(airframe)
+    vp = to_vehicle_params(af)
+    vp = vp._replace(actuators=vp.actuators._replace(reversed=np.full(3, reversed_servos)))
+    p = vp.airframe
+    flow = jnp.array([0.05, 0.04, 0.03])  # α, β, p·b/2V
+    jam = no_faults().servo_jam
+    moments = {}
+    for i, channel in enumerate(("aileron", "elevator", "rudder")):
+        spec = TypeAdapter(FaultSpec).validate_python(
+            {"type": "actuator_fault", "kind": "floating", "channel": channel,
+             "trigger": {"at_time_s": 0.0}}
+        )  # fmt: skip
+        faults = build_fault_config([spec]).actuators
+        s = init_actuators(p, vp.actuators, jnp.array([0.0, 0.0, 0.0, 0.5]))
+
+        def body(s, k, faults=faults):
+            cmd = jnp.array([0.0, 0.0, 0.0, 0.5])
+            return actuator_step(p, vp.actuators, jam, s, cmd, k * DT, DT, faults, flow), None
+
+        s, _ = jax.lax.scan(body, s, jnp.arange(400))  # 2 s, many servo lags
+        local = float(np.asarray(flow)[[2, 0, 1]][i])
+        deflection = float(s.surfaces[i])
+        assert abs(deflection) == pytest.approx(FLOAT_TRAIL * local, abs=np.radians(0.5))
+        power = (p.C_ell_delta_a, p.C_m_delta_e, p.C_n_delta_r)[i]
+        moments[channel] = float(power) * deflection
+    assert moments["aileron"] > 0  # with p > 0: less roll damping
+    assert moments["elevator"] > 0  # nose up at α > 0: less stick-free stability
+    assert moments["rudder"] < 0  # nose left with β > 0: less weathercock stability

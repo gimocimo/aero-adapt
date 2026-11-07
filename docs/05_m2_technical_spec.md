@@ -1124,6 +1124,13 @@ re-flying the stored tuned stacks with one thing changed)
 
   - The committed sample fleet keeps its ten airframes (all pass) with their new stacks. The city
     trainer keeps its stack; it passes V20 under the current code.
+  - *The whole fleet, 7 Nov 2026* ([09 §14](09_m3_technical_spec.md)): **9,432 of 10,000 pass
+    (94.3 %)**, in `runs/v20/m2-fleet-10k`. Its first 1,000 reproduce the D6 run above
+    (`runs/v20/m2-fleet`) exactly. The other 9,000, which none of the fixes above were found
+    on, pass at 94.2 %. By class: gliders 89.7 %, V-tails 92.6 %, the other three 94.7–95.9 %.
+    The failures are as marginal and mostly of the same kinds: the same checks lead, and 18
+    airframes fail checks none of the first 1,000 failed, 7 of them on sideslip in a turn.
+    Light airframes fail more often.
 - **Bench v0** re-run on the new accepted fleet (`runs/bench/b0`; week 8's kept as
   `runs/bench/b0-week8`). The test-split airframes changed with the accepted set, so the
   scenarios are not paired with week 8's.
@@ -1179,5 +1186,5 @@ re-flying the stored tuned stacks with one thing changed)
 | # | Status |
 |---|---|
 | D4 Rascal (Should) | ✅ the stock stack flies the M1 mission on the held-out Rascal in JSBSim (8 of 8 nominal flights; 4 of 4 motor cuts detected and landed) |
-| D6 Auto-configuration ≥ 90 % (V20) | ✅ 95.1 %, the 49 failures characterised |
+| D6 Auto-configuration ≥ 90 % (V20) | ✅ 95.1 %, the 49 failures characterised; 94.3 % on the whole fleet of 10,000 (7 Nov) |
 | D9 Throughput | CPU ✅; GPU ⏳ (with M3's first GPU run) |

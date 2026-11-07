@@ -91,7 +91,8 @@ item opens with its decision; §13 lists the answers in one place.
 4. **Pre-registration.** *Decided: yes, tagged in week 14.* Splits, hypotheses, scenario seeds, the six airframes and
    their hard-overs are committed and tagged before the teacher first trains on the fleet
    (ladder rung 2) and before B2 is tuned, in week 14 (§8.1, §11). The tag needs the X8, the
-   Zagi, the oracle and V20 on the whole fleet first; all four are now costed.
+   Zagi and the oracle first, all costed; V20 on the whole fleet, also needed, was done on
+   7 Nov (§14).
 5. **GPU budget.** *Decided by the owner: a cap of $400 for M3, on RunPod, with a checkpoint.*
    - The estimate is about 12–57 GPU-hours [D, pending D9]. RunPod's prices in the review
      ([report 3](research/m3/3-jax-ppo.md), Sep–Oct 2026 [U: secondary trackers, which moved
@@ -120,7 +121,8 @@ item opens with its decision; §13 lists the answers in one place.
      move one week later and the plan becomes 30 weeks (doc 03 §7.2 amended, as on 21 and
      22 Oct). About 9 h remain over. Cuts 2–4 free about 7 h, so (a) also needs cut 1 (L2 to
      scripted recovery at Gate B, about 10 h) unless at least 2 h of the week 13–14 work is
-     done in week 12. Under (a), cuts 2–4 come first.
+     done in week 12. (The full-fleet V20's 1 h was, on 7 Nov, so 1 h more: §14.) Under (a),
+     cuts 2–4 come first.
    - **(b) Four weeks.** L2 becomes scripted recovery, and the Zagi, leave-one-class-out and the
      linearised margins are dropped, all now (about 17 h). Skyview's allocation view and the
      blog move to M4's first week (about 8 h; D8 amended). About 14 h of overrun remain, so a
@@ -373,7 +375,7 @@ saturates as the batch grows (SAPG, ICML 2024).
 
 | Factor | Range |
 |---|---|
-| Airframe | resampled every episode from the training split of the V20-accepted fleet |
+| Airframe | resampled every episode from the training split of the V20-accepted fleet, minus its extremes (§8.3) |
 | Aerodynamic derivatives | ×(1 ± 0.2), each, per episode |
 | Mass; CG; inertia; thrust | ±20 %; ±5 % of MAC; ±30 %; ±20 % |
 | Servo lag | 10–60 ms (the fleet's 10–40 ms, widened) |
@@ -639,7 +641,7 @@ Rules, fixed in the pre-registration:
 | Split | Content | Scenarios (proposed) | Role |
 |---|---|---|---|
 | G1-val | the hash validation split | 1,000 | selection, tuning and the gates only |
-| G2 | the hash test split, minus extremes (G2-x) | about 2,200, at most 3 per airframe [D], fixed from the real count after the full-fleet V20 | interpolation |
+| G2 | the hash test split, minus extremes (G2-x) | 2,298: three for each of 766 airframes, counted on the full-fleet V20 (§14, 7 Nov) | interpolation |
 | G2-x | outside the 5th–95th percentile of mass or wing loading, removed from training before the teacher starts | 1,000 | extrapolation (P6) |
 | G3 | X8 and Zagi | 300 per airframe | case studies |
 | Aerosonde | B&M in aerojax, never in training | 300 | one of the six |
@@ -648,18 +650,19 @@ Rules, fixed in the pre-registration:
 
 - **V20 on the whole fleet.** Training, G1-val, G2 and G2-x all need V20 on the whole
   10,000-airframe fleet. M2's D6 run on the first 1,000 accepted 951, 90 of them in the test
-  split, the pool bench v0 now uses (05 §14, week 12). With five worker processes (51 min per
-  1,000 airframes in week 12), the whole fleet takes about 9 h of laptop CPU. The laptop was
-  chosen under the owner's delegation of 6 Nov 2026 (§13, question 4), on mains power, with a
-  few GPU-hours [D] as the fallback.
-  - The run writes to `runs/v20/m2-fleet-10k` (`aeroadapt fleet-accept m2-fleet --workers 5
-    --out runs/v20/m2-fleet-10k`), never to the default directory: `runs/v20/m2-fleet` holds
+  split, the pool bench v0 now uses (05 §14, week 12). *Done 7 Nov 2026* (§14), on the
+  laptop's CPU with five workers in 8 h 16 min: **9,432 of 10,000 pass (94.3 %)**, and the
+  first 1,000 reproduce the D6 run exactly. The accepted fleet holds 7,541 airframes in the
+  training split, 939 in validation and 952 in test. With the extremes taken out (§14), G2 has
+  766 airframes and training keeps 6,121 of the training split's 7,541; which extremes G2-x
+  draws from is proposed in §14 and frozen at pre-registration.
+  - The run is in `runs/v20/m2-fleet-10k` (`aeroadapt fleet-accept m2-fleet --workers 5
+    --out runs/v20/m2-fleet-10k`), never the default directory: `runs/v20/m2-fleet` holds
     M2's D6 run and bench v0's pool (`configs/bench/b0.yaml`), and both stay as they are.
-  - Its first 1,000 airframes must reproduce that run exactly.
-  - It keeps each finished batch, so an interruption loses at most the batches in flight, as
-    long as what the resume fingerprints is unchanged: the files under `src` and `configs`,
+  - Its tuned stacks (`stack_cfgs.jsonl`) are B1's configuration on every accepted airframe.
+  - A rerun keeps each finished batch, so an interruption loses at most the batches in flight,
+    as long as what the resume fingerprints is unchanged: the files under `src` and `configs`,
     the lock file, the fleet bundle and the site (a docs-only commit does not count).
-  - It must finish before the tag.
 - **Scenarios.**
   - 30 % nominal (wind and turbulence only), 70 % single in-scope faults stratified by fault
     family × class; 300 s in aerojax, onsets 10–200 s.
@@ -864,8 +867,8 @@ request on 6 Nov 2026; option (b) is kept below for the record.
 | Week | Work (hours) | Total | Exit |
 |---|---|---|---|
 | **12 · Carry-overs** | M2 D6 auto-configuration at 90 % · M2 D4 the Rascal in JSBSim · this spec · M2's GPU notebook if time allows | — | M2 D6 and M2 D4 done and logged in 05 §14 |
-| **13 · Surfaces and allocator** | the full-fleet V20, queued as soon as M2 D6 closes, in week 12 if possible (1; about 9 h of CPU) · baseline labels B0/B1 in code, the ADR-004 amendment (1) · split surfaces across the modules of §9, per-surface faults, the mixer, telemetry schema v2, V33 (20) · per-side columns and the fleet's extra deflection runs (3) · Rascal per-surface wiring (2) · `allocation.py` and V34 (6) | 33 | **Gate A** |
-| **14 · Airframes, oracle, pre-registration, trainer** | the X8 and the Zagi, V42 (10) · B1 without a rudder (2) · trim-reachability oracle, V41, the hard-overs, the Rascal's confirmed by a JSBSim trim (4) · splits frozen, pre-registration v1 tagged (3) · PPO trainer on a reference task, V36 (8) · M2's GPU notebook and GPU parity (2) | 29 | pre-registration tagged; full-fleet V20 done; V36 green |
+| **13 · Surfaces and allocator** | the full-fleet V20, queued as soon as M2 D6 closes, in week 12 if possible (1; about 9 h of CPU; *done 7 Nov*, §14) · baseline labels B0/B1 in code, the ADR-004 amendment (1) · split surfaces across the modules of §9, per-surface faults, the mixer, telemetry schema v2, V33 (20) · per-side columns and the fleet's extra deflection runs (3) · Rascal per-surface wiring (2) · `allocation.py` and V34 (6) | 33 | **Gate A** |
+| **14 · Airframes, oracle, pre-registration, trainer** | the X8 and the Zagi, V42 (10) · B1 without a rudder (2) · trim-reachability oracle, V41, the hard-overs, the Rascal's confirmed by a JSBSim trim (4) · splits frozen, pre-registration v1 tagged (3) · PPO trainer on a reference task, V36 (8) · M2's GPU notebook and GPU parity (2) | 29 | pre-registration tagged; full-fleet V20 done (7 Nov); V36 green |
 | **15 · Environment, estimator, teacher, INDI** | environment, randomisation, keys, GAE and recurrent tests (6) · estimator, test and dither (5) · full-training-step benchmark (1) · teacher ladder rungs 1–4 on a GPU (8) · B2 fixed and adaptive, tuned on G1-val, V38 (8) · `bench/stats.py` extensions (3) | 31 | **Gate B** |
 | **16 · Student, ablations, L2** | scripted recovery (4) · rungs 5–6, teacher seeds (3) · DAgger, Gate C (Wednesday), stage 3 if needed (10) · A3–A5 and two LOCO folds launched (3) · L2 v0 (10) · JSBSim smoke test on an exported training airframe, 10-minute drift test (4) | 34 | **Gate D** (Friday, or the Monday after); **all weights frozen**, hashes in the ledger |
 | **17 · Evaluation, report, demo** | the campaign on G2, G2-x, G3, G4 and the Aerosonde; sweeps and margins (8) · analysis and failure gallery (10) · Skyview six-airframe montage and allocation view (8) · `docs/demo/m3.md` and blog (6) | 32 | **Definition of Done (§1)** |
@@ -894,7 +897,8 @@ page (2). The 3-seed pilot costs compute, not hours.
   134 h remain, still about 14 h over. Under (b), weeks 13–16 take the table's work in the same
   order, with the pre-registration still in week 14.
 - Anything finished in week 12 beyond the carry-overs (the GPU notebook, the start of the X8)
-  comes off the total. (Both carry-overs were done in week 12, so the rule that their remainder
+  comes off the total. The full-fleet V20 (1 h) was, on 7 Nov: about 158 h, about 8 h over
+  (§14). (Both carry-overs were done in week 12, so the rule that their remainder
   would come out of week 13 did not apply.)
 
 **If behind**, these are the cuts (hours freed [D]). Under (a), cuts 2–4 are taken first, in
@@ -931,7 +935,7 @@ for L1, A4 (the memory check, §12), or the G4 Rascal.
 | Reward hacking (diving for authority, post-stall exploits) | height loss, α excursions | envelope penalties; height in the reward; JSBSim check | a restricted L2 envelope |
 | Test-set reuse or a curated headline | none: prevented by design | pre-registration, ledger, the pre-freeze access rule (§8.1), hash draws, the median seed | — |
 | The new airframes are late | V42 not green by the tag | the costed lines in §11 | the Zagi cut first; a third G2 airframe takes its place |
-| The full-fleet V20 is late | not running by the start of week 13 | queued as soon as M2 D6 closes; finished batches kept, so a restart resumes | a few GPU-hours [D]; the tag waits for it |
+| The full-fleet V20 is late | not running by the start of week 13 | queued as soon as M2 D6 closes; finished batches kept, so a restart resumes | a few GPU-hours [D]; the tag waits for it. *Retired 7 Nov: done (§14).* |
 | Schedule: about 159 h of work for 150 h in five weeks [D] | the week-12 exit; Gate A; Gate B | the costed plan (§11); five weeks chosen (§0.6) | the cut list in order, cut 1 at Gate B if the hours spent call for it |
 
 ---
@@ -953,7 +957,8 @@ The owner decided question 3 and asked for the recommendations to be taken on th
    power, from 6 Nov 2026, into `runs/v20/m2-fleet-10k` (§8.3); a few GPU-hours [D] only if that
    fails. The tuner is not changed
    first: B1 stays as M2 delivered it, so the run's first 1,000 airframes reproduce M2's D6 run
-   exactly, and the tie-break limitation (05 §14, week 12) stays recorded.
+   exactly, and the tie-break limitation (05 §14, week 12) stays recorded. *Done 7 Nov 2026:*
+   94.3 %, the first 1,000 reproduced exactly (§14).
 5. **The schedule** (§0.6): five weeks, (a); doc 03 §7.2 amended, the plan now 30 weeks.
 6. **Survival and names** (§0.7, §0.8): recovered upsets count as survival, with the bench's
    definition reported alongside; the bench's baselines become B0 and B1, in code too.
@@ -1010,3 +1015,79 @@ each topic report carries its own sources. The ones the design rests on:
   doc 03 §7.2 is amended to 30 weeks; the L1-adaptive-control baseline moves to M6 as a Could.
   The literature review is committed under `docs/research/m3/`. `aeroadapt fleet-accept` now
   keeps each finished batch and resumes from them, for the full-fleet V20 on the laptop.
+
+### Week 12, continued (7 Nov 2026): V20 on the whole fleet
+
+- **9,432 of 10,000 pass (94.3 %, 95 % Wilson interval 93.8–94.8 %)** ✅
+  (`runs/v20/m2-fleet-10k`; 8 h 16 min on the laptop with five workers, 49.6 min per 1,000;
+  no batch resumed). The tuner is as M2 delivered it (§13, question 4).
+  - **The first 1,000 reproduce M2's D6 run exactly**: every check value, every cruise speed
+    and every tuned configuration, with the same 951 passing.
+  - **The other 9,000 pass at 94.2 % (93.7–94.7 %).** Week 12's fixes were found on the first
+    1,000's failures, so these are the out-of-sample check on D6's 95.1 %, and they agree with
+    it within the intervals.
+
+  | Class | Airframes | Pass (interval) | First 1,000 |
+  |---|---|---|---|
+  | Twin-boom | 2,607 | 95.9 % (95.1–96.6) | 96.2 % |
+  | T-tail | 1,976 | 95.8 % (94.8–96.6) | 96.8 % |
+  | Conventional | 1,990 | 94.7 % (93.7–95.6) | 97.0 % |
+  | V-tail | 2,690 | 92.6 % (91.6–93.6) | 92.8 % |
+  | Glider | 737 | 89.7 % (87.3–91.7) | 90.0 % |
+
+  D6's 90 % is a fleet target. The gliders are the one class whose rate is under it, and their
+  interval spans it.
+- **The 568 failures mostly look like the first 1,000's.** The same checks lead, and the
+  failures are as marginal: 529 fail a single check (36 fail two, 3 fail three), and for every
+  check with more than ten failures the median failing value is 5–13 % beyond its limit (the
+  first 1,000: 4–12 %). Four checks that none of the first 1,000 failed now fail 18 times, all
+  outside it. Seven of those are sideslip in a turn, which week 12 had taken from 36 failures to
+  none on the first 1,000.
+
+  | Check | Failures | Median value / limit | Where |
+  |---|---|---|---|
+  | Roll steady-state error | 313 | 1.13 | every class (54–74 each); 26 beyond 1.5 × the limit |
+  | Pitch step overshoot | 80 | 1.13 | 54 on V-tails |
+  | Limit cycle | 65 | 1.06 | 45 on V-tails |
+  | L1 cross-track (calm) | 63 | 1.07 | spread over the classes |
+  | Pitch step rise | 47 | 1.05 | 20 on V-tails, 14 conventional |
+  | Roll overshoot | 24 | 1.07 | no gliders |
+  | Sideslip in a 30° turn; speed-step altitude; altitude-step error; roll rise | 7; 6; 4; 1 | 1.13; 1.04; 1.16; 1.04 | 5 of the 7 sideslip failures on gliders |
+
+  - **Light airframes fail more.** The lightest fifth of the fleet (0.8–2.4 kg) passes at
+    89.4 %; the heaviest two fifths (over 6.9 kg) pass at 96.6 %. The failing airframes' median
+    mass is 3.2 kg, against 5.7 kg for those that pass. The gliders (median 2.5 kg) and the
+    V-tails (4.3 kg) are the lightest classes, so part of their deficit may be mass, not
+    layout. Within every class, too, the lighter half by mass fails more often than the
+    heavier half, by 2.5–6.5 points. For example, gliders pass at 86.4 % against 92.9 %, and
+    V-tails at 90.6 % against 94.6 %. These are correlations: the causes were diagnosed only
+    on the first 1,000 (05 §14, week 12), where the roll steady-state error was mostly the
+    attitude estimate's tilt.
+- **What it gives M3** (§8.3):
+  - **The pool.** 9,432 accepted airframes, each with a tuned B1 stack
+    (`stack_cfgs.jsonl`): 7,541 in the training split, 939 in validation and 952 in test.
+  - **The extremes.** The 5th–95th percentiles are taken over the accepted fleet, all splits
+    together: 1.35–13.5 kg in mass and 42–142 N/m² in wing loading. That marks 1,773
+    accepted airframes as extremes: 1,420 in training (left out of training, which keeps
+    6,121), 167 in validation and 186 in test.
+  - **G2.** The test split's other 766 airframes are G2, so §8.3's earlier estimate (about
+    2,200 scenarios, at most three per airframe) becomes 2,298, taking the full three.
+  - **The basis is this log's choice.** Taking the percentiles over the accepted training split
+    alone would give 1,759 extremes instead of 1,773 (36 airframes change sides: 25 leave, 11
+    join), G2 765 airframes and training 6,133.
+  - **G2-x, proposed.** §8.3 did not say which extremes G2-x draws from. Proposed: its 1,000
+    scenarios come from the 1,606 training and test extremes, none of which training sees, and
+    the 167 validation extremes leave G1-val (which keeps 772), so that selection and tuning
+    never see the extrapolation range. The basis, this proposal and the resulting id lists are
+    frozen, or changed, with the splits at pre-registration (week 14).
+  - **For the pre-registration:** V20 removes light airframes more often than heavy ones, so
+    the accepted pool, and with it training, G2 and G2-x, holds slightly fewer light airframes
+    than the generated fleet. Every comparison with B1 is on airframes B1 passed V20 on.
+- **For the ledger** (§8.1): this run is a pre-freeze access to the test split by B1 alone, as
+  §8.1 allows: commit 3e17a3f, 7 Nov 2026, all three splits. It is entered when the ledger is
+  created with the pre-registration in week 14, with M2's D6 run and bench v0 (05 §14), which
+  flew the test split's 90 accepted airframes the same way.
+- **Hours** (§11): the run's 1 h was spent in week 12, so it comes off the total. The plan is
+  now about 158 h, about 8 h over five weeks, and (a) avoids cut 1 if at least 1 more hour of
+  the week 13–14 work is done in week 12.
+- `runs/v20/m2-fleet` (D6, and bench v0's pool) is unchanged.
